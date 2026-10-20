@@ -1,0 +1,28 @@
+{
+  "type": "function",
+  "async": false,
+  "function": {
+    "name": "check_service_area",
+    "description": "Check whether Summit Air services a ZIP code. Summit Air serves residential homes in Brooklyn, Queens and Staten Island only. Returns in_area, county, serviceable, and reason (residential_only or out_of_area) when not serviceable.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "zip": {
+          "type": "string",
+          "description": "5-digit ZIP code of the service address, e.g. 11372."
+        },
+        "property_type": {
+          "type": "string",
+          "enum": ["residential", "commercial"],
+          "description": "Whether the property is a home (residential) or a business (commercial). Defaults to residential."
+        }
+      },
+      "required": ["zip"]
+    }
+  },
+  "server": {
+    "url": "{{APP_URL}}/api/vapi/tools",
+    "credentialId": "REPLACE_WITH_VAPI_BEARER_CREDENTIAL_ID",
+    "timeoutSeconds": 10
+  }
+}

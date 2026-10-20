@@ -1,0 +1,23 @@
+# Replit config for Summit Air (Next.js + Postgres).
+modules = ["nodejs-20", "postgresql-16"]
+run = "npm run dev"
+
+[nix]
+channel = "stable-24_05"
+
+[env]
+NEXT_TELEMETRY_DISABLED = "1"
+
+[deployment]
+# Recommended: Reserved VM (always on). Autoscale scales to zero and a cold
+# start can blow Vapi's tool timeout. "gce" is what Replit writes for Reserved
+# VM. Confirm/choose the type in the Publishing pane, which rewrites this.
+deploymentTarget = "gce"
+build = ["sh", "-c", "npm ci --include=dev && npm run build"]
+# Migrations run on every start (idempotent, advisory-locked) so they always
+# use the production DATABASE_URL secret. Then Next binds 0.0.0.0:$PORT.
+run = ["sh", "-c", "npm run start:deploy"]
+
+[[ports]]
+localPort = 3000
+externalPort = 80

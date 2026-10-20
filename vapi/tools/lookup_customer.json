@@ -1,0 +1,30 @@
+{
+  "type": "function",
+  "async": false,
+  "function": {
+    "name": "lookup_customer",
+    "description": "Look up the caller's Summit Air account. Call this early in every call. Omit phone to use the caller ID; pass phone only if the caller gives a different number on their account. Returns found, first_name, membership, addresses on file (street, unit, ZIP) and an equipment summary.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "phone": {
+          "type": "string",
+          "description": "Phone number on the account, any US format (e.g. 718-555-0101). Leave out to use the caller's number."
+        }
+      },
+      "required": []
+    }
+  },
+  "messages": [
+    {
+      "type": "request-response-delayed",
+      "content": "Thanks for your patience, still pulling that up.",
+      "timingMilliseconds": 2500
+    }
+  ],
+  "server": {
+    "url": "{{APP_URL}}/api/vapi/tools",
+    "credentialId": "REPLACE_WITH_VAPI_BEARER_CREDENTIAL_ID",
+    "timeoutSeconds": 10
+  }
+}
