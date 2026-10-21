@@ -3,7 +3,7 @@
   "async": false,
   "function": {
     "name": "create_callback_request",
-    "description": "Ask the office to call the caller back: a tool failed, they want a person and transfer isn't available, they want to reschedule or cancel, they speak another language, a building-wide system needs office review, they're out of area but think we misheard, or the call can't be finished.",
+    "description": "Ask the office to call the caller back: a tool failed, they want a person and transfer isn't available, they want to reschedule or cancel, they speak another language, a building-wide system needs office review, they're out of area but think we misheard, or the call can't be finished. One request per call: calling again on the same call updates it (e.g. to add a preferred time).",
     "parameters": {
       "type": "object",
       "properties": {
@@ -28,11 +28,15 @@
         },
         "phone": {
           "type": "string",
-          "description": "Best callback number if different from caller ID."
+          "description": "Best callback number if different from caller ID. Read it back in groups and get a yes before calling this."
         },
         "language": {
           "type": "string",
           "description": "Caller's language if not English, e.g. 'Spanish', so the office calls back in it."
+        },
+        "preferred_callback_time": {
+          "type": "string",
+          "description": "When the caller would like the call, in their words, e.g. 'after 5 PM today'."
         },
         "context": {
           "type": "object",

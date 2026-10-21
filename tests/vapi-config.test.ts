@@ -82,6 +82,8 @@ describe("vapi/tools/*.json", () => {
   it.each(toolFiles.map((t) => [toolName(t), t] as const))("%s has request-start filler and no secrets", (_name, t) => {
     const messages = t.messages as Array<{ type: string; content: string }>;
     expect(messages.some((m) => m.type === "request-start" && m.content.length < 60)).toBe(true);
+    // Non-blocking, so the filler plays the moment the tool is called, while it runs.
+    expect(messages.filter((m) => (m as { blocking?: boolean }).blocking)).toEqual([]);
     const text = JSON.stringify(t);
     expect(text).not.toMatch(/sk-|Bearer |\+1\d{10}/);
   });
@@ -154,22 +156,37 @@ describe("identity rules in the prompt", () => {
 describe("persona, call flow and failure handling (live-call fixes)", () => {
   const p = renderSystemPrompt(template, { transferAvailable: false, timeZone: "America/New_York" });
 
-  it("Ava persona: warm, contractions, no parroting, says she's an AI", () => {
+  it("Ava persona: warm, contractions, no parroting, says she's an AI, short example exchanges", () => {
     expect(p).toContain("You are Ava, Summit Air's virtual assistant");
     expect(p).toMatch(/You're an AI\. If anyone asks whether you're a real person, say so plainly/);
-    expect(p).toContain("Use contractions");
-    expect(p).toContain("Never parrot the caller's words back");
-    expect(p).toContain("Oh no, sorry to hear that. Before anything else, do you smell gas, or is a carbon monoxide alarm going off?");
+    expect(p).toContain("contractions");
+    expect(p).toContain("Never parrot the caller");
+    expect(p).toContain("Apologize at most once per problem");
+    expect(p).toContain("After verification, use their first name once");
+    // Rhythm examples: discourse markers, safety screen, casual recap.
+    expect(p).toContain("Ava: Oh no, that's no fun. Before anything else, do you smell gas, or is a carbon monoxide alarm going off?");
+    expect(p).toContain("Ava: Okay, so I've got you today between one and five at thirty-seven twelve eighty-second street, for the AC. Sound good?");
+    expect(p.match(/^Ava: /gm)).toHaveLength(3);
   });
 
-  it("lookup_customer (caller ID) comes right after the safety screen, before location", () => {
-    const safety = p.indexOf("2. Safety screen");
-    const lookup = p.indexOf("3. Right after the safety screen, before asking where they are or anything else, call lookup_customer with no arguments");
-    const location = p.indexOf("5. Location.");
-    expect(safety).toBeGreaterThan(0);
-    expect(lookup).toBeGreaterThan(safety);
-    expect(location).toBeGreaterThan(lookup);
-    expect(p).toContain("if they give a street address instead of a ZIP, accept that and don't push for the ZIP first");
+  it("call order: safety → lookup (residential only) → address + vulnerability → triage immediately → times", () => {
+    const at = (s: string) => {
+      const i = p.indexOf(s);
+      expect(i, s).toBeGreaterThan(0);
+      return i;
+    };
+    const order = [
+      at("2. Safety screen"),
+      at("3. A business (restaurant, store, office): skip lookup_customer; call triage_issue now with property_type commercial. Otherwise call lookup_customer with no arguments"),
+      at("4. Only what triage needs: the service address"),
+      at("5. Call triage_issue immediately"),
+      at("book_earliest or book_standard: offer the offered_slots right away"),
+      at("7. Once they pick a window, ask the remaining technician questions briefly, then recap"),
+    ];
+    expect([...order].sort((a, b) => a - b)).toEqual(order);
+    expect(p).toContain("Ask at most two technician questions (below) before this");
+    expect(p).toContain("ask at most one or two quick technician questions, then call create_priority_dispatch");
+    expect(p).toContain("the service address (any form; if you still lack a ZIP, ask for just the ZIP once, casually)");
   });
 
   it("empty results, 'No result returned' and any error are failures → apologize once, then a callback", () => {
@@ -180,18 +197,67 @@ describe("persona, call flow and failure handling (live-call fixes)", () => {
     expect(p).toContain("don't try a different way to look them up");
   });
 
+  it("the per-call Liquid sits at the very end, so the rest is a cacheable prefix", () => {
+    const dynamic = p.indexOf("{{");
+    expect(dynamic).toBeGreaterThan(p.length - 400);
+    expect(p.indexOf("{%")).toBeGreaterThan(dynamic);
+    expect(p.lastIndexOf("# ")).toBe(p.indexOf("# This call"));
+  });
+
   it("assistant: greeting, temperature, voice settings and keyterms", () => {
-    expect(assistantFile.firstMessage).toBe("Hi, thanks for calling Summit Air! This is Ava, the virtual assistant. What's going on today?");
+    // "Ava" is spelled phonetically for the TTS (live transcripts heard "Eva").
+    expect(assistantFile.firstMessage).toBe("Hi, thanks for calling Summit Air! This is Ayva, the virtual assistant. What's going on today?");
     expect((assistantFile.model as JsonObject).temperature).toBe(0.5);
     const voice = assistantFile.voice as JsonObject;
     expect(voice.provider).toEqual(expect.any(String));
     expect(voice.voiceId).toEqual(expect.any(String));
     expect(voice).not.toHaveProperty("fillerInjectionEnabled"); // removed from Vapi's API
-    expect(((voice.chunkPlan as JsonObject).punctuationBoundaries as string[])).not.toContain(",");
+    const chunkPlan = voice.chunkPlan as JsonObject;
+    expect(chunkPlan.enabled).toBe(true); // replacements need it
+    expect((chunkPlan.punctuationBoundaries as string[])).not.toContain(",");
+    const replacements = (chunkPlan.formatPlan as JsonObject).replacements as Array<{ type: string; regex: string; value: string }>;
+    for (const r of replacements) {
+      expect(r.type).toBe("regex");
+      expect(() => new RegExp(r.regex)).not.toThrow();
+    }
+    expect("This is Ava speaking".replace(new RegExp(replacements[0].regex), replacements[0].value)).toBe("This is Ayva speaking");
     const keyterm = (assistantFile.transcriber as JsonObject).keyterm as string[];
-    for (const t of ["AC", "A/C", "air conditioner", "no heat", "no AC"]) expect(keyterm).toContain(t);
+    for (const t of ["AC", "A/C", "air conditioner", "no heat", "no AC", "Ava", "Navien", "Weil-McLain", "Daikin", "Lennox", "Rheem", "Burnham"]) expect(keyterm).toContain(t);
     expect(keyterm.length).toBeLessThanOrEqual(100); // Deepgram's limit
     expect(new Set(keyterm).size).toBe(keyterm.length);
+    expect(assistantFile.backgroundSound).toBe("off"); // Vapi's phone default is "office"
+  });
+
+  it("turn-taking: LiveKit smart endpointing, a longer wait after asking for digits, looser fallback", () => {
+    const plan = assistantFile.startSpeakingPlan as JsonObject;
+    expect(plan.smartEndpointingPlan).toEqual({ provider: "livekit", waitFunction: "700 + 4000 * max(0, x-0.5)" });
+    const [rule] = plan.customEndpointingRules as Array<{ type: string; regex: string; timeoutSeconds: number }>;
+    expect(rule).toMatchObject({ type: "assistant", timeoutSeconds: 1.5 });
+    expect(new RegExp(rule.regex, "i").test("And what's the address where you need service?")).toBe(true);
+    expect(plan.transcriptionEndpointingPlan).toEqual({ onPunctuationSeconds: 0.5, onNoPunctuationSeconds: 1.0, onNumberSeconds: 0.8 });
+    expect(assistantFile.stopSpeakingPlan).toMatchObject({ numWords: 2 });
+  });
+
+  it("call endings: endCall speaks one closing line (blocking), which ends in the only end-call phrase", () => {
+    const tools = (assistantFile.model as JsonObject).tools as Array<{ type: string; messages?: Array<{ type: string; content: string; blocking?: boolean }> }>;
+    const endCall = tools.find((t) => t.type === "endCall")!;
+    const [goodbye] = endCall.messages!;
+    expect(goodbye).toEqual({ type: "request-start", content: "Thanks for calling Summit Air. Take care, and goodbye for now.", blocking: true });
+    expect(assistantFile.endCallMessage).toBe(goodbye.content);
+    const phrases = assistantFile.endCallPhrases as string[];
+    expect(phrases).toEqual(["goodbye for now"]);
+    for (const ph of phrases) {
+      expect(goodbye.content.toLowerCase()).toContain(ph);
+      // An end-call phrase anywhere else would hang up mid-call (they match any assistant speech).
+      expect((assistantFile.firstMessage as string).toLowerCase()).not.toContain(ph);
+      expect(p.toLowerCase()).not.toContain(ph);
+      for (const t of toolFiles) expect(JSON.stringify(t).toLowerCase()).not.toContain(ph);
+    }
+    expect(p).toContain("call endCall immediately. Don't say goodbye, thanks or take care yourself");
+    expect(p).toContain("After a goodbye, never start talking again. Ignore stray single words, numbers or noises.");
+    expect(p).toContain("Wait for them to acknowledge, then end the call");
+    expect(p).toContain("Never end the call while the safety instructions are still being said");
+    expect(p).toContain('ask "Is there anything else I can help with?"');
   });
 });
 
@@ -218,25 +284,45 @@ describe("M5 prompt rules: requirements and the unexpected", () => {
 
   it("technician intake is gathered naturally, one at a time, skipping what's known, never as a checklist", () => {
     expect(off).toContain("# What the technician needs");
-    expect(off).toContain("one question at a time");
-    expect(off).toContain("Skip anything the caller already told you, and never run through them like a checklist");
-    for (const item of ["When it started", "brand or rough age", "thermostat setting and mode", "breaker", "error code", "Pets", "read it back in groups"]) {
+    expect(off).toContain("one at a time, skipping anything already said. Never run through them like a checklist");
+    for (const item of ["When it started", "brand or rough age", "thermostat mode and setting", "breaker", "error code", "Pets", "read it back in groups"]) {
       expect(off).toContain(item);
     }
-    expect(off).toContain("Include symptoms, onset, equipment, tried steps, error code, pets, access notes, on-site contact and vulnerable occupants");
+    // Live: after "not sure" on equipment, Ava still asked for error codes.
+    expect(off).toContain('If they say "not sure" about something, drop that topic and its follow-ups');
   });
 
-  it("residential is never silently assumed; businesses declined; multi-unit central systems go to the office", () => {
+  it("property type: confirmed only when unclear; businesses skip lookup; multi-unit central systems go to the office", () => {
     expect(off).not.toContain("Assume residential");
-    expect(off).toContain("Never silently assume what kind of property it is");
-    expect(off).toContain('"And this is for your home, right?"');
-    expect(off).toContain("A landlord or property manager calling about a single apartment or house is residential");
+    expect(off).toContain('"My house", "my home", "my apartment" or "lives with me" means residential. Don\'t ask to confirm it.');
+    expect(off).toContain('Only when it\'s genuinely unclear, ask naturally: "And this is for your home, right?"');
+    expect(off).toContain("A landlord or property manager calling about one apartment or house is residential");
     expect(off).toContain("multi_unit_central_system true");
     expect(off).toContain("office_review");
+    expect(off).toContain("skip lookup_customer; call triage_issue now with property_type commercial");
+  });
+
+  it("verified callers are never re-asked for anything on the account (live: ZIP, house/apartment, home?, last name)", () => {
+    expect(off).toContain("Never ask again for anything on it or already said: name, last name, phone, ZIP, house or apartment, unit, or property type");
+    expect(off).toContain('don\'t ask "this is for your home, right?"');
+    expect(off).toContain("leave out name, phone and address; they come from the account");
+  });
+
+  it("no invented facts, policies, credentials or services; commercial declines use business facts only", () => {
+    expect(off).toContain("Never give reasons, policies, licenses, insurance, credentials, guarantees or services that aren't there");
+    expect(off).toContain("never offer a service, referral or follow-up that isn't");
+    expect(off).toContain("using only the business facts, say kindly that Summit Air only services homes, so they'll want a commercial HVAC company");
+    expect(off).toContain("Commercial callers: we don't refer them to other companies.");
+  });
+
+  it("callbacks: one per call, preferred time, new numbers read back before submitting", () => {
+    expect(off).toContain("One callback request per call");
+    expect(off).toContain("preferred_callback_time");
+    expect(off).toContain("Before you submit a number that isn't the one they're calling from, read it back in groups and get a yes");
   });
 
   it("members: benefits only when relevant; one Comfort Club mention, never on urgent/emergency/safety calls", () => {
-    expect(off).toContain("Only after verified is true: if they're an active member, mention their benefits briefly");
+    expect(off).toContain("Only once verified: if they're an active member, mention member_benefits briefly when relevant");
     expect(off).toContain("Never mention Comfort Club on urgent, emergency or safety calls, and never push it");
   });
 
@@ -248,7 +334,7 @@ describe("M5 prompt rules: requirements and the unexpected", () => {
   });
 
   it("existing appointments: verified only; reschedule/cancel become an honest office callback", () => {
-    expect(off).toContain("never confirm an appointment to an unverified caller");
+    expect(off).toContain("Never confirm an appointment to an unverified caller");
     expect(off).toContain("you can't change bookings by phone");
     expect(off).toContain("the office will call to confirm the change");
   });
@@ -269,12 +355,12 @@ describe("M5 prompt rules: requirements and the unexpected", () => {
   it("non-service and abusive calls end politely; prices limited to configured fees", () => {
     expect(off).toContain("Wrong numbers, sales or vendor pitches, robocalls and job applicants: one polite sentence");
     expect(off).toContain("set one calm boundary");
-    expect(off).toContain("You may state only the diagnostic fee and the membership prices");
-    expect(off).toContain("the technician gives a quote on site");
+    expect(off).toContain("Prices: only the diagnostic fee and the membership prices");
+    expect(off).toContain("the technician quotes on site");
   });
 
-  it("corrections after the read-back are read back again before booking", () => {
-    expect(off).toContain("If they correct anything after the read-back");
+  it("corrections after the recap are recapped again before booking", () => {
+    expect(off).toContain("If they correct anything after the recap");
     expect(off).toContain("get a fresh yes before you book. Never book on the old details.");
   });
 });

@@ -1,4 +1,4 @@
-import { and, count, eq, sql } from "drizzle-orm";
+import { and, count, desc, eq, sql } from "drizzle-orm";
 import type { Db } from "@/server/db/client";
 import { toolInvocations } from "@/server/db/schema";
 import type { StoredInvocation, ToolInvocationRepository } from "./types";
@@ -35,6 +35,17 @@ export function createToolInvocationRepository(db: Db): ToolInvocationRepository
           ),
         );
       return row?.n ?? 0;
+    },
+
+    async latestOkArgs(vapiCallId, toolName) {
+      const [row] = await db
+        .select({ args: toolInvocations.args })
+        .from(toolInvocations)
+        .where(and(eq(toolInvocations.vapiCallId, vapiCallId), eq(toolInvocations.toolName, toolName), eq(toolInvocations.ok, true)))
+        .orderBy(desc(toolInvocations.createdAt))
+        .limit(1);
+      const args = row?.args;
+      return typeof args === "object" && args !== null && !Array.isArray(args) ? (args as Record<string, unknown>) : null;
     },
 
     async record(input) {

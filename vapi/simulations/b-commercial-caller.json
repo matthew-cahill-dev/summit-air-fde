@@ -17,6 +17,16 @@
       "name": "no_booking",
       "question": "Did the assistant book an appointment or say a technician would come out?",
       "expect": false
+    },
+    {
+      "name": "no_invented_policy",
+      "question": "Did the assistant give any reason beyond 'we only service homes' (for example licensing, insurance or a policy), or offer a referral or a callback with recommendations?",
+      "expect": false
+    },
+    {
+      "name": "no_account_lookup",
+      "question": "Did the assistant ask the caller to verify an account or repeat their address before telling them Summit Air only services homes?",
+      "expect": false
     }
   ]
 }

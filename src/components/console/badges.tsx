@@ -68,6 +68,16 @@ export function OutcomeBadge({ outcome, status }: { outcome: CallOutcome; status
   );
 }
 
+/** Residential / Commercial / Multi-unit, from the call's triage. Commercial and multi-unit stand out. */
+export function PropertyBadge({ property }: { property: string | null }) {
+  if (!property) return null;
+  return (
+    <Badge variant="outline" className={property === "Residential" ? "text-muted-foreground" : "border-foreground/30 font-semibold"}>
+      {property}
+    </Badge>
+  );
+}
+
 export function SeedTag({ show = true }: { show?: boolean }) {
   if (!show) return null;
   return (

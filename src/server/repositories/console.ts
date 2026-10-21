@@ -86,10 +86,11 @@ export function createConsoleRepository(db: Db): ConsoleRepository {
           db,
           sql`
           select cb.id, cb.reason, cb.context, cb.caller_name, cb.caller_phone, cb.created_at, cb.vapi_call_id,
-                 cb.is_demo_seed, t.result ->> 'urgency' as triage_urgency, t.result -> 'reasons' as triage_reasons
+                 cb.is_demo_seed, t.result ->> 'urgency' as triage_urgency, t.result -> 'reasons' as triage_reasons,
+                 t.args as triage_args
             from callback_requests cb
             left join lateral (
-              select ti.result
+              select ti.result, ti.args
                 from tool_invocations ti
                where ti.vapi_call_id = cb.vapi_call_id and ti.tool_name = 'triage_issue' and ti.ok
                order by ti.created_at desc
@@ -128,6 +129,7 @@ export function createConsoleRepository(db: Db): ConsoleRepository {
         isDemoSeed: Boolean(r.is_demo_seed),
         triageUrgency: (strOrNull(r.triage_urgency) as Urgency | null) ?? null,
         triageReasons: strArray(r.triage_reasons),
+        triageArgs: objOrNull(r.triage_args),
       }));
       return { dispatches, callbacks };
     },

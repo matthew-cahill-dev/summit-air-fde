@@ -84,6 +84,8 @@ export interface ToolInvocationRepository {
   }): Promise<StoredInvocation>;
   /** Failed identity checks so far on this call (results with verification_failed: true). */
   countFailedVerifications(vapiCallId: string): Promise<number>;
+  /** Arguments of the latest successful call of `toolName` on this call (e.g. triage_issue), or null. */
+  latestOkArgs(vapiCallId: string, toolName: string): Promise<Record<string, unknown> | null>;
 }
 
 export type EndOfCallReport = {
@@ -145,6 +147,15 @@ export type CallbackInput = {
 
 export interface CallbackRepository {
   create(input: CallbackInput): Promise<{ id: string }>;
+  /**
+   * One open callback per call: insert, or (if this call already has an open one) let
+   * `merge` turn the stored row into the new values and update it in place. Serialized per
+   * call with an advisory lock, so two concurrent requests can't both insert.
+   */
+  upsertOpenForCall(
+    input: CallbackInput & { vapiCallId: string },
+    merge: (existing: { reason: string | null; callerName: string | null; callerPhone: string | null; context: Record<string, unknown> }) => Omit<CallbackInput, "vapiCallId">,
+  ): Promise<{ id: string; updated: boolean }>;
   /** open → done. Null when already done or missing. */
   markDone(id: string, at: Date): Promise<{ id: string; status: CallbackStatus } | null>;
 }
@@ -258,6 +269,7 @@ export type BoardCallbackRow = {
   /** From the latest successful triage_issue on the same call, if any. */
   triageUrgency: Urgency | null;
   triageReasons: string[];
+  triageArgs: JsonObject | null;
 };
 
 /** One call: an end-of-call report, tool activity, or both. */

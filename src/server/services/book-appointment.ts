@@ -7,6 +7,7 @@ import { spokenWindow } from "@/server/lib/time";
 import type { BookingAddress, CustomerRow } from "@/server/repositories";
 import { earliestBookableStart } from "@/server/scheduling/availability";
 import { buildTechnicianNotes } from "@/server/scheduling/technician-notes";
+import { propertyKind } from "@/server/triage/property";
 import { VULNERABLE_OCCUPANTS } from "@/server/triage/rules";
 import { defineTool, type ToolContext, type ToolOutcome } from "@/server/vapi/types";
 import { findOfferableSlots, isActiveMember } from "./availability";
@@ -18,8 +19,10 @@ export const bookAppointmentSchema = z
     slot_id: z.uuid(),
     caller_confirmed: z.literal(true, { error: "must be true: read back the booking and get the caller's yes first" }),
     customer_id: optionalArg(z.uuid()),
-    first_name: z.string().trim().min(1),
-    last_name: z.string().trim().min(1),
+    // With customer_id (a verified caller), name and phone come from the account; they're
+    // only needed to create a new customer, which the handler checks.
+    first_name: optionalArg(z.string().trim().min(1)),
+    last_name: optionalArg(z.string().trim().min(1)),
     phone: optionalArg(z.string().trim().min(1)),
     email: optionalArg(z.email()),
     address_id: optionalArg(z.uuid()),
@@ -50,7 +53,14 @@ type BookArgs = z.infer<typeof bookAppointmentSchema>;
 /** Expected booking outcomes that roll the transaction back. */
 class BookingRejected extends Error {
   constructor(
-    readonly code: "slot_taken" | "slot_not_found" | "customer_not_found" | "address_not_found" | "slot_wrong_area" | "residential_only",
+    readonly code:
+      | "slot_taken"
+      | "slot_not_found"
+      | "customer_not_found"
+      | "address_not_found"
+      | "slot_wrong_area"
+      | "residential_only"
+      | "missing_name",
     readonly county: string | null = null,
   ) {
     super(code);
@@ -145,6 +155,9 @@ export const bookAppointmentTool = defineTool({
       newAddressCounty = zipRow.county;
     }
 
+    // Residential unless this call's triage said otherwise (it opens the technician notes).
+    const property = (ctx.callId ? propertyKind(await ctx.repos.toolInvocations.latestOkArgs(ctx.callId, "triage_issue")) : null) ?? "residential";
+
     const cfg = BUSINESS.scheduling;
     let newCustomer = false;
     let slotCounty: string | null = null;
@@ -164,6 +177,7 @@ export const bookAppointmentTool = defineTool({
         } else {
           customer = await tx.findCustomerByPhone(phoneE164!);
           if (!customer) {
+            if (!args.first_name || !args.last_name) throw new BookingRejected("missing_name");
             customer = await tx.insertCustomer({
               firstName: args.first_name,
               lastName: args.last_name,
@@ -219,6 +233,7 @@ export const bookAppointmentTool = defineTool({
         if (!claimed) throw new BookingRejected("slot_taken", slot.county);
 
         const intake = {
+          property_kind: property,
           issue_summary: args.issue_summary,
           symptoms: args.symptoms,
           ...intakeRecord(args),
@@ -227,6 +242,7 @@ export const bookAppointmentTool = defineTool({
           caller_confirmed: true,
         };
         const technicianNotes = buildTechnicianNotes({
+          property,
           urgency: args.urgency,
           serviceType: args.service_type,
           customerName: `${customer.firstName} ${customer.lastName}`,
@@ -338,6 +354,16 @@ async function rejected(
         message: "That address is a commercial property.",
         say: "Explain Summit Air only services homes.",
       };
+    case "missing_name": {
+      const missing = [!args.first_name && "first_name", !args.last_name && "last_name"].filter((f): f is string => Boolean(f));
+      return {
+        ok: false,
+        errorCode: "invalid_arguments",
+        message: `Missing: ${missing.join(", ")}`,
+        say: `This is a new customer, so ask for their ${missing.map((f) => f.replace("_", " ")).join(" and ")}.`,
+        data: { invalid_fields: missing.map((field) => ({ field, problem: "required for a new customer" })) },
+      };
+    }
     default:
       return {
         ok: false,

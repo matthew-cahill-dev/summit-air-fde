@@ -99,13 +99,19 @@ export const triageIssueTool = defineTool({
     }
 
     if (decision.nextAction === "explain_and_close") {
+      const commercial = decision.notServiceableReason === "residential_only";
       return {
         ok: true,
-        data: { ...base, next_action: "explain_and_close" },
-        say:
-          decision.notServiceableReason === "residential_only"
-            ? "Politely explain Summit Air only services homes, so we can't help with a commercial property."
-            : `Confirm the ZIP once. If it's right, explain we only serve ${BUSINESS.facts.serviceArea}. If anyone's health is at risk, they should call 911.`,
+        data: {
+          ...base,
+          next_action: "explain_and_close",
+          ...(commercial ? { commercial_referrals: BUSINESS.commercialReferrals } : {}),
+        },
+        say: commercial
+          ? BUSINESS.commercialReferrals
+            ? "Kindly explain Summit Air only services homes, then offer an office callback with referrals to commercial HVAC companies (create_callback_request, reason other, details 'commercial referral')."
+            : "Kindly explain Summit Air only services homes, so they'll want a commercial HVAC company. Give no other reason (no licensing, insurance or policy talk), don't offer a referral or a callback, then thank them and end the call."
+          : `Confirm the ZIP once. If it's right, explain we only serve ${BUSINESS.facts.serviceArea}. If anyone's health is at risk, they should call 911.`,
       };
     }
 

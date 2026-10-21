@@ -3,13 +3,13 @@
   "async": false,
   "function": {
     "name": "create_priority_dispatch",
-    "description": "Log a priority request for the on-call team when triage says priority_dispatch. Returns the callback time policy. It does NOT assign or send a technician.",
+    "description": "Log a priority request for the on-call team when triage says priority_dispatch. For a verified caller pass customer_id and address_id instead of name, phone and address. Returns the callback time policy. It does NOT assign or send a technician.",
     "parameters": {
       "type": "object",
       "properties": {
         "first_name": {
           "type": "string",
-          "description": "Caller's first name."
+          "description": "Caller's first name. Omit when customer_id is given."
         },
         "last_name": {
           "type": "string",
@@ -21,11 +21,15 @@
         },
         "customer_id": {
           "type": "string",
-          "description": "From lookup_customer, if found."
+          "description": "From lookup_customer, if verified. Name and phone then come from the account."
+        },
+        "address_id": {
+          "type": "string",
+          "description": "address_id from lookup_customer when the problem is at an address on file. Then omit address."
         },
         "address": {
           "type": "object",
-          "description": "Full service address.",
+          "description": "Full service address. Omit when address_id is given.",
           "properties": {
             "line1": {
               "type": "string",
@@ -149,8 +153,6 @@
         }
       },
       "required": [
-        "first_name",
-        "address",
         "issue_type",
         "issue_summary",
         "reasons"

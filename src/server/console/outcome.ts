@@ -9,6 +9,7 @@ import type {
   InvocationRow,
   Urgency,
 } from "@/server/repositories";
+import { PROPERTY_LABEL, propertyKind } from "@/server/triage/property";
 import { issueLabel, isUrgency, safetyTriggerLabel, URGENCY_RANK } from "./format";
 
 export const CALL_OUTCOMES = [
@@ -102,6 +103,8 @@ export type CallSummary = {
   callerName: string | null;
   callerPhone: string | null;
   issue: string | null;
+  /** "Residential", "Commercial" or "Multi-unit", from the call's triage. */
+  property: string | null;
   urgency: Urgency | null;
   reasons: string[];
   outcome: CallOutcome;
@@ -166,6 +169,8 @@ export function summarizeCall(call: CallActivityRow, records: CallRecords, now: 
         ) ?? (triage?.args?.issue_type && triage.args.issue_type !== "other" ? issueType : "Safety concern"))
       : null;
 
+  const property = propertyKind(triage?.args);
+
   const reasons = [
     ...(Array.isArray(triage?.result.reasons) ? (triage.result.reasons as unknown[]) : []),
     ...evidence.dispatches.flatMap((d) => d.reasons),
@@ -177,6 +182,7 @@ export function summarizeCall(call: CallActivityRow, records: CallRecords, now: 
     callerName,
     callerPhone,
     issue: safetyTrigger ?? issueSummary ?? issueType,
+    property: property ? PROPERTY_LABEL[property] : null,
     urgency,
     reasons: [...new Set(reasons)],
     outcome: deriveOutcome(evidence),

@@ -175,7 +175,7 @@ describe("technician intake (book_appointment)", () => {
       vapiCallId: null,
     });
     expect(notes).toBe(
-      "ROUTINE maintenance for A B (non-member) at 1 St, Brooklyn, NY 11215. Arrival window: Thursday, October 22, between 8 and 10 AM. Issue: Tune-up. Access: none noted. Contact: not provided. Booked by the virtual assistant.",
+      "Property: Residential. ROUTINE maintenance for A B (non-member) at 1 St, Brooklyn, NY 11215. Arrival window: Thursday, October 22, between 8 and 10 AM. Issue: Tune-up. Access: none noted. Contact: not provided. Booked by the virtual assistant.",
     );
   });
 });
@@ -207,7 +207,7 @@ describe("priority dispatch gets the same intake", () => {
       tried_steps: ["checked thermostat"],
       on_site_contact: { name: "Rosa Alvarez", phone: null, relationship: "caller's mother" },
       technician_notes:
-        "Started: since yesterday afternoon. Equipment: oil boiler. Already tried: checked thermostat. Vulnerable occupants: elderly. On-site contact: Rosa Alvarez (caller's mother).",
+        "Property: Residential. Started: since yesterday afternoon. Equipment: oil boiler. Already tried: checked thermostat. Vulnerable occupants: elderly. On-site contact: Rosa Alvarez (caller's mother).",
     });
 
     // The board card shows that paragraph.
@@ -314,7 +314,7 @@ describe("language callbacks", () => {
     const [row] = await testDb().select().from(callbackRequests).where(eq(callbackRequests.vapiCallId, callId));
     expect(row.context).toMatchObject({ language: "Spanish" });
 
-    const item = callbackItem({ ...(row as unknown as BoardCallbackRow), triageUrgency: null, triageReasons: [] }, TEST_NOW);
+    const item = callbackItem({ ...(row as unknown as BoardCallbackRow), triageUrgency: null, triageReasons: [], triageArgs: null }, TEST_NOW);
     expect(item.language).toBe("Spanish");
   });
 

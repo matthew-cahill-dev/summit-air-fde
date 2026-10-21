@@ -1,20 +1,22 @@
 {
   "_comments": {
     "_": "Keys starting with _ are stripped by scripts/sync-vapi.ts. ${VAR} placeholders are filled at sync time; {{...}} / {% %} are Vapi Liquid.",
-    "model": "Starts from the Balanced preset's model tier: gpt-4.1. Latency tuning: gpt-4.1-mini (faster, weaker at multi-step tool use; try it once the scenario tests pass), gpt-4o-mini (fastest/cheapest, least reliable with 8 tools). Pin a dated snapshot (e.g. gpt-4.1-2025-04-14) to avoid silent model updates. Temperature 0.5 (Vapi's default) for a warmer, less repetitive delivery; tool-call accuracy comes from the backend rules, not low temperature.",
+    "model": "gpt-4.1, temperature 0.5 (Vapi's default) for a warmer, less repetitive delivery; tool-call accuracy comes from the backend rules, not low temperature. FASTER ALTERNATIVE (not switched): \"gpt-4.1-mini\" (or the pinned \"gpt-4.1-mini-2025-04-14\") cuts model time per turn noticeably, but it's weaker at multi-step tool use and long instruction lists; this prompt has ~20 rules the backend can't enforce (call order, read-back, no invented facts). Switch only after `npm run evals -- --confirm` passes on it. Prompt caching: OpenAI caches identical prompt prefixes automatically, so the system prompt keeps the per-call date line at the END.",
     "transcriber": "Deepgram nova-3 uses keyterm (plain phrases, no boosts; case and punctuation are kept, so 'A/C' is sent as-is). Deepgram allows up to 100 terms / 500 tokens and suggests the most important 20-50; prune place and brand names first if accuracy drops. For lower end-of-turn latency try model flux-general-en.",
-    "voice": "Provider and voiceId are a placeholder until the owner picks one (see README 'Voice options'). Vapi voices: version '2' is the newer, more natural model (Emma, Clara, Savannah support it). speed is 0.25-2 for Vapi. chunkPlan: TTS gets whole sentences (no comma boundaries) so speech doesn't sound choppy; minCharacters 30 is Vapi's default. fillerInjectionEnabled no longer exists in Vapi's API, so it isn't set.",
-    "startSpeakingPlan": "onNumberSeconds is longer so callers can pause while reading phone numbers, ZIPs and Queens house numbers without being cut off. Lower waitSeconds (0.4) for snappier turns.",
-    "stopSpeakingPlan": "numWords 2 means 'uh-huh' doesn't interrupt the assistant; a real interruption of 2+ words does.",
-    "hooks": "Idle messages via customer.speech.timeout hooks (replaces the older messagePlan.idleMessages).",
+    "voice": "Provider and voiceId are a placeholder until the owner picks one (see README 'Voice options'). chunkPlan: whole sentences (no comma boundaries) so speech isn't choppy. formatPlan.replacements respell names the TTS mispronounced before synthesis: live transcripts heard the greeting's 'Ava' as 'Eva', so it's spelled 'Ayva' (AY-vuh). A Vapi pronunciation dictionary isn't used: on version-2 Vapi voices it reroutes the voice through Cartesia, which would change the voice. Replacements need chunkPlan.enabled; they may not apply to firstMessage (undocumented), so firstMessage spells 'Ayva' itself.",
+    "startSpeakingPlan": "Live calls: Ava cut in when callers paused between sentences (onPunctuationSeconds 0.1 ended the turn 100 ms after any period). Now smartEndpointingPlan 'livekit' (Vapi recommends it for English): a text model estimates whether the caller is still talking, and waitFunction turns that probability x into a wait in ms. This is the docs' 'Conservative' curve: 700 ms when the caller is clearly done, up to 2.7 s mid-thought. Faster alternative: the spec default '20 + 500 * sqrt(x) + 2500 * x^3'. customEndpointingRules: after Ava asks for an address, phone number or ZIP, wait 1.5 s, since callers pause while reading digits. transcriptionEndpointingPlan is only a fallback (ignored while smart endpointing is on), loosened from 0.1/1.5/1.0 to 0.5/1.0/0.8. waitSeconds 0.4 (Vapi default) because the smart wait already adds the patience.",
+    "stopSpeakingPlan": "numWords 2 means 'uh-huh' doesn't interrupt Ava; a real interruption of 2+ words does (voiceSeconds is only used when numWords is 0). backoffSeconds 1 before Ava resumes after being interrupted.",
     "analysisPlan": "Deprecated in the API but still works; feeds message.analysis.summary into our calls table. Migrate to structured outputs later.",
     "firstMessage": "Never personalized: callers aren't verified at greeting time. assistant-request (ASSISTANT_REQUEST_ENABLED) only sets caller_recognized, used by the prompt. Vapi has no first-message delay for inbound calls (checked Oct 2026), so the opening words 'Hi, thanks for calling' are deliberately skippable if the line clips them.",
     "firstMessageInterruptionsEnabled": "false (Vapi's default): the caller's 'hello?' while the line connects doesn't cut the greeting off.",
-    "serverMessages": "status-update is for keep-warm: on status 'in-progress' /api/vapi/events runs a non-blocking select 1 so a suspended production database wakes during the greeting, not on the first tool call. Other statuses are ignored."
+    "serverMessages": "status-update is for keep-warm: on status 'in-progress' /api/vapi/events runs a non-blocking select 1 so a suspended production database wakes during the greeting, not on the first tool call. Other statuses are ignored.",
+    "endCall": "Call endings (live: the model said its own goodbye, then Vapi's was cut off at 'Take', and Ava re-engaged after goodbye). Per docs.vapi.ai/tools/hang-up: when the endCall tool has a request-start message, Vapi speaks it instead of endCallMessage, then hangs up; the prompt tells the model never to say goodbye itself, only to call endCall. blocking:true makes the hang-up wait until the message is spoken. Belt and braces: the closing line ends with the endCallPhrases entry 'goodbye for now', and the docs say Vapi waits for the assistant to finish speaking before an end-call phrase hangs up. The phrase must never appear elsewhere (endCallPhrases match any assistant speech, e.g. the greeting). endCallMessage is the same line, used only if the tool's message is ever removed.",
+    "backgroundSound": "'off' | 'office' | an audio URL. Vapi's default for phone calls is 'office' (ambient office noise), so it's set explicitly; 'off' by default.",
+    "hooks": "Idle messages via customer.speech.timeout hooks, for silence mid-call (replaces the older messagePlan.idleMessages). They never fire after the call has ended."
   },
   "name": "Summit Air Virtual Assistant",
   "firstMessageMode": "assistant-speaks-first",
-  "firstMessage": "Hi, thanks for calling Summit Air! This is Ava, the virtual assistant. What's going on today?",
+  "firstMessage": "Hi, thanks for calling Summit Air! This is Ayva, the virtual assistant. What's going on today?",
   "firstMessageInterruptionsEnabled": false,
   "model": {
     "provider": "openai",
@@ -29,7 +31,14 @@
     ],
     "tools": [
       {
-        "type": "endCall"
+        "type": "endCall",
+        "messages": [
+          {
+            "type": "request-start",
+            "content": "Thanks for calling Summit Air. Take care, and goodbye for now.",
+            "blocking": true
+          }
+        ]
       }
     ],
     "toolIds": "${TOOL_IDS}"
@@ -47,7 +56,41 @@
         "!",
         "?",
         ";"
-      ]
+      ],
+      "formatPlan": {
+        "replacements": [
+          {
+            "type": "regex",
+            "regex": "\\bAva\\b",
+            "value": "Ayva"
+          },
+          {
+            "type": "regex",
+            "regex": "\\bNavien\\b",
+            "value": "Nah-vee-en"
+          },
+          {
+            "type": "regex",
+            "regex": "\\bWeil-McLain\\b",
+            "value": "Wile McLane"
+          },
+          {
+            "type": "regex",
+            "regex": "\\bDaikin\\b",
+            "value": "Dye-kin"
+          },
+          {
+            "type": "regex",
+            "regex": "\\bRheem\\b",
+            "value": "Reem"
+          },
+          {
+            "type": "regex",
+            "regex": "\\bGowanus\\b",
+            "value": "Go-wah-nus"
+          }
+        ]
+      }
     }
   },
   "transcriber": {
@@ -109,15 +152,45 @@
       "Burnham",
       "Weil-McLain",
       "Peerless",
-      "Navien"
+      "Navien",
+      "Ava",
+      "Gowanus",
+      "Greenpoint",
+      "Bed-Stuy",
+      "Crown Heights",
+      "Sunset Park",
+      "Elmhurst",
+      "Kew Gardens",
+      "Ozone Park",
+      "Rockaway",
+      "Bayside",
+      "Great Kills",
+      "New Dorp"
     ]
   },
   "startSpeakingPlan": {
-    "waitSeconds": 0.6,
+    "waitSeconds": 0.4,
+    "smartEndpointingPlan": {
+      "provider": "livekit",
+      "waitFunction": "700 + 4000 * max(0, x-0.5)"
+    },
+    "customEndpointingRules": [
+      {
+        "type": "assistant",
+        "regex": "(address|phone|number|zip)",
+        "regexOptions": [
+          {
+            "type": "ignore-case",
+            "enabled": true
+          }
+        ],
+        "timeoutSeconds": 1.5
+      }
+    ],
     "transcriptionEndpointingPlan": {
-      "onPunctuationSeconds": 0.1,
-      "onNoPunctuationSeconds": 1.5,
-      "onNumberSeconds": 1.0
+      "onPunctuationSeconds": 0.5,
+      "onNoPunctuationSeconds": 1.0,
+      "onNumberSeconds": 0.8
     }
   },
   "stopSpeakingPlan": {
@@ -146,7 +219,11 @@
     }
   ],
   "maxDurationSeconds": 900,
-  "endCallMessage": "Thanks for calling Summit Air. Take care.",
+  "endCallMessage": "Thanks for calling Summit Air. Take care, and goodbye for now.",
+  "endCallPhrases": [
+    "goodbye for now"
+  ],
+  "backgroundSound": "off",
   "backgroundSpeechDenoisingPlan": {
     "smartDenoisingPlan": {
       "enabled": true

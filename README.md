@@ -43,6 +43,18 @@ Test calls create real rows. Staff can clear them with `npm run db:reset-test --
 
 Status (M5): full call workflow plus a staff operations console. A call can identify the caller (caller ID or last name, verified by the street address the caller says), triage the issue deterministically (including building-wide systems), offer and book arrival windows atomically with dispatch-ready technician notes, log priority dispatches and callbacks (including language and reschedule requests), tell a verified caller their next appointment, transfer to on-call, and save the end-of-call report. Staff work the results in a password-protected console (dispatch board, calls, appointments, overview). Vapi config (prompt, tools, assistant) is code in `vapi/`, synced with `npm run vapi:sync`; scenario simulations are in `vapi/simulations/`, run with `npm run evals`.
 
+## Deploying to Replit (read before every republish)
+
+Run this in the **Replit Shell** before you press Republish:
+
+```bash
+git fetch origin && git reset --hard origin/main && npm ci && npm run db:migrate
+```
+
+**Why.** When you republish, Replit compares the *development* database's schema with production and proposes changes to make production match. If the dev database is behind `main` (a migration that ran on production but not in the Replit workspace), that diff contains **destructive `DROP COLUMN` / `DROP TABLE` statements** for columns production really needs. This happened once and was caught at review. Resetting the workspace to `main` and migrating the dev database first makes the two schemas equal, so the diff is empty. Read the proposed schema changes in the publish dialog anyway: anything with `DROP` means stop. `git reset --hard` discards uncommitted workspace edits, so commit or stash anything you need first. See [ARCHITECTURE.md ADR-7](docs/ARCHITECTURE.md#adr-7-idempotent-migrations-and-the-replit-schema-diff).
+
+Then republish. On start, `start:deploy` runs `db:migrate` (idempotent, advisory-locked) against production, then the app.
+
 ## Setup (local)
 
 Requirements: Node 20.19+ and a local Postgres (developed against Homebrew `postgresql@17`; 16 also works).
@@ -158,7 +170,7 @@ Slot selection (`src/server/scheduling/availability.ts`) is pure. It enforces le
 - **Keep-warm.** The assistant also sends `status-update`. On status `in-progress` (the call just connected) the events handler starts a non-blocking `select 1` and answers at once, so a suspended production database wakes up during the greeting instead of on the first tool call. Only one ping runs at a time; other statuses are ignored without touching the database.
 - Business assumptions (service ZIPs, heat season, SLAs, residential-only) live in `src/config/business.ts`.
 
-**Schema changes.** Migrations must be idempotent (`ADD COLUMN IF NOT EXISTS`, `CREATE INDEX IF NOT EXISTS`): Replit applies its own schema diff to the production database before `db:migrate` runs, so a migration may find its columns already there. After `npm run db:generate`, edit the SQL to add `IF NOT EXISTS`.
+**Schema changes.** Migrations must be idempotent (`ADD COLUMN IF NOT EXISTS`, `CREATE INDEX IF NOT EXISTS`): Replit applies its own schema diff to the production database before `db:migrate` runs, so a migration may find its columns already there. After `npm run db:generate`, edit the SQL to add `IF NOT EXISTS`. Follow "Deploying to Replit" above so that diff never contains a `DROP`.
 
 ## Operations console (M4)
 
@@ -199,7 +211,13 @@ The suite takes a few seconds locally. Slot tests use fixed weekday anchors and 
 
 ## Vapi configuration
 
-**Persona.** The agent is "Ava, Summit Air's virtual assistant" (prompt "How you speak"; greeting in `vapi/assistant.json`; model temperature 0.5). It says it's an AI if asked.
+**Persona.** The agent is "Ava, Summit Air's virtual assistant" (prompt "How you speak"; greeting in `vapi/assistant.json`; model temperature 0.5). It says it's an AI if asked. Spoken text spells it "Ayva" (`firstMessage` and `voice.chunkPlan.formatPlan.replacements`) because live transcripts heard "Eva"; brand names that TTS mangles (Navien, Weil-McLain, Daikin, Rheem) and Gowanus are respelled the same way.
+
+**Call endings.** The model never says goodbye itself: it calls `endCall`, whose blocking `request-start` message ("Thanks for calling Summit Air. Take care, and goodbye for now.") is spoken in full, then Vapi hangs up. "goodbye for now" is also the only `endCallPhrases` entry, so even if the model said the line itself, Vapi would hang up after it finished. That phrase must never appear anywhere else. See [ARCHITECTURE.md ADR-10](docs/ARCHITECTURE.md).
+
+**Turn-taking.** LiveKit smart endpointing with the docs' "Conservative" wait curve, and a 1.5 s wait after Ava asks for an address, phone number or ZIP. See ADR-11.
+
+**Background sound.** `backgroundSound` is `"off"` (Vapi's phone default is `"office"`). Set `"office"` or an audio URL in `vapi/assistant.json` to change it.
 
 **Greeting clipping.** Vapi has no first-message delay setting for inbound calls (checked against the API spec, Oct 2026: only `firstMessage`, `firstMessageMode` and `firstMessageInterruptionsEnabled`). The greeting opens with skippable words ("Hi, thanks for calling…") so a clipped start loses nothing. Untested fallbacks: a `firstMessage` audio URL that starts with ~0.5 s of silence, or a leading `<break time="600ms"/>` (Cartesia supports it).
 

@@ -3,7 +3,7 @@
   "async": false,
   "function": {
     "name": "book_appointment",
-    "description": "Book an arrival window. ONLY call after reading back name, address, day/window and problem and hearing the caller say yes; then set caller_confirmed to true. Pass customer_id and address_id from lookup_customer when the caller confirmed them; otherwise pass address. Returns booked:true, or ok:false with reason slot_taken and alternatives.",
+    "description": "Book an arrival window. ONLY call after reading back the window, address and problem and hearing the caller say yes; then set caller_confirmed to true. For a verified caller pass customer_id and address_id from lookup_customer and leave out name, phone and address (they come from the account). Otherwise pass first_name, last_name and address. Returns booked:true, or ok:false with reason slot_taken and alternatives.",
     "parameters": {
       "type": "object",
       "properties": {
@@ -21,15 +21,15 @@
         },
         "first_name": {
           "type": "string",
-          "description": "Caller's first name."
+          "description": "Caller's first name. Omit when customer_id is given (it comes from the account)."
         },
         "last_name": {
           "type": "string",
-          "description": "Caller's last name."
+          "description": "Caller's last name. Omit when customer_id is given (it comes from the account)."
         },
         "phone": {
           "type": "string",
-          "description": "Best callback number if different from caller ID. Read it back in groups before booking."
+          "description": "Best callback number if different from caller ID, read back in groups and confirmed. Omit when customer_id is given unless they gave a new number."
         },
         "email": {
           "type": "string",
@@ -160,8 +160,6 @@
       "required": [
         "slot_id",
         "caller_confirmed",
-        "first_name",
-        "last_name",
         "service_type",
         "urgency",
         "issue_summary"

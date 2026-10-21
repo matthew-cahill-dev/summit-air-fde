@@ -125,6 +125,7 @@ describe("priority board", () => {
     isDemoSeed: false,
     triageUrgency: null,
     triageReasons: [],
+    triageArgs: null,
     ...over,
   });
 

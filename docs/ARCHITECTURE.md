@@ -121,11 +121,17 @@ Short ADRs. Each one gives the context, the decision, and what it costs.
 - **Decision.** `vapi/system-prompt.md` (a template filled from `business.ts`), `vapi/tools/*.json` and `vapi/assistant.json` are the source of truth. `npm run vapi:sync -- --dry-run` diffs against live Vapi, and `npm run vapi:sync` upserts tools by name and updates the assistant, which publishes a new Vapi version that the script prints. A test checks every tool's JSON parameters against the server's Zod schema, so the two can't drift.
 - **Tradeoff.** Someone editing in the Vapi dashboard gets overwritten on the next sync. That's intentional, but it has to be communicated.
 
-### ADR-7: Idempotent migrations (the Replit reason)
+### ADR-7: Idempotent migrations and the Replit schema diff
 
-- **Context.** Replit's deployment applies its own schema diff to the production database before our start command runs. A plain `ALTER TABLE ADD COLUMN` then fails because the column already exists, and the app never boots.
-- **Decision.** Every migration after the initial baseline (`0000_init.sql`) uses `IF NOT EXISTS` (`ADD COLUMN IF NOT EXISTS`, `CREATE INDEX IF NOT EXISTS`). Migrations run on every start (`start:deploy`) under a Postgres advisory lock. M5 needed no migration: the new intake fields live in the existing `intake` jsonb.
-- **Tradeoff.** Hand-editing generated SQL after `db:generate`. It's documented in the README and enforced by review.
+- **Context.** On republish, Replit diffs the *development* database's schema against production and applies the difference to production before our start command runs. Two consequences:
+  - A plain `ALTER TABLE ADD COLUMN` in our migration then fails because Replit already added the column, and the app never boots.
+  - Worse, when the dev database is *behind* (a migration ran on production but not in the workspace), the diff tries to make production match the older schema, so it proposes destructive `DROP COLUMN` / `DROP TABLE` statements. This happened once and was caught in the publish review before it ran.
+- **Decision.**
+  - Every migration after the initial baseline (`0000_init.sql`) uses `IF NOT EXISTS`. Migrations run on every start (`start:deploy`) under a Postgres advisory lock, so our migrator stays the source of truth.
+  - Before every republish, the Replit Shell runs `git fetch origin && git reset --hard origin/main && npm ci && npm run db:migrate` (README, "Deploying to Replit"), so dev equals `main` and the platform diff is empty. Any `DROP` in the publish dialog means stop.
+  - The live-call tuning (Oct 21) needed no migration: new fields live in existing jsonb columns, and callback de-duplication uses an advisory lock instead of a unique index. An index could fail on production rows that are already duplicated.
+- **How a real deployment would do it.** Take schema changes away from the platform entirely: a managed Postgres (Neon, RDS or Supabase) that the host only reaches through `DATABASE_URL`, with no platform-linked database and no auto-diff; migrations applied once, by CI, as a release step (`drizzle-kit migrate` against production with a reviewed SQL diff), never on app start; and a database role for the app that has no DDL rights, so nothing at runtime can drop a column.
+- **Tradeoff.** Hand-editing generated SQL after `db:generate`, and a manual pre-publish step that someone can forget. The README makes it the first deploy instruction.
 
 ### ADR-8: Always-on hosting
 
@@ -138,6 +144,38 @@ Short ADRs. Each one gives the context, the decision, and what it costs.
 - **Context.** The highest-stakes moment (a gas smell or CO alarm) is exactly when the backend might be down.
 - **Decision.** The leave-now / call-911-from-outside script is in the system prompt and is spoken *before* any tool call. The prompt says it never depends on a tool. `triage_issue` then records a `safety_stop` follow-up as best effort, and its `say` adapts if recording failed ("Do not say the office was notified"). The agent always says Summit Air has not called 911.
 - **Tradeoff.** The model is trusted to recognize the trigger. Mitigations: the explicit safety-screen question on every call, Deepgram keyterms for "carbon monoxide", and a live scenario and eval for it (`e-gas-smell`).
+
+### ADR-10: Call endings: endCall speaks the goodbye; one end-call phrase as a backstop
+
+- **Context.** Live calls ended badly. The model said its own goodbye, then Vapi spoke `endCallMessage` and the line was cut off mid-word ("Take"). On another call Ava re-engaged after goodbye, and a stray transcribed "2" got a reply.
+- **Decision.** Per Vapi's hang-up docs (docs.vapi.ai/tools/hang-up, checked Oct 21, 2026):
+  - When the `endCall` tool has a `request-start` message, Vapi speaks that message instead of `endCallMessage` and then ends the call. Ours is "Thanks for calling Summit Air. Take care, and goodbye for now." with `blocking: true`, which means the tool, and so the hang-up, waits until the message is spoken.
+  - The prompt tells the model never to say goodbye itself: as soon as the caller declines "anything else?" or says bye, it calls `endCall`. It never re-engages after a goodbye and ignores stray words.
+  - Backstop: `endCallPhrases: ["goodbye for now"]`. The end-call-phrases doc is the only one that explicitly says Vapi waits for the assistant to finish speaking before hanging up. The phrase is the tail of the closing line, so any path that speaks the closing line ends the call after it.
+  - The phrase must appear nowhere else (phrases match any assistant speech). A test enforces that against the greeting, the prompt and the tool messages.
+  - Safety stops: the prompt waits for the caller to acknowledge the instructions before `endCall`.
+- **Tradeoff.**
+  - Vapi doesn't document whether `blocking` governs the endCall hang-up specifically, or whether the end-call phrase matches the tool's spoken message rather than only model text. Community threads report hang-ups racing TTS. So this needs a live listen before we trust it.
+  - The fallback, if it still clips, is to drop the tool message and have the model say the closing line itself, relying only on `endCallPhrases`.
+
+### ADR-11: Turn-taking and latency
+
+- **Context.** Ava cut in while callers paused mid-thought. `onPunctuationSeconds: 0.1` ended a turn 100 ms after any sentence break. Tools run in 58–324 ms in production, so the remaining pauses are endpointing plus model time.
+- **Decision.**
+  - **Smart endpointing:** `startSpeakingPlan.smartEndpointingPlan` = LiveKit, which Vapi recommends for English. A text model estimates the probability *x* that the caller is still talking, and `waitFunction` maps it to a wait. We use the docs' "Conservative" curve, `700 + 4000 * max(0, x-0.5)`: about 0.7 s when they're clearly done, up to 2.7 s mid-sentence.
+  - **Digits:** a `customEndpointingRule` waits 1.5 s after Ava asks for an address, phone number or ZIP, because people pause while reading digits.
+  - **Fallback values:** `transcriptionEndpointingPlan` is only used if smart endpointing is off, and is loosened to 0.5 / 1.0 / 0.8 s. `waitSeconds` is back to 0.4 (Vapi's default) because the smart wait already supplies the patience.
+  - **Interruptions:** `stopSpeakingPlan.numWords: 2`, so "uh-huh" doesn't stop Ava.
+- **Latency budget elsewhere.**
+  - The prompt now puts the per-call date line last, so ~98% of it is an identical prefix on every call that OpenAI caches automatically. Before, the date sat in the second paragraph and nothing after it could be cached.
+  - The prompt was tightened by ~6% despite new rules.
+  - The call order now gets to `triage_issue` (which returns the windows) with at most two technician questions first.
+  - Every tool has a non-blocking `request-start` filler that plays as soon as it's called.
+  - A faster model (`gpt-4.1-mini`) is documented in `assistant.json` but not switched.
+- **Tradeoff.**
+  - The conservative curve adds roughly 0.3–0.6 s before Ava answers a short, clearly finished reply. That is the price of not interrupting.
+  - If calls feel sluggish, the faster documented curve is the spec default `20 + 500 * sqrt(x) + 2500 * x^3`.
+  - Deepgram Flux (end-of-turn detection inside the transcriber) is the other option, but Vapi doesn't document whether `keyterm` works on Flux, and our keyterms carry brand and street names.
 
 ## Data model (short)
 

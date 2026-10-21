@@ -17,7 +17,7 @@ What this demo does not do, and the business assumptions the owner must confirm 
 - **Live transfer** works only when `ON_CALL_TRANSFER_NUMBER` is set at sync time, and it's a blind transfer (no warm handoff summary).
 - **Membership sign-up** isn't done on the call. Interested non-members get an office callback.
 - **Prices:** only the diagnostic fee and the membership prices. Repairs and installs are "quoted on site".
-- **Prompt length** (about 3,000 words) is fine for GPT-4.1 but adds a little latency per turn. A smaller or faster model would need the simulations re-run first.
+- **Prompt length** (about 2,800 words, ~4,260 tokens estimated) is fine for GPT-4.1, and the stable ~98% is cacheable. A smaller or faster model would need the simulations re-run first.
 - **Multi-unit buildings** are a binary flag. Mixed cases ("the boiler serves my two-family house") depend on the model setting it correctly, and the office sees the transcript.
 
 **Verification and safety**
@@ -29,10 +29,20 @@ What this demo does not do, and the business assumptions the owner must confirm 
 - **Simulations are built but not yet run** against the live assistant (`npm run evals -- --confirm` spends Vapi credits, and the integration hasn't been exercised end to end yet).
 - **The live call log** in [TESTING.md](TESTING.md) is a template to fill in, not a record of results.
 
+**Deployment**
+- **Replit's schema diff can propose destructive DROPs.** On republish, Replit diffs the workspace (dev) database against production and applies the difference. If dev is behind `main`, that diff drops production columns. This happened once and was caught at review. The mitigation is procedural: run `git fetch origin && git reset --hard origin/main && npm ci && npm run db:migrate` in the Replit Shell before every republish, and stop if the publish dialog shows any `DROP` (README, "Deploying to Replit"). A real deployment would use a database the platform doesn't manage, with migrations run by CI (see ARCHITECTURE ADR-7).
+- **Vapi publishing.** Vapi's changelog (Aug 2026) says edits no longer go live until published. `vapi:sync` checks that the assistant version advanced and warns if it didn't; whether *tool* updates also need a separate publish hasn't been verified on a live sync yet.
+- **Call endings and endpointing are configured per Vapi's docs but not yet heard live** (see ARCHITECTURE ADR-10 and ADR-11).
+
 **Operations console**
 - Single shared password (no per-user accounts or audit trail of who acknowledged what).
 - Login rate limiting is in memory, so it resets on restart and doesn't span instances.
 - No metrics for emergency-flag precision yet (needs a staff "was this an emergency?" mark).
+
+## Owner to confirm
+
+- **Commercial referrals.** `commercialReferrals` is `false`. Today Ava tells a business caller, kindly, that Summit Air only services homes and they'll want a commercial HVAC company, then ends the call, with no referral and no callback. (Live, the model invented "only licensed for homes" and promised referral callbacks; both are now forbidden.) If the office does want to refer commercial callers, set `commercialReferrals: true` and Ava will offer an office callback with referrals instead.
+- **Callback SLA and office hours.** Callback requests are flagged overdue after 2 hours (`callbackRequestSlaMinutes`), counted around the clock: a request logged at 9 PM is "overdue" at 11 PM even though the office is closed. Callers hear "the office will call back during office hours (Monday to Friday 8 AM to 6 PM, and Saturday 9 AM to 2 PM)". Confirm the hours, the SLA, and whether the SLA should pause outside office hours.
 
 ## Business assumptions to confirm (`src/config/business.ts`)
 
@@ -41,6 +51,7 @@ Every value below is marked `ASSUMPTION` in code. Each one changes behavior in o
 | Assumption | Current value | Affects |
 |---|---|---|
 | Residential only | Commercial properties declined | Triage (`explain_and_close`), booking |
+| Commercial referrals | `false`: no referrals or referral callbacks | What Ava says to business callers (triage `say`, business facts) |
 | Service area | Brooklyn, Queens, Staten Island, by residential ZIP; 11385 (Ridgewood) counted as Queens | Triage, booking, availability |
 | Heat season | Oct 1 – May 31 | No-heat urgency |
 | Cooling season | Jun 1 – Sep 30 | No-AC urgency |

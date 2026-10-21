@@ -3,7 +3,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Suspense } from "react";
 import { ArrowLeftIcon, CircleAlertIcon, CircleCheckIcon } from "lucide-react";
-import { OutcomeBadge, SeedTag, UrgencyBadge } from "@/components/console/badges";
+import { OutcomeBadge, PropertyBadge, SeedTag, UrgencyBadge } from "@/components/console/badges";
 import { PageHeader, PhoneLink } from "@/components/console/page";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -74,6 +74,7 @@ async function CallDetail({ params }: { params: PageProps<"/calls/[id]">["params
       >
         <div className="flex flex-wrap items-center gap-2">
           <SeedTag show={summary.isDemoSeed} />
+          <PropertyBadge property={summary.property} />
           {/* A safety stop's outcome badge already says "Safety stop"; don't show it twice. */}
           {summary.urgency && !(summary.urgency === "safety_stop" && summary.outcome === "safety_stop") && (
             <UrgencyBadge urgency={summary.urgency} />

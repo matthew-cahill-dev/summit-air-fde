@@ -1,6 +1,7 @@
 // The dispatch priority board: open dispatch requests and callbacks in one queue,
 // ordered by urgency then age, with SLA status. Pure.
 import { BUSINESS } from "@/config/business";
+import { PROPERTY_LABEL, propertyKind, type PropertyKind } from "@/server/triage/property";
 import type { BoardCallbackRow, BoardDispatchRow, Urgency } from "@/server/repositories";
 import {
   callbackReasonLabel,
@@ -29,6 +30,10 @@ export type BoardItem = {
   notes: string | null;
   /** Callback in a language other than English, e.g. "Spanish". */
   language: string | null;
+  /** "Residential", "Commercial" or "Multi-unit", when triage recorded it. */
+  property: string | null;
+  /** Callback: when the caller would like to be called, in their words. */
+  preferredTime: string | null;
   createdAt: Date;
   acknowledgedAt: Date | null;
   ageMs: number;
@@ -62,6 +67,8 @@ export function dispatchItem(d: BoardDispatchRow, now: Date): BoardItem {
         : (str(d.intake?.issue_summary) ?? issueLabel(issueType)),
     notes: str(d.intake?.technician_notes),
     language: null,
+    property: propertyText(d.intake?.property_kind, d.intake?.flags),
+    preferredTime: null,
     createdAt: d.createdAt,
     acknowledgedAt: d.acknowledgedAt,
     ageMs,
@@ -90,6 +97,8 @@ export function callbackItem(c: BoardCallbackRow, now: Date): BoardItem {
     issue: str(c.context?.details) ?? issueLabel(readIssueType(c.context)),
     notes: null,
     language: str(c.context?.language),
+    property: propertyText(null, c.triageArgs),
+    preferredTime: str(c.context?.preferred_callback_time),
     createdAt: c.createdAt,
     acknowledgedAt: null,
     ageMs,
@@ -98,6 +107,12 @@ export function callbackItem(c: BoardCallbackRow, now: Date): BoardItem {
     vapiCallId: c.vapiCallId,
     isDemoSeed: c.isDemoSeed,
   };
+}
+
+/** A stored property kind (priority dispatch intake), else derived from triage arguments. */
+function propertyText(stored: unknown, triageArgs: unknown): string | null {
+  const kind = typeof stored === "string" && stored in PROPERTY_LABEL ? (stored as PropertyKind) : propertyKind(triageArgs);
+  return kind ? PROPERTY_LABEL[kind] : null;
 }
 
 /** Callbacks without a triaged urgency sort after every triaged item. */

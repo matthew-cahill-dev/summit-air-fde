@@ -18,6 +18,9 @@ export function businessFactsText(): string {
     `- Service area: homes in ${f.serviceArea}.`,
     `- Services: ${f.servicesOffered}`,
     `- Not offered: ${f.notOffered}`,
+    BUSINESS.commercialReferrals
+      ? "- Commercial callers: the office can call back with referrals to commercial HVAC companies."
+      : "- Commercial callers: we don't refer them to other companies. They'll want a commercial HVAC company.",
     // The office number is fictional (555-01xx), so it's deliberately not given to callers.
     `- Office hours: ${f.officeHours}.`,
     `- Appointments: ${f.appointmentHours}.`,

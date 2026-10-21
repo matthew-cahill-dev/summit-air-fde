@@ -91,7 +91,7 @@ describe("book_appointment", () => {
     expect(address).toMatchObject({ line1: "77 Demo Pl", unit: "4R", zip: "11215", county: "Kings", accessNotes: "Buzzer 4R; dog in apartment" });
 
     const [appt] = await testDb().select().from(appointments).where(eq(appointments.id, payload.appointment_id as string));
-    expect(appt.technicianNotes).toMatch(/^ROUTINE repair for Avery Testerly \(non-member\) at 77 Demo Pl, Apt 4R, Brooklyn, NY 11215\. Arrival window: \w+day, \w+ \d+, between /);
+    expect(appt.technicianNotes).toMatch(/^Property: Residential\. ROUTINE repair for Avery Testerly \(non-member\) at 77 Demo Pl, Apt 4R, Brooklyn, NY 11215\. Arrival window: \w+day, \w+ \d+, between /);
     expect(appt.technicianNotes).toContain("Symptoms: upstairs radiators cold; boiler running.");
     expect(appt.technicianNotes).toContain("Access: Buzzer 4R; dog in apartment.");
     expect(appt.technicianNotes).toContain("Contact: (718) 555-0305.");

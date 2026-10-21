@@ -1,5 +1,6 @@
 // Pure: the dispatch-ready paragraph a technician reads before the visit.
 import { normalizePhoneE164 } from "@/server/lib/phone";
+import type { PropertyKind } from "@/server/triage/property";
 
 export type OnSiteContact = { name: string; phone: string | null; relationship: string | null };
 
@@ -16,6 +17,8 @@ export type IntakeDetails = {
 };
 
 export type TechnicianNotesInput = IntakeDetails & {
+  /** From the call's triage; the notes open with it. Null/absent = residential (the address on file). */
+  property?: PropertyKind | null;
   urgency: string;
   serviceType: string;
   customerName: string;
@@ -44,6 +47,17 @@ export function describeContact(c: OnSiteContact): string {
   return [`${c.name}${c.relationship ? ` (${c.relationship})` : ""}`, phone].filter(Boolean).join(", ");
 }
 
+const PROPERTY_SENTENCE: Record<PropertyKind, string> = {
+  residential: "Property: Residential.",
+  commercial: "Property: Commercial.",
+  multi_unit: "Property: Multi-unit building (central system).",
+};
+
+/** The opening sentence of every technician paragraph. */
+export function propertySentence(kind: PropertyKind | null | undefined): string {
+  return PROPERTY_SENTENCE[kind ?? "residential"];
+}
+
 /** The intake as sentences, in the order a technician uses them. Absent fields are left out. */
 export function intakeSentences(i: IntakeDetails): string[] {
   return [
@@ -63,6 +77,7 @@ export function intakeSentences(i: IntakeDetails): string[] {
 export function buildTechnicianNotes(i: TechnicianNotesInput): string {
   const addr = `${i.address.line1}${i.address.unit ? `, Apt ${i.address.unit}` : ""}, ${i.address.city}, NY ${i.address.zip}`;
   const parts = [
+    propertySentence(i.property),
     `${i.urgency.toUpperCase()} ${i.serviceType} for ${i.customerName} (${i.isMember ? "active member" : "non-member"}) at ${addr}.`,
     `Arrival window: ${i.windowLabel}.`,
     `Issue: ${sentence(i.issueSummary)}`,

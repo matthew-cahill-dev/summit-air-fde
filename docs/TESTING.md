@@ -8,7 +8,7 @@ Three layers: an automated suite (backend and prompt text), Vapi simulations (mo
 
 Slot tests are deterministic: test windows sit on fixed weekdays of the first full week the seed covers, and booking tests pin the clock to that Monday at 06:00 (`slotFactory` / `TEST_NOW` in `tests/helpers.ts`). Results don't depend on the day or hour the suite runs.
 
-**Last run: 365 tests in 27 files, all passing** (`npm test`, Oct 21, 2026, about 8 s locally).
+**Last run: 390 tests in 28 files, all passing** (`npm test`, Oct 21, 2026, about 8 s locally).
 
 | Area | Files | Tests |
 |---|---|---|
@@ -17,12 +17,13 @@ Slot tests are deterministic: test windows sit on fixed weekdays of the first fu
 | Scheduling and booking | `booking`, `slot-selection`, `service-area` | 28 |
 | Priority dispatch and callbacks | `dispatch-callback` | 3 |
 | M5 requirement gaps (intake, multi-unit, membership, calling for someone else, next appointment, language) | `m5-requirements` | 24 |
+| Live-call fixes (verified callers' account data, one callback per call, property type, commercial declines) | `live-call-fixes` | 19 |
 | Tools endpoint robustness (auth, envelope, blank args, idempotency keys, timing) | `tools-endpoint`, `envelope`, `blank-optional-args`, `canonical-json`, `tool-timing`, `auth` | 42 |
-| Vapi config, prompt rules, sync and evals | `vapi-config`, `vapi-sync`, `evals`, `assistant-request` | 67 |
+| Vapi config, prompt rules (incl. call order, call endings, endpointing, pronunciation), sync and evals | `vapi-config`, `vapi-sync`, `evals`, `assistant-request` | 73 |
 | Events and keep-warm | `events`, `keep-warm` | 13 |
 | Operations console (board, call outcome, safety-stop labels, seed never in progress, session auth, 404 for unknown calls) | `console-board`, `call-outcome`, `dashboard-auth` | 57 |
 | Environment validation | `env` | 7 |
-| **Total** | **27 files** | **365** |
+| **Total** | **28 files** | **390** |
 
 What the suite does **not** prove: that the model follows the prompt. `vapi-config.test.ts` checks that the rules are *in* the prompt; only simulations and live calls show whether Ava obeys them.
 
@@ -59,6 +60,27 @@ npm run evals -- --confirm --voice    # voice transport, roughly 10x the cost
 - **Status: built and validated locally (`npm run evals` dry run); not yet run against the live assistant.** Endpoints and field names were checked against Vapi's OpenAPI spec (`/eval/simulation/scenario`, `/eval/simulation/personality`, `/eval/simulation/run`, `/eval/simulation/run/{id}/item`) on Oct 20, 2026, but no request has been sent, so the first `--confirm` run is the real test of the integration.
 
 ## 3. Live call log
+
+### Found in live production calls and fixed (Oct 21, 2026)
+
+Evidence is quoted from real call transcripts and production tool logs. **Status for every row: fixed in this commit, not yet re-tested on a live call.** Re-run the matching scenario below and record the result in the template.
+
+| # | Live evidence | Fix | Covered by |
+|---|---|---|---|
+| L1 | Verified member Priya: `book_appointment` → `Invalid: last_name (Too small...)`, so Ava asked for her last name | With `customer_id`, name and phone come from the account (booking and priority dispatch; `address_id` for the address). Names are required only for a new customer, named per field | `live-call-fixes`: "verified callers are never asked for data on the account" |
+| L2 | After verifying Priya, Ava asked the ZIP, "house or apartment", "this is for your home, right?" and her last name | Prompt "Verified callers": the account is the source of truth; never re-ask anything on it or already said | `vapi-config`: "verified callers are never re-asked…" |
+| L3 | "The AC at our restaurant": `lookup_customer` ran, the caller repeated the address for a pointless verification, `triage_issue` never ran, and two `create_callback_request` rows were created | Prompt: a business skips lookup and goes straight to `triage_issue` (commercial). Server: one open callback per call (advisory-locked upsert) | `vapi-config`: call order; `live-call-fixes`: "callbacks: one per call" |
+| L4 | Decline invented "isn't set up or insured… only licensed for homes" and promised "the office can call you back with recommendations for commercial HVAC companies" | `commercialReferrals` (default false) drives the triage `say` and business facts ("we don't refer them"); prompt forbids reasons, policies, credentials or services not in the facts | `live-call-fixes`: "commercial callers"; `vapi-config`: "no invented facts…" |
+| L5 | Adding a preferred time created a second callback row | Same-call requests update the open callback (same id, `updated: true`); new `preferred_callback_time`, shown on the board | `live-call-fixes`: "callbacks: one per call" |
+| L6 | "718 555 0177" was taken as a callback number and never read back | Prompt "Callbacks": any number that isn't the caller ID is read back in groups and confirmed first; the tool description says so too | `vapi-config`: "callbacks: one per call, preferred time, new numbers read back" |
+| L7 | Urgent call: about 2 minutes and 6 intake questions between verification and triage | New call order: safety → lookup (homes only) → address/ZIP + vulnerability → `triage_issue` immediately → times; at most 2 intake questions before times (1–2 for priority dispatch) | `vapi-config`: "call order: …" |
+| L8 | After "not sure" about the equipment, Ava still asked for error codes | Prompt: "not sure" drops the topic and its follow-ups | `vapi-config`: technician intake |
+| L9 | Ava said "Take care", then "Thank you. Goodbye."; the caller asked "Are you gonna hang up?"; the closing cut off at "Take" | The model never says goodbye; it calls `endCall`, whose blocking message is the only goodbye and ends in the only end-call phrase | `vapi-config`: "call endings: …" |
+| L10 | Re-engaged after goodbye; a stray transcribed "2" got "If you meant to press a button…" | Prompt: never start talking again after a goodbye; ignore stray words, numbers or noises. `endCall` ends the call right after the closing line | `vapi-config`: "call endings: …" |
+| L11 | Cut in mid-utterance: "Frustrating. Oh, that's frustrating." while the caller was still talking | LiveKit smart endpointing (conservative curve), 1.5 s after asking for digits, looser fallback values | `vapi-config`: "turn-taking: …" |
+| L12 | Greeting transcribed as "This is Eva" | "Ayva" spelling in the greeting and a TTS replacement; brand respellings; "Ava" and neighborhoods added to keyterms | `vapi-config`: "assistant: greeting, …" |
+
+### Call log (fill in)
 
 Call (347) 719-8328. Fill one row per call. Results are left empty on purpose: only record what was actually heard.
 

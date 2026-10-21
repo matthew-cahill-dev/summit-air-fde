@@ -20,6 +20,11 @@ export const BUSINESS = {
   // ASSUMPTION: residential customers only; commercial properties are declined.
   residentialOnly: true,
 
+  // ASSUMPTION (owner to confirm): Summit Air does NOT refer commercial callers to other
+  // companies. false: decline ("we only service homes"), suggest a commercial HVAC company,
+  // end the call, no callback. true: offer an office callback with referrals.
+  commercialReferrals: false,
+
   // ASSUMPTION: heat season runs Oct 1 through May 31 (NYC heat season).
   // Month is 1-based.
   heatSeason: {

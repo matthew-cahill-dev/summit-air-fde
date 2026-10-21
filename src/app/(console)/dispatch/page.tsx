@@ -1,9 +1,9 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Suspense } from "react";
-import { AlarmClockIcon, ArrowUpRightIcon, CheckCircle2Icon, KeyRoundIcon, LanguagesIcon, MapPinIcon, PhoneIcon } from "lucide-react";
+import { AlarmClockIcon, ArrowUpRightIcon, CheckCircle2Icon, ClockIcon, KeyRoundIcon, LanguagesIcon, MapPinIcon, PhoneIcon } from "lucide-react";
 import { CallbackActions, DispatchActions } from "@/components/console/board-actions";
-import { SeedTag, URGENCY_RAIL, UrgencyBadge, VulnerableList } from "@/components/console/badges";
+import { PropertyBadge, SeedTag, URGENCY_RAIL, UrgencyBadge, VulnerableList } from "@/components/console/badges";
 import { FreshItem, FreshScope } from "@/components/console/live";
 import { EmptyState, ListSkeleton, PageHeader, PhoneLink } from "@/components/console/page";
 import { cn } from "@/lib/utils";
@@ -81,6 +81,7 @@ function BoardCard({ item, now, tz }: { item: BoardItem; now: Date; tz: string }
           <div className="flex flex-wrap items-center gap-2">
             <UrgencyBadge urgency={item.urgency} />
             <span className="font-medium">{item.title}</span>
+            <PropertyBadge property={item.property} />
             <SeedTag show={item.isDemoSeed} />
           </div>
           <div className="space-y-1">
@@ -119,6 +120,12 @@ function BoardCard({ item, now, tz }: { item: BoardItem; now: Date; tz: string }
             <p className="flex items-center gap-1.5 text-muted-foreground">
               <LanguagesIcon className="size-3.5 shrink-0" aria-hidden />
               <span>Call back in {item.language}</span>
+            </p>
+          )}
+          {item.preferredTime && (
+            <p className="flex items-center gap-1.5 text-muted-foreground">
+              <ClockIcon className="size-3.5 shrink-0" aria-hidden />
+              <span>Prefers a call {item.preferredTime}</span>
             </p>
           )}
           {item.notes && <p className="text-muted-foreground text-pretty">{item.notes}</p>}
