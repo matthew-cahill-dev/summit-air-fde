@@ -94,6 +94,8 @@ export interface ToolInvocationRepository {
   latestOkArgs(vapiCallId: string, toolName: string): Promise<Record<string, unknown> | null>;
   /** Whether `toolName` was invoked at all on this call (any outcome). */
   wasInvoked(vapiCallId: string, toolName: string): Promise<boolean>;
+  /** Results of every successful call of `toolName` on this call, oldest first. */
+  okResults(vapiCallId: string, toolName: string): Promise<Record<string, unknown>[]>;
 }
 
 export type EndOfCallReport = {
@@ -143,6 +145,8 @@ export interface DispatchRepository {
   create(input: DispatchInput): Promise<{ id: string }>;
   /** An open dispatch of this urgency already recorded on this call (dedupe). */
   findOpenForCall(vapiCallId: string, urgency: Urgency): Promise<{ id: string } | null>;
+  /** Any safety-stop or emergency dispatch on this call, in any status (post-call reconciliation). */
+  findSafetyOrEmergencyForCall(vapiCallId: string): Promise<{ id: string } | null>;
   /** open → acknowledged. Null when the request isn't open (already acknowledged, resolved or missing). */
   acknowledge(id: string, at: Date): Promise<{ id: string; status: DispatchStatus } | null>;
   /** open or acknowledged → resolved. Null when already resolved or missing. */

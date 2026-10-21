@@ -3,6 +3,7 @@ import { BUSINESS, coverageOf } from "@/config/business";
 import { logEvent } from "@/server/lib/log";
 import { optionalArg } from "@/server/lib/optional-arg";
 import { todayInZone } from "@/server/lib/time";
+import { detectSignals, hasSignals, signalPhrases, type Signals } from "@/server/triage/detect";
 import { ISSUE_TYPES, triageRules, VULNERABLE_OCCUPANTS, type TriageDecision } from "@/server/triage/rules";
 import { defineTool, type ToolContext, type ToolOutcome } from "@/server/vapi/types";
 import { findOfferableSlots, isActiveMember } from "./availability";
@@ -26,6 +27,10 @@ export const triageIssueSchema = z
   indoor_temp_f: optionalArg(z.number().min(-20).max(130)),
   property_type: z.enum(["residential", "commercial"]),
   multi_unit_central_system: optionalArg(z.boolean()),
+  // The caller's own words about the problem and the people at home, near-verbatim. Scanned by a
+  // deterministic matcher (src/server/triage/detect.ts) that can only escalate. Always sent; an
+  // empty string never blocks triage.
+  caller_description: z.string().trim(),
   co_symptoms: optionalArg(z.boolean()),
   medical_emergency: optionalArg(z.boolean()),
   water_near_electrical: optionalArg(z.boolean()),
@@ -41,6 +46,21 @@ export const triageIssueSchema = z
   });
 
 type TriageArgs = z.infer<typeof triageIssueSchema>;
+
+/**
+ * The model's flags, escalated by what the caller actually said: a phrase match forces the flag on
+ * (never off). Eval run 1e753a02: "she's kind of confused and not making sense" came with no
+ * medical_emergency flag and was booked as routine no-AC.
+ */
+export function applySignals(args: TriageArgs, s: Signals): TriageArgs {
+  return {
+    ...args,
+    gas_smell: args.gas_smell || s.gas.length > 0,
+    co_alarm: args.co_alarm || s.co.length > 0,
+    burning_smell_or_smoke: args.burning_smell_or_smoke || s.smoke.length > 0,
+    medical_emergency: args.medical_emergency === true || s.medical.length > 0,
+  };
+}
 
 const SAFETY_SAY =
   "Give the gas and carbon monoxide safety instructions now: leave the home with everyone, don't touch switches or flames, don't use a phone inside, and call 911 from outside. Do not book an appointment. Say clearly that Summit Air has NOT contacted 911, the fire department or the gas utility; the caller must call 911 themselves.";
@@ -92,7 +112,11 @@ async function recordSafetyStop(args: TriageArgs, decision: TriageDecision, ctx:
 
 export const triageIssueTool = defineTool({
   schema: triageIssueSchema,
-  async handler(args, ctx): Promise<ToolOutcome> {
+  async handler(modelArgs, ctx): Promise<ToolOutcome> {
+    const signals = detectSignals(modelArgs.caller_description);
+    const args = applySignals(modelArgs, signals);
+    const detected = hasSignals(signals) ? signalPhrases(signals) : [];
+    if (detected.length) logEvent("triage_signals_detected", { callId: ctx.callId, detected, model_flags_missed: JSON.stringify(args) !== JSON.stringify(modelArgs) });
     // Membership is checked first on every home call; businesses and safety never wait on it.
     const safety = args.gas_smell || args.co_alarm || args.burning_smell_or_smoke || args.co_symptoms || args.medical_emergency;
     if (args.property_type !== "commercial" && !safety) {
@@ -125,9 +149,11 @@ export const triageIssueTool = defineTool({
       area,
       todayInZone(ctx.settings.timeZone, ctx.now),
     );
+    if (detected.length) decision.reasons.push(`Detected in the caller's words: ${detected.join(", ")}`);
     const base = {
       urgency: decision.urgency,
       reasons: decision.reasons,
+      ...(detected.length ? { detected_signals: detected } : {}),
       serviceable: decision.serviceable,
       ...(decision.notServiceableReason ? { not_serviceable_reason: decision.notServiceableReason } : {}),
       in_area: area.inArea,

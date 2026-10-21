@@ -13,6 +13,7 @@ import { defineTool, type ToolContext, type ToolOutcome } from "@/server/vapi/ty
 import { findOfferableSlots, isActiveMember } from "./availability";
 import { intakeRecord, technicianIntakeShape } from "./intake";
 import { requireLookup } from "./lookup-guard";
+import { detectSignals, hasSignals, signalPhrases } from "@/server/triage/detect";
 import { zipSchema } from "./triage-issue";
 
 export const bookAppointmentSchema = z
@@ -119,6 +120,27 @@ export function mergeIntake(prev: Record<string, unknown> | null, next: Record<s
 const strOr = (v: unknown): string | null => (typeof v === "string" && v.trim() ? v : null);
 const strList = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : []);
 
+export const EMERGENCY_NOT_BOOKABLE_SAY =
+  "This is an emergency: tell them to call 911 now if anyone is in danger, then create_priority_dispatch. Don't book an appointment.";
+
+/** A refusal when this call is an emergency or safety stop (by triage, or by the caller's words). */
+async function emergencyOnCall(args: BookArgs, ctx: ToolContext): Promise<ToolOutcome | null> {
+  const triaged = ctx.callId ? await ctx.repos.toolInvocations.okResults(ctx.callId, "triage_issue") : [];
+  const urgent = triaged.find((r) => r.urgency === "emergency" || r.urgency === "safety_stop");
+  const triageSignals = triaged.flatMap((r) => (Array.isArray(r.detected_signals) ? (r.detected_signals as string[]) : []));
+  const ownSignals = detectSignals([args.issue_summary, ...args.symptoms].join(". "));
+  const detected = [...triageSignals, ...(hasSignals(ownSignals) ? signalPhrases(ownSignals) : [])];
+  if (!urgent && detected.length === 0) return null;
+  logEvent("booking_refused_emergency", { callId: ctx.callId, triage_urgency: urgent?.urgency ?? null, detected });
+  return {
+    ok: false,
+    errorCode: "emergency_not_bookable",
+    message: urgent ? `This call was triaged ${String(urgent.urgency).replace("_", " ")}` : `Safety or medical signs: ${detected.join(", ")}`,
+    say: EMERGENCY_NOT_BOOKABLE_SAY,
+    data: { triage_urgency: urgent?.urgency ?? null, detected_signals: detected },
+  };
+}
+
 /** Bronx / Staten Island: never booked; the office confirms coverage first. */
 function coverageCheckOutcome(borough: string | null): ToolOutcome {
   const where = borough ?? "that borough";
@@ -175,6 +197,10 @@ async function alternatives(ctx: ToolContext, args: BookArgs, county: string, cu
 export const bookAppointmentTool = defineTool({
   schema: bookAppointmentSchema,
   async handler(args, ctx): Promise<ToolOutcome> {
+    // Never book an emergency: not after a priority or safety triage on this call, and not when the
+    // booking's own description shows safety or medical signs (eval run 1e753a02 booked heat stroke).
+    const emergency = await emergencyOnCall(args, ctx);
+    if (emergency) return emergency;
     // An unverified booking only after lookup_customer has checked for an account (requirement c).
     if (!args.customer_id) {
       const blocked = await requireLookup(ctx, "book_appointment");

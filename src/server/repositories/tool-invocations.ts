@@ -46,6 +46,15 @@ export function createToolInvocationRepository(db: Db): ToolInvocationRepository
       return Boolean(row);
     },
 
+    async okResults(vapiCallId, toolName) {
+      const rows = await db
+        .select({ result: toolInvocations.result })
+        .from(toolInvocations)
+        .where(and(eq(toolInvocations.vapiCallId, vapiCallId), eq(toolInvocations.toolName, toolName), eq(toolInvocations.ok, true)))
+        .orderBy(toolInvocations.createdAt);
+      return rows.map((r) => (r.result ?? {}) as Record<string, unknown>);
+    },
+
     async latestOkArgs(vapiCallId, toolName) {
       const [row] = await db
         .select({ args: toolInvocations.args })

@@ -86,6 +86,8 @@ export async function callTool(
   // triage_issue and unverified book_appointment require lookup_customer earlier in the call
   // (lookup-guard.ts). Tests of other behavior start from a call where it ran; noLookup opts out.
   if (!opts.noLookup && (name === "triage_issue" || name === "book_appointment")) await recordLookup(callId);
+  // caller_description is a required triage field; tests about other behavior send an empty one.
+  if (name === "triage_issue" && args && typeof args === "object" && !("caller_description" in args)) args = { ...args, caller_description: "" };
   const res = await handleToolsRequest(
     post(
       "/api/vapi/tools",

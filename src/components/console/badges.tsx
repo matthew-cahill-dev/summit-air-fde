@@ -1,4 +1,4 @@
-import { HeartPulseIcon } from "lucide-react";
+import { HeartPulseIcon, ScanSearchIcon } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { URGENCY_LABEL, vulnerableLabel } from "@/server/console/format";
@@ -82,6 +82,19 @@ export function PropertyBadge({ property }: { property: string | null }) {
   return (
     <Badge variant="outline" className={property === "Residential" ? "text-muted-foreground" : "border-foreground/30 font-semibold"}>
       {property}
+    </Badge>
+  );
+}
+
+/** A safety or priority record the system created after the call from the caller's words. */
+export function AutoDetectedBadge() {
+  return (
+    <Badge
+      className="gap-1 bg-safety-soft text-safety-ink ring-1 ring-inset ring-safety/30"
+      title="Created after the call: the transcript showed safety or medical signs and the call had no record"
+    >
+      <ScanSearchIcon className="size-3" aria-hidden />
+      Auto-detected
     </Badge>
   );
 }

@@ -13,6 +13,15 @@ export function createDispatchRepository(db: Db): DispatchRepository {
       return row;
     },
 
+    async findSafetyOrEmergencyForCall(vapiCallId) {
+      const [row] = await db
+        .select({ id: dispatchRequests.id })
+        .from(dispatchRequests)
+        .where(and(eq(dispatchRequests.vapiCallId, vapiCallId), inArray(dispatchRequests.urgency, ["safety_stop", "emergency"])))
+        .limit(1);
+      return row ?? null;
+    },
+
     async findOpenForCall(vapiCallId, urgency) {
       const [row] = await db
         .select({ id: dispatchRequests.id })

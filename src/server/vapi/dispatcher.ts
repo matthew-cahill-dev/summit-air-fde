@@ -54,6 +54,7 @@ const FIELD_NEXT_STEPS: Record<string, string> = {
   slot_id: "Use a slot_id from the offered windows (triage_issue or get_availability); never make one up.",
   customer_id: "Use the customer_id from a verified lookup_customer result, or leave it out for a new caller.",
   address_id: "Use an address_id from a verified lookup_customer result, or pass the address instead.",
+  caller_description: "Call triage_issue again right away with caller_description: the caller's own words about the problem and the people at home.",
 };
 
 /** Turn Zod issues into an error that names each missing/invalid field. */

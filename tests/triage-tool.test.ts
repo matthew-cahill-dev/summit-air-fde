@@ -6,6 +6,7 @@ import { handleToolsRequest } from "@/server/vapi/http";
 import { payloadOf, post, recordLookup, testDb, testDeps, testSettings, toolCallsBody } from "./helpers";
 
 const baseArgs = {
+  caller_description: "",
   issue_type: "maintenance",
   gas_smell: false,
   co_alarm: false,
@@ -77,7 +78,7 @@ describe("triage_issue tool", () => {
       testDeps(),
     );
     const out = payloadOf(((await res.json()) as { results: Array<{ error?: string }> }).results[0]);
-    expect(out.message).toBe("Missing: gas_smell, co_alarm, burning_smell_or_smoke, property_type");
+    expect(out.message).toBe("Missing: gas_smell, co_alarm, burning_smell_or_smoke, property_type, caller_description");
   });
 
   it("the ZIP is required unless it's a safety stop (eval 1b235efa: a gas call sent zip \"\" and no follow-up was recorded)", async () => {

@@ -6,6 +6,7 @@ import type { Repositories } from "@/server/repositories";
 import { defaultCallControlDeps, handlePhoneCallControl, type CallControlDeps } from "./call-control";
 import { handleToolCalls } from "./dispatcher";
 import { describeEnvelopeShape, getMessage } from "./envelope";
+import { reconcileSafety } from "@/server/services/safety-reconcile";
 import { parseEndOfCallReport } from "./events";
 import type { ToolRegistry } from "./registry";
 import type { ToolSettings } from "./types";
@@ -136,6 +137,12 @@ export async function handleEventsRequest(
       callId: report.vapiCallId,
       error: err instanceof Error ? err.message : String(err),
     });
+  }
+  // Last line of defense: safety or medical signs in the caller's words with no record on the call.
+  try {
+    await reconcileSafety(report, deps.repos());
+  } catch (err) {
+    logEvent("safety_reconcile_failed", { callId: report.vapiCallId, error: err instanceof Error ? err.message : String(err) });
   }
   return Response.json({ ok: true });
 }

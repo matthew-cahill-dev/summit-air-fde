@@ -7,6 +7,10 @@
     "parameters": {
       "type": "object",
       "properties": {
+        "caller_description": {
+          "type": "string",
+          "description": "The caller's own words about the problem and the people at home, near-verbatim (e.g. \"AC died this morning, 92 inside, my grandmother is really hot and kind of confused\"). Always include it. The backend scans it for safety and medical signs."
+        },
         "issue_type": {
           "type": "string",
           "enum": [
@@ -94,6 +98,7 @@
         }
       },
       "required": [
+        "caller_description",
         "issue_type",
         "gas_smell",
         "co_alarm",

@@ -23,7 +23,11 @@ What this demo does not do, and the business assumptions the owner must confirm 
 
 **Verification and safety**
 - **Knowledge-based verification** (last name or caller ID + street address) is appropriate for scheduling. It isn't strong authentication, so nothing sensitive (payment, full history) is ever exposed.
-- **Safety triggers depend on the model recognizing them.** Mitigated by the safety question on every call, transcriber keyterms, and a script that works without tools.
+- **Safety triggers depend on the model recognizing them**, so there are three deterministic backstops:
+  - A phrase matcher over the caller's words escalates triage (`caller_description`).
+  - Bookings are refused on emergency calls.
+  - A post-call scan creates an "Auto-detected" safety or priority record when the call made none.
+  - The matcher is deliberately conservative: fixed phrases with negation handling, escalate-only. It can still miss unusual wording, or rarely over-trigger (e.g. "dizzy" said about something else). An over-trigger means an extra record on the board, never a missed one.
 - **Emergency policy is a callback SLA (15 minutes), not a dispatch.** Ava never says a technician is on the way.
 
 **Testing**

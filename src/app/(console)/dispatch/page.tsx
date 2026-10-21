@@ -12,7 +12,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { CallbackActions, DispatchActions, OptimisticCard } from "@/components/console/board-actions";
-import { OutcomeBadge, PropertyBadge, SeedTag, URGENCY_RAIL, UrgencyBadge, VulnerableList } from "@/components/console/badges";
+import { AutoDetectedBadge, OutcomeBadge, PropertyBadge, SeedTag, URGENCY_RAIL, UrgencyBadge, VulnerableList } from "@/components/console/badges";
 import { FreshItem, FreshScope } from "@/components/console/live";
 import { EmptyIllustration, ListSkeleton, PageHeader, PhoneLink } from "@/components/console/page";
 import { SlaClock } from "@/components/console/sla-clock";
@@ -122,6 +122,7 @@ function BoardCard({ item, now, tz }: { item: BoardItem; now: Date; tz: string }
           {(item.urgency || item.kind === "dispatch") && <UrgencyBadge urgency={item.urgency} />}
           {item.coverageCheck && <OutcomeBadge outcome="coverage_check" />}
           <span className="font-semibold">{item.title}</span>
+          {item.autoDetected && <AutoDetectedBadge />}
           <PropertyBadge property={item.property} />
           <SeedTag show={item.isDemoSeed} />
           <span className="tabular ml-auto text-xs text-muted-foreground">Logged {formatTimestamp(item.createdAt, tz, now)}</span>

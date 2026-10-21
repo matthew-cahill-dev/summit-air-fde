@@ -18,7 +18,7 @@ import {
   WrenchIcon,
   type LucideIcon,
 } from "lucide-react";
-import { LiveBadge, OutcomeBadge, PropertyBadge, SeedTag, UrgencyBadge } from "@/components/console/badges";
+import { AutoDetectedBadge, LiveBadge, OutcomeBadge, PropertyBadge, SeedTag, UrgencyBadge } from "@/components/console/badges";
 import { FastPoll } from "@/components/console/live";
 import { PhoneLink } from "@/components/console/page";
 import { OUTCOME_TONE, TONE_CHIP, TONE_FILL } from "@/components/console/tone";
@@ -87,6 +87,7 @@ async function CallDetail({ params }: { params: PageProps<"/calls/[id]">["params
   const messages = await loadCallMessages(vapiCallId);
   const steps = buildSteps(records.invocations);
   const live = summary.status === "in_progress";
+  const autoDetected = records.dispatches.filter((d) => d.intake?.auto_detected === true);
   const startedAt = call.startedAt ?? call.firstActivityAt;
   const duration = formatDuration(call.startedAt, call.endedAt);
   const phone = formatPhone(summary.callerPhone);
@@ -104,6 +105,7 @@ async function CallDetail({ params }: { params: PageProps<"/calls/[id]">["params
               {live && <LiveBadge label="Live call" />}
               {!(live && summary.outcome === "incomplete") && <OutcomeBadge outcome={summary.outcome} status={live ? undefined : summary.status} />}
               {summary.urgency && !(summary.urgency === "safety_stop" && summary.outcome === "safety_stop") && <UrgencyBadge urgency={summary.urgency} />}
+              {autoDetected.length > 0 && <AutoDetectedBadge />}
               <PropertyBadge property={summary.property} />
               <SeedTag show={summary.isDemoSeed} />
             </div>
@@ -126,6 +128,21 @@ async function CallDetail({ params }: { params: PageProps<"/calls/[id]">["params
           </dl>
         </div>
       </section>
+
+      {autoDetected.map((d) => (
+        <section key={d.id} className="flex gap-3 rounded-2xl bg-safety-soft p-4 text-sm ring-1 ring-safety/30" role="note">
+          <TriangleAlertIcon className="mt-0.5 size-4 shrink-0 text-safety-ink" aria-hidden />
+          <div className="space-y-1">
+            <p className="font-semibold text-safety-ink">
+              {d.urgency === "safety_stop" ? "Safety stop" : "Priority dispatch"} created after the call
+            </p>
+            <p className="text-pretty">
+              The caller&apos;s words showed {Array.isArray(d.intake?.detected_signals) ? (d.intake.detected_signals as string[]).join(", ") : "safety signs"}, and the call had
+              no safety record. It&apos;s on the dispatch board: call the customer back.
+            </p>
+          </div>
+        </section>
+      ))}
 
       <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1.45fr)_minmax(0,1fr)]">
         <Panel title="What happened" icon={ClipboardListIcon} aside={`${steps.length} step${steps.length === 1 ? "" : "s"}`}>

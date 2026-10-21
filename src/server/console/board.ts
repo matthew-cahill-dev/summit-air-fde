@@ -44,6 +44,8 @@ export type BoardItem = {
   overdue: boolean;
   vapiCallId: string | null;
   isDemoSeed: boolean;
+  /** Created after the call from the caller's words (post-call safety reconciliation), not by Ava. */
+  autoDetected: boolean;
 };
 
 const str = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : null);
@@ -79,6 +81,7 @@ export function dispatchItem(d: BoardDispatchRow, now: Date): BoardItem {
     overdue: d.status === "open" && ageMs > slaMinutes * 60_000,
     vapiCallId: d.vapiCallId,
     isDemoSeed: d.isDemoSeed,
+    autoDetected: d.intake?.auto_detected === true,
   };
 }
 
@@ -111,6 +114,7 @@ export function callbackItem(c: BoardCallbackRow, now: Date): BoardItem {
     overdue: ageMs > slaMinutes * 60_000,
     vapiCallId: c.vapiCallId,
     isDemoSeed: c.isDemoSeed,
+    autoDetected: false,
   };
 }
 
