@@ -3,7 +3,7 @@
   "async": false,
   "function": {
     "name": "lookup_customer",
-    "description": "Find and VERIFY the caller's Summit Air account. Step 1: call with no arguments (uses caller ID). If it returns verification_required, ask the caller for the service street address and call again with street_address exactly as they said it. If there's no account for the number, ask for last name, ZIP and street address and call with all three. Account details (first name, membership, addresses, equipment, customer_id) are returned only when verified is true. Never read anything back before that.",
+    "description": "Find and VERIFY the caller's Summit Air account. Step 1: right after the safety screen, call with no arguments (uses caller ID). If it returns verification_required, ask where they need service and call again with street_address exactly as they said it. If there's no account for the number and they say they're an existing customer, call with last_name and street_address (zip optional; if the result says ambiguous with needs zip, ask for the ZIP and call again). Account details (first name, membership, addresses with ZIP, equipment, customer_id) are returned only when verified is true. Never read anything back before that.",
     "parameters": {
       "type": "object",
       "properties": {
@@ -17,11 +17,11 @@
         },
         "last_name": {
           "type": "string",
-          "description": "Account holder's last name. Requires zip and street_address."
+          "description": "Account holder's last name. Requires street_address; zip is optional."
         },
         "zip": {
           "type": "string",
-          "description": "5-digit ZIP code of the service address."
+          "description": "5-digit ZIP code of the service address, only if the caller gave it. Omit rather than sending an empty string."
         }
       },
       "required": []

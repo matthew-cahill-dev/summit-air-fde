@@ -47,7 +47,7 @@ export interface CustomerRepository {
   findByLastName(input: {
     lastName: string;
     zip?: string;
-  }): Promise<Array<{ customerId: string; addressId: string; line1: string }>>;
+  }): Promise<Array<{ customerId: string; addressId: string; line1: string; zip: string }>>;
 }
 
 export interface ServiceAreaRepository {

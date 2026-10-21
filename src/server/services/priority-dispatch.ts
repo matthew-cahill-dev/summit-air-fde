@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { BUSINESS } from "@/config/business";
+import { optionalArg } from "@/server/lib/optional-arg";
 import { normalizePhoneE164 } from "@/server/lib/phone";
 import { ISSUE_TYPES, VULNERABLE_OCCUPANTS } from "@/server/triage/rules";
 import { defineTool } from "@/server/vapi/types";
@@ -7,21 +8,21 @@ import { zipSchema } from "./triage-issue";
 
 export const createPriorityDispatchSchema = z.object({
   first_name: z.string().trim().min(1),
-  last_name: z.string().trim().min(1).optional(),
-  phone: z.string().trim().min(1).optional(),
-  customer_id: z.uuid().optional(),
+  last_name: optionalArg(z.string().trim().min(1)),
+  phone: optionalArg(z.string().trim().min(1)),
+  customer_id: optionalArg(z.uuid()),
   address: z.object({
     line1: z.string().trim().min(3),
-    unit: z.string().trim().min(1).optional(),
-    city: z.string().trim().min(1).optional(),
+    unit: optionalArg(z.string().trim().min(1)),
+    city: optionalArg(z.string().trim().min(1)),
     zip: zipSchema,
-    access_notes: z.string().trim().min(1).optional(),
+    access_notes: optionalArg(z.string().trim().min(1)),
   }),
   issue_type: z.enum(ISSUE_TYPES),
   issue_summary: z.string().trim().min(3),
   symptoms: z.array(z.string().trim().min(1)).default([]),
   vulnerable_occupants: z.array(z.enum(VULNERABLE_OCCUPANTS)).default([]),
-  indoor_temp_f: z.number().min(-20).max(130).optional(),
+  indoor_temp_f: optionalArg(z.number().min(-20).max(130)),
   reasons: z.array(z.string().trim().min(1)).min(1),
 });
 

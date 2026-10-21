@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { streetAddressMatches } from "@/server/lib/address-match";
 import { logEvent } from "@/server/lib/log";
+import { optionalArg } from "@/server/lib/optional-arg";
 import { normalizePhoneE164 } from "@/server/lib/phone";
 import { defineTool, type ToolContext, type ToolOutcome } from "@/server/vapi/types";
 import { getCallerContext, restrictToAddresses, verifyCustomerByName, type CallerContext } from "./caller-context";
@@ -12,13 +13,13 @@ export const MAX_FAILED_VERIFICATIONS_PER_CALL = 3;
 
 export const lookupCustomerSchema = z
   .object({
-    phone: z.string().trim().min(1).optional(),
-    street_address: z.string().trim().min(3).optional(),
-    last_name: z.string().trim().min(1).optional(),
-    zip: zipSchema.optional(),
+    phone: optionalArg(z.string().trim().min(1)),
+    street_address: optionalArg(z.string().trim().min(3)),
+    last_name: optionalArg(z.string().trim().min(1)),
+    zip: optionalArg(zipSchema),
   })
   .superRefine((v, ctx) => {
-    if (v.last_name && !v.zip) ctx.addIssue({ code: "custom", path: ["zip"], message: "required with last_name" });
+    // ZIP is optional with last_name: it's derived from the matched address.
     if (v.last_name && !v.street_address) {
       ctx.addIssue({ code: "custom", path: ["street_address"], message: "required with last_name" });
     }
@@ -70,20 +71,23 @@ async function tooManyAttempts(ctx: ToolContext): Promise<boolean> {
 export const lookupCustomerTool = defineTool({
   schema: lookupCustomerSchema,
   async handler(args, ctx): Promise<ToolOutcome> {
-    // Name path: last name + ZIP + caller-stated street.
+    // Name path: last name + caller-stated street (+ ZIP if they gave it).
     if (args.last_name) {
       if (await tooManyAttempts(ctx)) return LOCKED;
       const result = await verifyCustomerByName(
-        { lastName: args.last_name, zip: args.zip!, streetAddress: args.street_address! },
+        { lastName: args.last_name, zip: args.zip, streetAddress: args.street_address! },
         ctx.repos.customers,
       );
-      logEvent("customer_verification", { callId: ctx.callId, path: "name", status: result.status });
+      logEvent("customer_verification", { callId: ctx.callId, path: "name", status: result.status, zip_given: Boolean(args.zip) });
       if (result.status === "verified") return { ok: true, data: verifiedPayload(result.context), say: VERIFIED_SAY };
       if (result.status === "ambiguous") {
         return {
           ok: true,
-          data: { found: false, verified: false, ambiguous: true },
-          say: "Couldn't verify from that alone. Ask for the phone number on the account and look up with phone and street_address.",
+          data: { found: false, verified: false, ambiguous: true, needs: result.needs },
+          say:
+            result.needs === "zip"
+              ? "Couldn't verify from that alone. Ask for the ZIP code and call lookup_customer again with last_name, street_address and zip."
+              : "Couldn't verify from that alone. Ask for the phone number on the account and look up with phone and street_address.",
         };
       }
       return UNVERIFIED;
@@ -92,11 +96,11 @@ export const lookupCustomerTool = defineTool({
     // Phone path: caller ID (or a stated account number), then the caller's street.
     const raw = args.phone ?? ctx.callerPhone;
     if (!raw) {
+      // Not an error: a withheld number is normal, and the prompt treats ok:false as a backend failure.
       return {
-        ok: false,
-        errorCode: "missing_phone",
-        message: "No phone number provided and caller ID is unavailable.",
-        say: "Ask for the phone number on their account, or their last name, ZIP code and street address.",
+        ok: true,
+        data: { found: false, verified: false, caller_id_unavailable: true },
+        say: "Caller ID isn't available. Ask where they need service; if they say they're an existing customer, look up with their last name and street_address.",
       };
     }
     const phoneE164 = normalizePhoneE164(raw);
@@ -118,7 +122,7 @@ export const lookupCustomerTool = defineTool({
       return {
         ok: true,
         data: { found: false, verified: false },
-        say: "No account for this number. Ask if the account might be under another phone number, or their last name, ZIP code and street address. Otherwise treat them as a new customer.",
+        say: "No account for this number. Ask if the account might be under another phone number, or for their last name and street address. Otherwise treat them as a new customer.",
       };
     }
     if (!args.street_address) {

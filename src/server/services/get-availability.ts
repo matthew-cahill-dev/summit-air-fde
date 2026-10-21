@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { BUSINESS } from "@/config/business";
+import { optionalArg } from "@/server/lib/optional-arg";
 import { defineTool } from "@/server/vapi/types";
 import { findOfferableSlots, isActiveMember } from "./availability";
 import { preferredWindowSchema, zipSchema } from "./triage-issue";
@@ -7,10 +8,10 @@ import { preferredWindowSchema, zipSchema } from "./triage-issue";
 export const getAvailabilitySchema = z.object({
   zip: zipSchema,
   urgency: z.enum(["urgent", "routine"]),
-  preferred_window: preferredWindowSchema.optional(),
-  preferred_day: z.enum(["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]).optional(),
-  after: z.iso.datetime({ offset: true }).optional(),
-  customer_id: z.uuid().optional(),
+  preferred_window: optionalArg(preferredWindowSchema),
+  preferred_day: optionalArg(z.enum(["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"])),
+  after: optionalArg(z.iso.datetime({ offset: true })),
+  customer_id: optionalArg(z.uuid()),
 });
 
 export const getAvailabilityTool = defineTool({

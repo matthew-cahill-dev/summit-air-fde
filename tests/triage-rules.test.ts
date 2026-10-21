@@ -37,7 +37,10 @@ describe("triageRules", () => {
     // no heat: urgent / routine
     ["no heat 56°F in winter", { issueType: "no_heat", indoorTempF: 56 }, WINTER, "urgent", "book_earliest"],
     ["no heat 56°F in summer", { issueType: "no_heat", indoorTempF: 56 }, SUMMER, "routine", "book_standard"],
-    ["no heat, vulnerable, out of season, 60°F", { issueType: "no_heat", vulnerableOccupants: ["infant"], indoorTempF: 60 }, SUMMER, "routine", "book_standard"],
+    ["no heat, vulnerable, out of season, 60°F", { issueType: "no_heat", vulnerableOccupants: ["infant"], indoorTempF: 60 }, SUMMER, "urgent", "book_earliest"],
+    ["no heat, elderly, out of season", { issueType: "no_heat", vulnerableOccupants: ["elderly"] }, SUMMER, "urgent", "book_earliest"],
+    ["no heat, pregnant, out of season", { issueType: "no_heat", vulnerableOccupants: ["pregnant"] }, d(6, 1), "urgent", "book_earliest"],
+    ["no heat, no vulnerable, out of season", { issueType: "no_heat" }, SUMMER, "routine", "book_standard"],
 
     // heat season edges
     ["no heat on Oct 1", { issueType: "no_heat" }, d(10, 1), "urgent", "book_earliest"],
@@ -49,7 +52,11 @@ describe("triageRules", () => {
     // no cooling
     ["no cooling, summer, medical condition", { issueType: "no_cooling", vulnerableOccupants: ["medical_condition"] }, SUMMER, "emergency", "priority_dispatch"],
     ["no cooling, winter, medical equipment, 85°F (boundary)", { issueType: "no_cooling", vulnerableOccupants: ["medical_equipment"], indoorTempF: 85 }, WINTER, "emergency", "priority_dispatch"],
-    ["no cooling, winter, elderly, 84°F", { issueType: "no_cooling", vulnerableOccupants: ["elderly"], indoorTempF: 84 }, WINTER, "routine", "book_standard"],
+    ["no cooling, winter, elderly, 84°F", { issueType: "no_cooling", vulnerableOccupants: ["elderly"], indoorTempF: 84 }, WINTER, "urgent", "book_earliest"],
+    ["no cooling, winter, medical condition, no temp", { issueType: "no_cooling", vulnerableOccupants: ["medical_condition"] }, WINTER, "urgent", "book_earliest"],
+    ["no cooling, Oct 1, elderly", { issueType: "no_cooling", vulnerableOccupants: ["elderly"] }, d(10, 1), "urgent", "book_earliest"],
+    ["no cooling, winter, disability (not medical), 90°F", { issueType: "no_cooling", vulnerableOccupants: ["disability"], indoorTempF: 90 }, WINTER, "urgent", "book_earliest"],
+    ["no cooling, winter, no vulnerable, 90°F", { issueType: "no_cooling", indoorTempF: 90 }, WINTER, "routine", "book_standard"],
     ["no cooling, summer, pregnant only (not medical)", { issueType: "no_cooling", vulnerableOccupants: ["pregnant"] }, SUMMER, "urgent", "book_earliest"],
     ["no cooling, summer, 85°F, no vulnerable", { issueType: "no_cooling", indoorTempF: 85 }, SUMMER, "urgent", "book_earliest"],
     ["no cooling on Jun 1", { issueType: "no_cooling" }, d(6, 1), "urgent", "book_earliest"],
@@ -91,6 +98,15 @@ describe("triageRules", () => {
     expect(triageRules(flags({ issueType: "no_heat", vulnerableOccupants: ["elderly", "medical_equipment"], indoorTempF: 52 }), IN_AREA, WINTER).reasons).toEqual([
       "No heat during heat season (Oct 1 to May 31) with vulnerable occupants: elderly, medical equipment",
       "No heat with indoor temperature 52°F (at or below 55°F)",
+    ]);
+    expect(triageRules(flags({ issueType: "no_cooling", vulnerableOccupants: ["elderly"] }), IN_AREA, WINTER).reasons).toEqual([
+      "No cooling with vulnerable occupants: elderly (urgent in any season)",
+    ]);
+    expect(triageRules(flags({ issueType: "no_cooling", vulnerableOccupants: ["pregnant"] }), IN_AREA, SUMMER).reasons).toEqual([
+      "No cooling with vulnerable occupants: pregnant, during cooling season (Jun 1 to Sep 30)",
+    ]);
+    expect(triageRules(flags({ issueType: "no_heat", vulnerableOccupants: ["medical_condition"] }), IN_AREA, SUMMER).reasons).toEqual([
+      "No heat outside heat season with vulnerable occupants: medical condition",
     ]);
     expect(triageRules(flags({ gasSmell: true, coAlarm: true }), IN_AREA, WINTER).reasons).toEqual([
       "Caller reports a gas smell",

@@ -46,8 +46,8 @@ export const BUSINESS = {
     // vulnerability) is an emergency even outside cooling season.
     noCoolingEmergencyMinIndoorTempF: 85,
     // ASSUMPTION: occupants at high risk of heat illness (CDC high-risk groups) count as a
-    // "medical vulnerability" for the no-cooling emergency rule. Pregnancy and disability
-    // alone don't; those calls are urgent in cooling season.
+    // "medical vulnerability" for the no-cooling EMERGENCY rule. Pregnancy and disability
+    // alone don't. Any vulnerable occupant still makes no cooling at least urgent in any season.
     coolingMedicalVulnerabilities: [
       "elderly",
       "infant",

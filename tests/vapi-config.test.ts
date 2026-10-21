@@ -2,7 +2,9 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
+import { bookAppointmentSchema } from "@/server/services/book-appointment";
 import { TOOL_REGISTRY } from "@/server/vapi/registry";
+import { nonStringEnumPaths, vapiParameters, type JsonSchemaNode } from "@/vapi-sync/parameters";
 import {
   buildDesiredAssistant,
   buildDesiredTools,
@@ -22,19 +24,22 @@ const assistantFile = JSON.parse(readFileSync(join(VAPI_DIR, "assistant.json"), 
 
 const ENV: SyncEnv = { APP_URL: "https://summit.example.app/", VAPI_CREDENTIAL_ID: "cred-123", APP_TIMEZONE: "America/New_York" };
 
-type Schema = { type?: string; properties?: Record<string, Schema>; required?: string[]; enum?: unknown[]; items?: Schema };
+type Schema = JsonSchemaNode;
 
-/** Compare the parts of a JSON schema the model relies on: property names, required, enums, nesting. */
+/** Compare the parts of a JSON schema the model relies on: property names, types, required, enums, nesting. */
 function shape(s: Schema | undefined): unknown {
   if (!s) return null;
+  // Zod emits "integer" for z.number().int(); either is fine for Vapi.
+  const type = s.type === "integer" ? "number" : (s.type ?? null);
   if (s.properties) {
     return {
+      type,
       props: Object.fromEntries(Object.entries(s.properties).map(([k, v]) => [k, shape(v)])),
       required: [...(s.required ?? [])].sort(),
     };
   }
-  if (s.items) return { items: shape(s.items) };
-  return s.enum && typeof s.enum[0] === "string" ? { enum: [...s.enum].sort() } : null;
+  if (s.items) return { type, items: shape(s.items) };
+  return { type, enum: s.enum ? [...s.enum].sort() : null };
 }
 
 describe("vapi/tools/*.json", () => {
@@ -46,9 +51,32 @@ describe("vapi/tools/*.json", () => {
 
   it.each(Object.keys(TOOL_REGISTRY))("%s parameters match the server's Zod schema", (name) => {
     const file = functionTools.find((t) => toolName(t) === name)!;
-    const fromZod = z.toJSONSchema(TOOL_REGISTRY[name].schema, { io: "input", unrepresentable: "any" }) as Schema;
+    const fromZod = vapiParameters(TOOL_REGISTRY[name].schema);
     const fromFile = (file.function as { parameters: Schema }).parameters;
     expect(shape(fromFile)).toEqual(shape(fromZod));
+  });
+
+  it.each(functionTools.map((t) => [toolName(t), t] as const))("%s has only string enums (Vapi rejects others)", (_name, t) => {
+    expect(nonStringEnumPaths((t.function as { parameters: Schema }).parameters)).toEqual([]);
+  });
+
+  it("z.literal(true) is sent to Vapi as a plain boolean; the server still enforces true", () => {
+    expect(z.toJSONSchema(z.literal(true))).toMatchObject({ type: "boolean", const: true });
+    const params = vapiParameters(bookAppointmentSchema);
+    expect(params.properties!.caller_confirmed).toEqual({ type: "boolean" });
+    expect(nonStringEnumPaths(params)).toEqual([]);
+    const file = functionTools.find((t) => toolName(t) === "book_appointment")!;
+    const fileField = (file.function as { parameters: Schema }).parameters.properties!.caller_confirmed;
+    expect(fileField).toEqual({ type: "boolean", description: expect.any(String) });
+
+    const base = bookAppointmentSchema.safeParse({ caller_confirmed: false });
+    expect(base.success).toBe(false);
+    expect(base.error!.issues.find((i) => i.path[0] === "caller_confirmed")?.message).toContain("must be true");
+  });
+
+  it("string literals and enums are kept as string enums", () => {
+    const params = vapiParameters(z.object({ a: z.literal("x"), b: z.enum(["p", "q"]), c: z.literal(3) }));
+    expect(params.properties).toEqual({ a: { type: "string", enum: ["x"] }, b: { type: "string", enum: ["p", "q"] }, c: { type: "number" } });
   });
 
   it.each(toolFiles.map((t) => [toolName(t), t] as const))("%s has request-start filler and no secrets", (_name, t) => {
@@ -120,6 +148,50 @@ describe("identity rules in the prompt", () => {
     expect(p).toContain("Never read back, hint at, or confirm any stored name, address, membership or equipment before verified is true");
     expect(p).not.toMatch(/I have you at/);
     expect(assistantFile.firstMessage).not.toMatch(/\{\{/);
+  });
+});
+
+describe("persona, call flow and failure handling (live-call fixes)", () => {
+  const p = renderSystemPrompt(template, { transferAvailable: false, timeZone: "America/New_York" });
+
+  it("Ava persona: warm, contractions, no parroting, says she's an AI", () => {
+    expect(p).toContain("You are Ava, Summit Air's virtual assistant");
+    expect(p).toMatch(/You're an AI\. If anyone asks whether you're a real person, say so plainly/);
+    expect(p).toContain("Use contractions");
+    expect(p).toContain("Never parrot the caller's words back");
+    expect(p).toContain("Oh no, sorry to hear that. Before anything else, do you smell gas, or is a carbon monoxide alarm going off?");
+  });
+
+  it("lookup_customer (caller ID) comes right after the safety screen, before location", () => {
+    const safety = p.indexOf("2. Safety screen");
+    const lookup = p.indexOf("3. Right after the safety screen, before asking where they are or anything else, call lookup_customer with no arguments");
+    const location = p.indexOf("5. Location.");
+    expect(safety).toBeGreaterThan(0);
+    expect(lookup).toBeGreaterThan(safety);
+    expect(location).toBeGreaterThan(lookup);
+    expect(p).toContain("if they give a street address instead of a ZIP, accept that and don't push for the ZIP first");
+  });
+
+  it("empty results, 'No result returned' and any error are failures → apologize once, then a callback", () => {
+    expect(p).toContain('an empty result, "No result returned", a timeout, an error message of any kind');
+    expect(p).toContain("Treat it as a failure even if it's labeled as completed successfully");
+    expect(p).toContain("apologize once");
+    expect(p).toContain("call create_callback_request with reason backend_failure");
+    expect(p).toContain("don't try a different way to look them up");
+  });
+
+  it("assistant: greeting, temperature, voice settings and keyterms", () => {
+    expect(assistantFile.firstMessage).toBe("Hi, thanks for calling Summit Air! This is Ava, the virtual assistant. What's going on today?");
+    expect((assistantFile.model as JsonObject).temperature).toBe(0.5);
+    const voice = assistantFile.voice as JsonObject;
+    expect(voice.provider).toEqual(expect.any(String));
+    expect(voice.voiceId).toEqual(expect.any(String));
+    expect(voice).not.toHaveProperty("fillerInjectionEnabled"); // removed from Vapi's API
+    expect(((voice.chunkPlan as JsonObject).punctuationBoundaries as string[])).not.toContain(",");
+    const keyterm = (assistantFile.transcriber as JsonObject).keyterm as string[];
+    for (const t of ["AC", "A/C", "air conditioner", "no heat", "no AC"]) expect(keyterm).toContain(t);
+    expect(keyterm.length).toBeLessThanOrEqual(100); // Deepgram's limit
+    expect(new Set(keyterm).size).toBe(keyterm.length);
   });
 });
 

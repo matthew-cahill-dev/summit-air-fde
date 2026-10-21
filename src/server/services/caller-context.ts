@@ -139,7 +139,8 @@ export async function getCallerContext(
 
 export type NameLookup =
   | { status: "unverified" }
-  | { status: "ambiguous" }
+  /** needs: what would tell the matches apart (ZIP when it wasn't given, else the account phone). */
+  | { status: "ambiguous"; needs: "zip" | "phone" }
   | { status: "verified"; context: Extract<CallerContext, { found: true }> };
 
 /** Keep only the addresses the caller stated; recompute the equipment summary for them. */
@@ -159,20 +160,24 @@ export function restrictToAddresses(
 }
 
 /**
- * Last name + ZIP + the street address the CALLER states. The caller is verified
- * only if exactly one customer has that name, ZIP and street. Not-found and
- * mismatch look identical ("unverified") so the tool can't be used to probe
- * which addresses exist.
+ * Last name + the street address the CALLER states, ZIP optional. The caller is
+ * verified only if exactly one customer address matches name and street (and ZIP,
+ * if given); the ZIP is then taken from that address. Several matches are
+ * "ambiguous" (ask for the ZIP, or the account phone if the ZIP was already given).
+ * Not-found and mismatch look identical ("unverified") so the tool can't be used
+ * to probe which addresses exist.
  */
 export async function verifyCustomerByName(
-  input: { lastName: string; zip: string; streetAddress: string },
+  input: { lastName: string; zip?: string; streetAddress: string },
   repo: CustomerRepository,
 ): Promise<NameLookup> {
   const rows = await repo.findByLastName({ lastName: input.lastName, zip: input.zip });
   const matches = rows.filter((r) => streetAddressMatches(input.streetAddress, r.line1));
   const customerIds = [...new Set(matches.map((m) => m.customerId))];
   if (customerIds.length === 0) return { status: "unverified" };
-  if (customerIds.length > 1) return { status: "ambiguous" };
+  // Without a ZIP, the same street in two places is ambiguous even for one customer.
+  if (!input.zip && new Set(matches.map((m) => m.zip)).size > 1) return { status: "ambiguous", needs: "zip" };
+  if (customerIds.length > 1) return { status: "ambiguous", needs: input.zip ? "phone" : "zip" };
 
   const [customerId] = customerIds;
   const context = buildCallerContext("", await repo.findCallerContextByCustomerId(customerId), { matchedBy: "name", customerId });

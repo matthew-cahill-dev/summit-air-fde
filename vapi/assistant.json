@@ -1,22 +1,24 @@
 {
   "_comments": {
     "_": "Keys starting with _ are stripped by scripts/sync-vapi.ts. ${VAR} placeholders are filled at sync time; {{...}} / {% %} are Vapi Liquid.",
-    "model": "Starts from the Balanced preset's model tier: gpt-4.1. Latency tuning: gpt-4.1-mini (faster, weaker at multi-step tool use; try it once the scenario tests pass), gpt-4o-mini (fastest/cheapest, least reliable with 8 tools). Pin a dated snapshot (e.g. gpt-4.1-2025-04-14) to avoid silent model updates.",
-    "transcriber": "Deepgram nova-3 uses keyterm (plain phrases, no boosts). Deepgram suggests 20-50 key terms; 500 tokens max. For lower end-of-turn latency try model flux-general-en.",
-    "voice": "Vapi native voice. The Balanced preset's exact voice isn't documented; swap provider/voiceId freely (e.g. cartesia sonic-3, 11labs).",
+    "model": "Starts from the Balanced preset's model tier: gpt-4.1. Latency tuning: gpt-4.1-mini (faster, weaker at multi-step tool use; try it once the scenario tests pass), gpt-4o-mini (fastest/cheapest, least reliable with 8 tools). Pin a dated snapshot (e.g. gpt-4.1-2025-04-14) to avoid silent model updates. Temperature 0.5 (Vapi's default) for a warmer, less repetitive delivery; tool-call accuracy comes from the backend rules, not low temperature.",
+    "transcriber": "Deepgram nova-3 uses keyterm (plain phrases, no boosts; case and punctuation are kept, so 'A/C' is sent as-is). Deepgram allows up to 100 terms / 500 tokens and suggests the most important 20-50; prune place and brand names first if accuracy drops. For lower end-of-turn latency try model flux-general-en.",
+    "voice": "Provider and voiceId are a placeholder until the owner picks one (see README 'Voice options'). Vapi voices: version '2' is the newer, more natural model (Emma, Clara, Savannah support it). speed is 0.25-2 for Vapi. chunkPlan: TTS gets whole sentences (no comma boundaries) so speech doesn't sound choppy; minCharacters 30 is Vapi's default. fillerInjectionEnabled no longer exists in Vapi's API, so it isn't set.",
     "startSpeakingPlan": "onNumberSeconds is longer so callers can pause while reading phone numbers, ZIPs and Queens house numbers without being cut off. Lower waitSeconds (0.4) for snappier turns.",
     "stopSpeakingPlan": "numWords 2 means 'uh-huh' doesn't interrupt the assistant; a real interruption of 2+ words does.",
     "hooks": "Idle messages via customer.speech.timeout hooks (replaces the older messagePlan.idleMessages).",
     "analysisPlan": "Deprecated in the API but still works; feeds message.analysis.summary into our calls table. Migrate to structured outputs later.",
-    "firstMessage": "Never personalized: callers aren't verified at greeting time. assistant-request (ASSISTANT_REQUEST_ENABLED) only sets caller_recognized, used by the prompt."
+    "firstMessage": "Never personalized: callers aren't verified at greeting time. assistant-request (ASSISTANT_REQUEST_ENABLED) only sets caller_recognized, used by the prompt. Vapi has no first-message delay for inbound calls (checked Oct 2026), so the opening words 'Hi, thanks for calling' are deliberately skippable if the line clips them.",
+    "firstMessageInterruptionsEnabled": "false (Vapi's default): the caller's 'hello?' while the line connects doesn't cut the greeting off."
   },
   "name": "Summit Air Virtual Assistant",
   "firstMessageMode": "assistant-speaks-first",
-  "firstMessage": "Thanks for calling Summit Air. This is the virtual assistant. How can I help today?",
+  "firstMessage": "Hi, thanks for calling Summit Air! This is Ava, the virtual assistant. What's going on today?",
+  "firstMessageInterruptionsEnabled": false,
   "model": {
     "provider": "openai",
     "model": "gpt-4.1",
-    "temperature": 0.3,
+    "temperature": 0.5,
     "maxTokens": 300,
     "messages": [
       {
@@ -33,7 +35,19 @@
   },
   "voice": {
     "provider": "vapi",
-    "voiceId": "Elliot"
+    "voiceId": "Emma",
+    "version": "2",
+    "speed": 1.0,
+    "chunkPlan": {
+      "enabled": true,
+      "minCharacters": 30,
+      "punctuationBoundaries": [
+        ".",
+        "!",
+        "?",
+        ";"
+      ]
+    }
   },
   "transcriber": {
     "provider": "deepgram",
@@ -43,6 +57,11 @@
       "Summit Air",
       "Comfort Club",
       "Comfort Club Plus",
+      "AC",
+      "A/C",
+      "air conditioner",
+      "no heat",
+      "no AC",
       "furnace",
       "boiler",
       "heat pump",

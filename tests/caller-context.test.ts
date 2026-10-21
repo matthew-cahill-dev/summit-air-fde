@@ -1,8 +1,10 @@
 import { randomUUID } from "node:crypto";
+import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
+import { customers, serviceAddresses } from "@/server/db/schema";
 import { buildCallerContext, getCallerContext } from "@/server/services/caller-context";
 import { handleToolsRequest } from "@/server/vapi/http";
-import { payloadOf, post, testDeps, testRepos, testSettings, toolCallsBody } from "./helpers";
+import { payloadOf, post, testDb, testDeps, testRepos, testSettings, toolCallsBody } from "./helpers";
 
 describe("getCallerContext (real DB)", () => {
   it("active member with equipment", async () => {
@@ -114,8 +116,8 @@ describe("lookup_customer tool (identity verification)", () => {
       expect(await lookup({}, "+17185550188")).toMatchObject({ ok: true, found: false, verified: false });
     });
 
-    it("errors when no phone and no caller ID", async () => {
-      expect(await lookup({})).toMatchObject({ ok: false, error_code: "missing_phone" });
+    it("no phone and no caller ID is a normal not-found, not an error (the prompt treats errors as outages)", async () => {
+      expect(await lookup({})).toMatchObject({ ok: true, found: false, verified: false, caller_id_unavailable: true });
     });
 
     it("errors with the field name when the phone is invalid", async () => {
@@ -146,9 +148,64 @@ describe("lookup_customer tool (identity verification)", () => {
       expectNoDisclosure(unknownName);
     });
 
-    it("requires zip and street_address with last_name, naming the fields", async () => {
+    it("requires street_address with last_name, naming the field", async () => {
       const out = await lookup({ last_name: "Quillfeather" });
-      expect(out).toMatchObject({ ok: false, error_code: "invalid_arguments", message: "Missing: zip, street_address" });
+      expect(out).toMatchObject({ ok: false, error_code: "invalid_arguments", message: "Missing: street_address" });
+    });
+  });
+
+  describe("by last name + caller-stated street, ZIP omitted", () => {
+    it("verifies and derives the ZIP from the matched address", async () => {
+      const out = await lookup({ last_name: "Marlowe-Venn", street_address: "37 12 80 second Street" });
+      expect(out).toMatchObject({
+        verified: true,
+        matched_by: "name",
+        first_name: "Priya",
+        addresses: [expect.objectContaining({ line1: "37-12 82nd St", zip: "11372" })],
+      });
+    });
+
+    it("a shared last name is still settled by the street", async () => {
+      expect(await lookup({ last_name: "quillfeather", street_address: "four twelve seventh avenue" })).toMatchObject({ verified: true, first_name: "Dana" });
+      expect(await lookup({ last_name: "Quillfeather", street_address: "211 Prospect Park West" })).toMatchObject({ verified: true, first_name: "Morgan" });
+    });
+
+    it("wrong street without ZIP looks identical to an unknown name", async () => {
+      const wrongStreet = await lookup({ last_name: "Marlowe-Venn", street_address: "37-14 82nd St" });
+      const unknownName = await lookup({ last_name: "Nobody", street_address: "37-12 82nd St" });
+      expect(wrongStreet).toEqual(unknownName);
+      expect(wrongStreet).toMatchObject({ verified: false, verification_failed: true });
+      expectNoDisclosure(wrongStreet);
+    });
+
+    it("same name and street in two ZIPs is ambiguous until the caller gives the ZIP", async () => {
+      // A second (fictional) Quillfeather at "412 Seventh Ave" in another Brooklyn ZIP.
+      const db = testDb();
+      const [twin] = await db
+        .insert(customers)
+        .values({ firstName: "Robin", lastName: "Quillfeather", phoneE164: "+17185550177", email: null })
+        .returning({ id: customers.id });
+      await db.insert(serviceAddresses).values({ customerId: twin.id, line1: "412 7th Ave", city: "Brooklyn", zip: "11238", county: "Kings" });
+      try {
+        const ambiguous = await lookup({ last_name: "Quillfeather", street_address: "412 Seventh Avenue" });
+        expect(ambiguous).toEqual({ ok: true, found: false, verified: false, ambiguous: true, needs: "zip", say: expect.stringContaining("ZIP") });
+        expect(JSON.stringify(ambiguous)).not.toMatch(/Dana|Robin|11215|11238/);
+
+        expect(await lookup({ last_name: "Quillfeather", street_address: "412 Seventh Avenue", zip: "11215" })).toMatchObject({ verified: true, first_name: "Dana" });
+        expect(await lookup({ last_name: "Quillfeather", street_address: "412 Seventh Avenue", zip: "11238" })).toMatchObject({ verified: true, first_name: "Robin" });
+      } finally {
+        await db.delete(customers).where(eq(customers.id, twin.id));
+      }
+    });
+
+    it("failed name lookups without ZIP count toward the per-call lockout", async () => {
+      const callId = `call-${randomUUID()}`;
+      for (const street of ["1 Main St", "2 Main St", "3 Main St"]) {
+        expect(await lookup({ last_name: "Marlowe-Venn", street_address: street }, undefined, { callId })).toMatchObject({ verification_failed: true });
+      }
+      const out = await lookup({ last_name: "Marlowe-Venn", street_address: "37-12 82nd St" }, undefined, { callId });
+      expect(out).toMatchObject({ verified: false, verification_locked: true });
+      expectNoDisclosure(out);
     });
   });
 

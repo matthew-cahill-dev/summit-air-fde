@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { BUSINESS } from "@/config/business";
 import { logEvent } from "@/server/lib/log";
+import { optionalArg } from "@/server/lib/optional-arg";
 import { normalizePhoneE164 } from "@/server/lib/phone";
 import { spokenWindow } from "@/server/lib/time";
 import type { BookingAddress, CustomerRow } from "@/server/repositories";
@@ -15,26 +16,26 @@ export const bookAppointmentSchema = z
   .object({
     slot_id: z.uuid(),
     caller_confirmed: z.literal(true, { error: "must be true: read back the booking and get the caller's yes first" }),
-    customer_id: z.uuid().optional(),
+    customer_id: optionalArg(z.uuid()),
     first_name: z.string().trim().min(1),
     last_name: z.string().trim().min(1),
-    phone: z.string().trim().min(1).optional(),
-    email: z.email().optional(),
-    address_id: z.uuid().optional(),
-    address: z
-      .object({
+    phone: optionalArg(z.string().trim().min(1)),
+    email: optionalArg(z.email()),
+    address_id: optionalArg(z.uuid()),
+    address: optionalArg(
+      z.object({
         line1: z.string().trim().min(3),
-        unit: z.string().trim().min(1).optional(),
-        city: z.string().trim().min(1).optional(),
+        unit: optionalArg(z.string().trim().min(1)),
+        city: optionalArg(z.string().trim().min(1)),
         zip: zipSchema,
-      })
-      .optional(),
+      }),
+    ),
     service_type: z.enum(["maintenance", "repair", "diagnostic"]),
     urgency: z.enum(["urgent", "routine"]),
     issue_summary: z.string().trim().min(3),
     symptoms: z.array(z.string().trim().min(1)).default([]),
-    equipment: z.string().trim().min(1).optional(),
-    access_notes: z.string().trim().min(1).optional(),
+    equipment: optionalArg(z.string().trim().min(1)),
+    access_notes: optionalArg(z.string().trim().min(1)),
     vulnerable_occupants: z.array(z.enum(VULNERABLE_OCCUPANTS)).default([]),
   })
   .superRefine((v, ctx) => {

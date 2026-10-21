@@ -1,6 +1,8 @@
 // Compare a caller-stated street address with one on file, tolerating how
 // people say NYC addresses: "thirty-seven twelve eighty-second street" = "37-12 82nd St",
 // "four twelve seventh avenue" = "412 Seventh Ave", "one oh eight twenty" = "108-20".
+// Also the mixed digits-and-words form speech-to-text produces: Deepgram heard
+// 37-12 82nd St as "37 12 80 second Street", so "80 second" = 82nd, "20 first" = 21st.
 // Pure; used for identity verification, so it errs on the side of "no match".
 
 const UNITS: Record<string, number> = {
@@ -36,11 +38,10 @@ export function normalizeStreetAddress(input: string): NormalizedAddress {
   let s = input.toLowerCase().split(",")[0];
   const unitAt = s.search(UNIT_MARKERS);
   if (unitAt > 0) s = s.slice(0, unitAt);
-  const tokens = s
+  const rawTokens = s
     .replace(/[^a-z0-9\s-]/g, " ")
     .split(/[\s-]+/)
-    .filter(Boolean)
-    .map((t) => t.replace(/^(\d+)(st|nd|rd|th)$/, "$1"));
+    .filter(Boolean);
 
   const numbers: string[] = [];
   const words: string[] = [];
@@ -57,8 +58,17 @@ export function normalizeStreetAddress(input: string): NormalizedAddress {
   };
   const openAfterHundred = () => g.cur !== null && g.hasHundred && !g.hasTens && !g.hasUnit;
 
-  for (const t of tokens) {
-    if (/^\d+$/.test(t)) {
+  for (const raw of rawTokens) {
+    const ordinalDigit = /^[1-9](st|nd|rd|th)$/.test(raw);
+    const t = raw.replace(/^(\d+)(st|nd|rd|th)$/, "$1");
+    if (ordinalDigit && g.cur !== null && g.hasTens && !g.hasUnit && g.cur % 10 === 0) {
+      // "80 2nd" = 82nd.
+      g.cur += Number(t);
+      g.hasUnit = true;
+    } else if (/^[2-9]0$/.test(t)) {
+      // A spoken-style tens ("80") stays open so a following "second" / "2nd" joins it.
+      start(Number(t), true, false);
+    } else if (/^\d+$/.test(t)) {
       flush();
       numbers.push(t);
     } else if (ZERO.has(t)) {

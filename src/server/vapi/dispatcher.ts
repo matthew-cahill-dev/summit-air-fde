@@ -77,6 +77,30 @@ const INTERNAL_ERROR: ToolOutcome = {
 
 type CallInfo = { callId: string | null; callerPhone: string | null };
 
+/**
+ * Wrap every repository method so its elapsed time is added to `clock.dbMs`. This splits
+ * a slow tool call into database time vs everything else (e.g. a cold production DB).
+ * Concurrent queries inside one handler are summed, so db_ms can exceed handler_ms.
+ */
+export function timedRepositories(repos: Repositories, clock: { dbMs: number }): Repositories {
+  const wrap = <T extends object>(repo: T): T =>
+    new Proxy(repo, {
+      get(target, prop, receiver) {
+        const value = Reflect.get(target, prop, receiver);
+        if (typeof value !== "function") return value;
+        return async (...args: unknown[]) => {
+          const started = performance.now();
+          try {
+            return await value.apply(target, args);
+          } finally {
+            clock.dbMs += performance.now() - started;
+          }
+        };
+      },
+    });
+  return Object.fromEntries(Object.entries(repos).map(([k, r]) => [k, wrap(r)])) as Repositories;
+}
+
 async function runTool(call: ParsedToolCall, ctx: CallInfo, deps: DispatchDeps) {
   const def = Object.hasOwn(deps.registry, call.name) ? deps.registry[call.name] : undefined;
   if (!def) {
@@ -127,28 +151,39 @@ async function invokeOne(
     ? idempotencyKey(ctx.callId, call.name, argsForKey)
     : `no-call:${call.toolCallId}:${call.name}:${sha256Hex(canonicalJSON(argsForKey))}`;
 
+  const ms = (from: number) => Math.round(performance.now() - from);
+  const idempotencyStarted = performance.now();
+  let idempotencyMs = 0;
   try {
     const stored = ctx.callId ? await deps.repos.toolInvocations.findByKey(key) : null;
+    idempotencyMs = ms(idempotencyStarted);
     if (stored && !(stored.ok === false && stored.result.error_code === "internal_error")) {
       logEvent("tool_invocation", {
         callId: ctx.callId,
         tool: call.name,
         ok: stored.ok,
-        latency_ms: Math.round(performance.now() - started),
+        latency_ms: ms(started),
+        idempotency_ms: idempotencyMs,
         errorCode: stored.ok ? null : (stored.result.error_code ?? null),
         replayed: true,
       });
       return payloadToResult(call.toolCallId, stored.result);
     }
   } catch (err) {
+    idempotencyMs = ms(idempotencyStarted);
     // Idempotency lookup failing shouldn't block the caller; run the tool.
     logEvent("tool_idempotency_lookup_failed", { callId: ctx.callId, tool: call.name, error: err instanceof Error ? err.message : String(err) });
   }
 
-  const outcome = await runTool(call, ctx, deps);
+  const clock = { dbMs: 0 };
+  const handlerStarted = performance.now();
+  const outcome = await runTool(call, ctx, { ...deps, repos: timedRepositories(deps.repos, clock) });
+  const handlerMs = ms(handlerStarted);
   let payload: Record<string, unknown> = outcomeToPayload(outcome);
-  const latencyMs = Math.round(performance.now() - started);
+  // Stored latency: everything before the result is recorded (as before).
+  const latencyMs = ms(started);
 
+  const recordStarted = performance.now();
   try {
     const saved = await deps.repos.toolInvocations.record({
       idempotencyKey: key,
@@ -165,11 +200,20 @@ async function invokeOne(
     logEvent("tool_invocation_record_failed", { callId: ctx.callId, tool: call.name, error: err instanceof Error ? err.message : String(err) });
   }
 
+  const recordMs = ms(recordStarted);
+
+  // total_ms = idempotency_ms + handler_ms + record_ms (+ tiny overhead);
+  // db_ms is the handler's own repository time, so handler_ms - db_ms is app work.
   logEvent("tool_invocation", {
     callId: ctx.callId,
     tool: call.name,
     ok: payload.ok === true,
     latency_ms: latencyMs,
+    total_ms: ms(started),
+    idempotency_ms: idempotencyMs,
+    handler_ms: handlerMs,
+    db_ms: Math.round(clock.dbMs),
+    record_ms: recordMs,
     errorCode: payload.ok === true ? null : (payload.error_code ?? null),
     replayed: false,
   });

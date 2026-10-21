@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { BUSINESS } from "@/config/business";
 import { logEvent } from "@/server/lib/log";
+import { optionalArg } from "@/server/lib/optional-arg";
 import { todayInZone } from "@/server/lib/time";
 import { ISSUE_TYPES, triageRules, VULNERABLE_OCCUPANTS, type TriageDecision } from "@/server/triage/rules";
 import { defineTool, type ToolContext, type ToolOutcome } from "@/server/vapi/types";
@@ -20,11 +21,11 @@ export const triageIssueSchema = z.object({
   co_alarm: z.boolean(),
   burning_smell_or_smoke: z.boolean(),
   vulnerable_occupants: z.array(z.enum(VULNERABLE_OCCUPANTS)).default([]),
-  indoor_temp_f: z.number().min(-20).max(130).optional(),
+  indoor_temp_f: optionalArg(z.number().min(-20).max(130)),
   property_type: z.enum(["residential", "commercial"]),
   zip: zipSchema,
-  customer_id: z.uuid().optional(),
-  preferred_window: preferredWindowSchema.optional(),
+  customer_id: optionalArg(z.uuid()),
+  preferred_window: optionalArg(preferredWindowSchema),
 });
 
 type TriageArgs = z.infer<typeof triageIssueSchema>;

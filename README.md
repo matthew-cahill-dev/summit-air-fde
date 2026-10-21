@@ -2,7 +2,7 @@
 
 Summit Air is a fictional residential HVAC company serving Brooklyn, Queens and Staten Island. This app is the backend for its AI phone agent. **Vapi** handles the voice call and calls our authenticated HTTP tools. This **Next.js** app owns every business rule and all Postgres persistence.
 
-Status (M2): full call workflow. A call can identify the caller (by phone or last name + ZIP/street number), triage the issue deterministically, offer and book arrival windows atomically, log priority dispatches and callbacks, transfer to on-call, and save the end-of-call report. Vapi config (prompt, tools, assistant) is code in `vapi/`, synced with `npm run vapi:sync`.
+Status (M2): full call workflow. A call can identify the caller (caller ID or last name, verified by the street address the caller says), triage the issue deterministically, offer and book arrival windows atomically, log priority dispatches and callbacks, transfer to on-call, and save the end-of-call report. Vapi config (prompt, tools, assistant) is code in `vapi/`, synced with `npm run vapi:sync`.
 
 ## Setup (local)
 
@@ -45,6 +45,7 @@ Validated with Zod in `src/lib/env.ts`. The server exits at boot if any are inva
 | `db:generate` | drizzle-kit: generate SQL migration from `src/server/db/schema.ts` into `drizzle/` |
 | `db:migrate` | Apply migrations (plain Node + drizzle-orm migrator, advisory-locked) |
 | `db:seed` | Idempotent fictional demo data: 13 customers, ZIPs, 10 business days of slots |
+| `db:reset-test` | Deletes everything calls created and keeps seed data: calls, tool_invocations, appointments (seats given back to their slots), dispatch and callback requests, and non-seed customers/addresses/memberships. Prints counts. Dry run unless `-- --confirm`. Runs against `DATABASE_URL`, so on Replit it cleans production |
 | `vapi:sync` | Upsert Vapi tools by name, update + publish the assistant, print the version. `-- --dry-run` diffs only; `-- --offline` renders locally without an API key |
 
 ## Architecture
@@ -76,13 +77,35 @@ Vapi POSTs `tool-calls` messages to `POST /api/vapi/tools`.
 
 | Tool | What it does |
 |---|---|
-| `lookup_customer` | Identity verification. Caller ID (or a stated phone), or last name + ZIP. The **caller** must say their street address. The backend compares it (spoken numbers allowed: "thirty-seven twelve" = 37-12) and returns account details only when `verified: true`. Unverified results disclose nothing, and a call locks after 3 failed attempts. `DEMO_CALLER_PHONES` aliases real phones to demo customers |
-| `triage_issue` | Pure rules in `src/server/triage/rules.ts` → `urgency`, human-readable `reasons`, `next_action`; bookable outcomes include up to 3 `offered_slots` so routine calls need one tool call. A safety stop also records a `dispatch_requests` row |
+| `lookup_customer` | Identity verification. Caller ID (or a stated phone), or last name (ZIP optional; derived from the matched address, `ambiguous` + `needs: "zip"` if several match). The **caller** must say their street address. The backend compares it (spoken and speech-to-text forms allowed: "thirty-seven twelve" = 37-12, "37 12 80 second Street" = 37-12 82nd St) and returns account details only when `verified: true`. Unverified results disclose nothing, and a call locks after 3 failed attempts. A `DEMO_CALLER_PHONES` alias always wins over any customer with that phone |
+| `triage_issue` | Pure rules in `src/server/triage/rules.ts` → `urgency`, human-readable `reasons`, `next_action`; bookable outcomes include up to 3 `offered_slots` so routine calls need one tool call. A safety stop also records a `dispatch_requests` row. See "Triage requirement mapping" |
 | `get_availability` | Later / morning / afternoon / weekday follow-ups |
 | `book_appointment` | Requires `caller_confirmed: true`. One transaction: upsert customer by phone, match or add the address, `UPDATE … SET booked = booked + 1 WHERE booked < capacity (minus member-held seat) RETURNING`, insert appointment with dispatch-ready `technician_notes`. Idempotent; `slot_taken` returns 3 alternatives |
 | `create_priority_dispatch` | Open emergency `dispatch_requests` row; returns the callback SLA as policy, never "technician en route" |
 | `create_callback_request` | Office callback for failures, out-of-area, human requests, incomplete calls |
 | `transfer_to_on_call` | Vapi `transferCall` (blind). Destination injected at sync time |
+
+All tools treat `""`, whitespace-only and `null` in an optional field as omitted (`optionalArg` in `src/server/lib/optional-arg.ts`), since models send `access_notes: ""` for fields they don't have. A blank *required* field is still an error naming the field.
+
+Every `tool_invocation` log line splits the time: `total_ms`, `idempotency_ms`, `handler_ms`, `db_ms` (the handler's repository time) and `record_ms`. `latency_ms` (also stored in `tool_invocations`) is everything before the result is recorded.
+
+### Triage requirement mapping
+
+| Situation | Urgency → next step | Rule |
+|---|---|---|
+| Gas smell, CO alarm, burning smell or smoke | `safety_stop` → leave-now instructions, no booking | Overrides everything, any season |
+| No heat, heat season (Oct 1 – May 31), vulnerable occupant | `emergency` → priority dispatch | |
+| No heat, indoor ≤ 55°F | `emergency` → priority dispatch | Any season |
+| No heat, heat season | `urgent` → earliest window (48h) | |
+| No heat, vulnerable occupant, outside heat season | `urgent` → earliest window | Spec: vulnerable occupants make it at least urgent |
+| No AC, medically vulnerable (elderly, infant, medical condition, medical equipment), in cooling season (Jun 1 – Sep 30) or indoor ≥ 85°F | `emergency` → priority dispatch | |
+| No AC, **any** vulnerable occupant (incl. pregnant, disability) | `urgent` → earliest window | Spec: "no AC with a medical condition or elderly resident" is urgent **regardless of season** |
+| No AC, cooling season | `urgent` → earliest window | |
+| Active leak | `urgent` → earliest window | |
+| No heat / no AC out of season with nobody vulnerable, maintenance, noise, thermostat, other | `routine` → standard windows (14 days) | |
+| Commercial property or ZIP outside the service area | urgency kept, `explain_and_close` | Residential only; Brooklyn, Queens, Staten Island |
+
+Vulnerable occupants: elderly, infant, medical condition, pregnant, medical equipment, disability. Reasons name the vulnerability, e.g. "No cooling with vulnerable occupants: elderly (urgent in any season)".
 
 Slot selection (`src/server/scheduling/availability.ts`) is pure. It enforces lead time, the 48h urgent window, and member priority: the last seat in any window inside 48h is held for active members, and the same rule is enforced in the atomic claim.
 
@@ -101,7 +124,9 @@ All data is fictional seed data (`npm run db:seed`).
 
 **2. Verify on the call.** You still have to say the street address to be verified, exactly as a real customer would. Say it any natural way, for example "thirty-seven twelve eighty-second street".
 
-**3. No mapping?** Use last name + ZIP + street address instead.
+**3. No mapping?** Say you're an existing customer and give your last name and street address (ZIP only if asked).
+
+**Cleaning up after test calls.** Calls that fail verification and then book create real rows (a non-seed customer with your phone, appointments, callbacks). Run `npm run db:reset-test` to see counts, then `npm run db:reset-test -- --confirm` to delete them. Seed data survives.
 
 | Persona | ZIP | Street address (say this to verify) | Membership | Good for |
 |---|---|---|---|---|
@@ -144,6 +169,23 @@ Tests run against a **real Postgres test database** (`summit_air_test`). Vitest 
 The suite takes about 2 s locally.
 
 ## Vapi configuration
+
+**Persona.** The agent is "Ava, Summit Air's virtual assistant" (prompt "How you speak"; greeting in `vapi/assistant.json`; model temperature 0.5). It says it's an AI if asked.
+
+**Greeting clipping.** Vapi has no first-message delay setting for inbound calls (checked against the API spec, Oct 2026: only `firstMessage`, `firstMessageMode` and `firstMessageInterruptionsEnabled`). The greeting opens with skippable words ("Hi, thanks for calling…") so a clipped start loses nothing. Untested fallbacks: a `firstMessage` audio URL that starts with ~0.5 s of silence, or a leading `<break time="600ms"/>` (Cartesia supports it).
+
+**Voice options** (`voice.provider` / `voice.voiceId`; all work through Vapi's built-in integration, no provider key needed unless you use a cloned/custom voice). Vapi's pricing calculator lists voice cost per minute as roughly Vapi $0.007–0.019, Cartesia $0.007–0.013, ElevenLabs $0.015–0.024, on top of Vapi's platform fee.
+
+| Voice | provider / voiceId | Notes |
+|---|---|---|
+| Emma (current placeholder) | `vapi` / `Emma`, `"version": "2"` | Young American female, "natural, friendly". V2 is Vapi's newer, cheaper model |
+| Clara | `vapi` / `Clara`, `"version": "2"` | Adult American female, "natural, professional" |
+| Savannah | `vapi` / `Savannah`, `"version": "2"` | Young American female, "natural, friendly" |
+| Jacqueline | `cartesia` / `9626c31c-bec5-4cca-baa8-f8ba9e84c8bc` | Cartesia lists it as a stable voice for agents (model `sonic-3`) |
+| Katie | `cartesia` / `f786b574-daa5-4673-aa0c-cbe3e8534c02` | Cartesia's recommended agent voice |
+| ElevenLabs | `11labs` / a Voice Library ID | Presets like `sarah`/`matilda` are ElevenLabs "default voices", which ElevenLabs says expire Dec 31, 2026. Pick a library voice (e.g. "Talia – Warm Soft Guide") and copy its ID from the Vapi dashboard |
+
+Naturalness settings: `speed` (Vapi 0.25–2; ElevenLabs 0.7–1.2; Cartesia `generationConfig.speed` 0.6–1.5 on sonic-3), ElevenLabs `stability` (0–1, ~0.5 for expressive but steady) / `similarityBoost` / `style`, and `chunkPlan` (all providers). We send TTS whole sentences (no comma boundaries) to avoid choppy delivery. `fillerInjectionEnabled` no longer exists in Vapi's API.
 
 Don't paste files by hand. Run `npm run vapi:sync -- --dry-run`, review the diff, then `npm run vapi:sync`. Through the API, every assistant update with changed content publishes a new Vapi version immediately. The script prints the version.
 

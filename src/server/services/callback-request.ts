@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { BUSINESS } from "@/config/business";
+import { optionalArg } from "@/server/lib/optional-arg";
 import { normalizePhoneE164 } from "@/server/lib/phone";
 import { defineTool } from "@/server/vapi/types";
 
@@ -8,9 +9,9 @@ export const CALLBACK_REASONS = ["backend_failure", "out_of_area", "human_reques
 export const createCallbackRequestSchema = z.object({
   reason: z.enum(CALLBACK_REASONS),
   details: z.string().trim().min(3),
-  caller_name: z.string().trim().min(1).optional(),
-  phone: z.string().trim().min(1).optional(),
-  context: z.record(z.string(), z.unknown()).optional(),
+  caller_name: optionalArg(z.string().trim().min(1)),
+  phone: optionalArg(z.string().trim().min(1)),
+  context: optionalArg(z.record(z.string(), z.unknown())),
 });
 
 export const createCallbackRequestTool = defineTool({

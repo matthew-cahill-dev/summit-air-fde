@@ -87,7 +87,12 @@ export function createCustomerRepository(db: Db): CustomerRepository {
 
     async findByLastName({ lastName, zip }) {
       return db
-        .select({ customerId: customers.id, addressId: serviceAddresses.id, line1: serviceAddresses.line1 })
+        .select({
+          customerId: customers.id,
+          addressId: serviceAddresses.id,
+          line1: serviceAddresses.line1,
+          zip: serviceAddresses.zip,
+        })
         .from(customers)
         .innerJoin(serviceAddresses, eq(serviceAddresses.customerId, customers.id))
         .where(
@@ -96,7 +101,7 @@ export function createCustomerRepository(db: Db): CustomerRepository {
             zip ? eq(serviceAddresses.zip, zip) : undefined,
           ),
         )
-        .limit(25);
+        .limit(200);
     },
   };
 }

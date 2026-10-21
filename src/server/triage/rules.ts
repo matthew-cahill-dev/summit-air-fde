@@ -109,6 +109,10 @@ export function triageRules(
       if (heatSeason) {
         urgency = "urgent";
         reasons.push(`No heat during heat season (${seasonLabel(config.heatSeason)})`);
+      } else if (vulnerable.length > 0) {
+        // Requirement: a vulnerable occupant makes no heat at least urgent in any season.
+        urgency = "urgent";
+        reasons.push(`No heat outside heat season with vulnerable occupants: ${occupantLabel(vulnerable)}`);
       } else {
         reasons.push("No heat outside heat season");
       }
@@ -122,6 +126,14 @@ export function triageRules(
           (hot
             ? `, indoor temperature ${temp}°F (at or above ${config.noCoolingEmergencyMinIndoorTempF}°F)`
             : `, during cooling season (${seasonLabel(config.coolingSeason)})`),
+      );
+    } else if (vulnerable.length > 0) {
+      // Requirement: no AC with a vulnerable occupant (elderly, medical condition, ...) is at
+      // least urgent regardless of season.
+      urgency = "urgent";
+      reasons.push(
+        `No cooling with vulnerable occupants: ${occupantLabel(vulnerable)}` +
+          (coolingSeason ? `, during cooling season (${seasonLabel(config.coolingSeason)})` : " (urgent in any season)"),
       );
     } else if (coolingSeason) {
       urgency = "urgent";

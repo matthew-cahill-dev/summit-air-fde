@@ -13,9 +13,6 @@
         },
         "caller_confirmed": {
           "type": "boolean",
-          "enum": [
-            true
-          ],
           "description": "Must be true: the caller confirmed the read-back."
         },
         "customer_id": {

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { BUSINESS } from "@/config/business";
+import { optionalArg } from "@/server/lib/optional-arg";
 import { defineTool, type ToolOutcome } from "@/server/vapi/types";
 
 export const checkServiceAreaSchema = z.object({
@@ -8,7 +9,7 @@ export const checkServiceAreaSchema = z.object({
     .trim()
     .regex(/^\d{5}(-\d{4})?$/, "must be a 5-digit ZIP code")
     .transform((z) => z.slice(0, 5)),
-  property_type: z.enum(["residential", "commercial"]).optional(),
+  property_type: optionalArg(z.enum(["residential", "commercial"])),
 });
 
 type PropertyType = "residential" | "commercial";
