@@ -118,7 +118,7 @@ describe("system prompt rendering", () => {
   it("fills business facts and leaves no sync placeholders", () => {
     for (const p of [off, on]) {
       expect(p).not.toMatch(/<<|>>|<!--/);
-      expect(p).toContain("$129 for a diagnostic visit");
+      expect(p).toContain("$129 for a diagnostic or repair visit");
       // The office number is fictional: never given to callers.
       expect(p).not.toMatch(/555|zero one zero zero/);
       expect(p).toContain("call back on this same number");
@@ -367,7 +367,7 @@ describe("M5 prompt rules: requirements and the unexpected", () => {
   it("non-service and abusive calls end politely; prices limited to configured fees", () => {
     expect(off).toContain("Wrong numbers, sales or vendor pitches, robocalls and job applicants: one polite sentence");
     expect(off).toContain("set one calm boundary");
-    expect(off).toContain("Prices: only the diagnostic fee and the membership prices");
+    expect(off).toContain("Prices: only the diagnostic fee, the tune-up price and the membership prices from the business facts.");
     expect(off).toContain("the technician quotes on site");
   });
 

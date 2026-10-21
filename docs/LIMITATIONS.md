@@ -17,7 +17,7 @@ What this demo does not do, and the business assumptions the owner must confirm 
 - **Spanish and other languages:** Ava says one bilingual sentence and creates a callback with the language noted. She can't hold the conversation in Spanish: the transcriber is Deepgram nova-3 in English mode, and the voice is English.
 - **Live transfer** works only when `ON_CALL_TRANSFER_NUMBER` is set at sync time, and it's a blind transfer (no warm handoff summary).
 - **Membership sign-up** isn't done on the call. Interested non-members get an office callback.
-- **Prices:** only the diagnostic fee and the membership prices. Repairs and installs are "quoted on site".
+- **Prices:** only the diagnostic fee (diagnostic and repair visits), the tune-up price and the membership prices, all ASSUMPTIONS. Repairs and installs are "quoted on site". Visit length: only the configured tune-up estimate.
 - **Prompt length** (about 3,100 words, ~4,600 tokens estimated at 4 characters a token; v4 dropped the technician checklist and duplicated call-flow steps and added the unexpected-call rules) is fine for GPT-4.1, and the stable ~98% is cacheable. A smaller or faster model would need the simulations re-run first.
 - **Multi-unit buildings** are a binary flag. Mixed cases ("the boiler serves my two-family house") depend on the model setting it correctly, and the office sees the transcript.
 
@@ -89,7 +89,9 @@ Every value below is marked `ASSUMPTION` in code. Each one changes behavior in o
 | Morning / afternoon split | Before noon / noon or later | Preference matching |
 | Office hours | Mon–Fri 8–6, Sat 9–2 | What Ava says about callbacks |
 | Appointment hours | Mon–Fri arrival windows between 8 AM and 5 PM | What Ava says; seed windows |
-| Diagnostic fee | $129, waived for active members | Prices Ava may state |
+| Diagnostic fee | $129 for diagnostic or repair visits (not tune-ups), waived for active members | Prices Ava may state |
+| Tune-up price | $149 per system for non-members; included for Comfort Club members (one heating and one cooling a year) | What Ava quotes for maintenance |
+| Visit length | Tune-up about an hour; diagnostic and repair visits vary, the technician says on site | What Ava says when asked how long |
 | Comfort Club | $19/month: one heating and one cooling tune-up a year, priority scheduling, no diagnostic fee, 15% off repairs | Prices, member benefits, the one-sentence mention |
 | Comfort Club Plus | $29/month: everything above, plus 20% off repairs and no after-hours fee | Prices |
 | Membership mention | Once, after a non-member books routine maintenance with nobody vulnerable at home | `shouldOfferMembership` |

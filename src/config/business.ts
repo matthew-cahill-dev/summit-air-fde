@@ -111,8 +111,14 @@ export const BUSINESS = {
     appointmentHours: "Monday to Friday, with arrival windows between 8 AM and 5 PM",
     // ASSUMPTION: on-call team handles priority-dispatch callbacks around the clock.
     onCallCoverage: "Our on-call team handles priority calls 24 hours a day, 7 days a week.",
-    // ASSUMPTION: diagnostic visit fee.
-    diagnosticFee: "$129 for a diagnostic visit, waived for active Comfort Club members",
+    // ASSUMPTION: diagnostic visit fee. Diagnostic and repair visits only, never tune-ups.
+    diagnosticFee: "$129 for a diagnostic or repair visit, waived for active Comfort Club members",
+    // ASSUMPTION: tune-up (maintenance) price. Not the diagnostic fee (live call 01a15f51 quoted $129 for a tune-up).
+    tuneUpPrice:
+      "A tune-up is $149 per system for non-members. Comfort Club members get one heating and one cooling tune-up a year included",
+    // ASSUMPTION: visit lengths (live call 01a15f51: Ava invented one).
+    visitDuration:
+      "A tune-up usually takes about an hour. Diagnostic and repair visits vary; the technician will say how long once they've seen the system",
     // ASSUMPTION: membership plans and benefits.
     membershipPlans: [
       "Comfort Club: $19 a month. One heating and one cooling tune-up a year, priority scheduling, no diagnostic fee, and 15 percent off repairs.",
