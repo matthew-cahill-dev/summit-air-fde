@@ -30,7 +30,7 @@ npm run vapi:sync -- --target s2s             # later runs update it (and publis
 | **Endpointing controls** | Flux `eotThreshold` / `eotTimeoutMs`, `waitSeconds`, `stopSpeakingPlan` | Turn detection "managed by Vapi's orchestration layer"; our endpointing settings don't apply | None to tune. Measure cut-ins and waits with `call-report` |
 | **Transcript fidelity** | Deepgram transcript with keyterms (brand and street names) | Transcripts "may have slight differences" from what was said; no keyterms | Read-back of addresses and numbers before tool calls; the backend's address matcher already tolerates spoken forms |
 | **Tool timing** | Tool fires after the model's text turn; a request-start filler covers the wait | Same webhook and tools; filler messages may not play | The model says "One sec." itself before tools (S2S prompt) |
-| **Voice choice** | Any Vapi, Cartesia or ElevenLabs voice; "Ayva" respelling via `formatPlan` | OpenAI voices only; no TTS text pipeline, so `formatPlan` replacements don't apply | "Ava" pronunciation can't be forced; listen for it |
+| **Voice choice** | Any Vapi, Cartesia or ElevenLabs voice; plain "Ava" (a respelling, "Ayva", was read as "EYE-vuh"); brand-name respellings via `formatPlan` | OpenAI voices only; no TTS text pipeline, so `formatPlan` replacements don't apply | "Ava" pronunciation can't be forced; listen for it |
 | **Goodbye** | `endCall` message + padded hang-up | Same config; GPT-Live docs warn the goodbye "may be cut off" when `endCall` fires | The same `phone-call-control` tail padding applies, since the hang-up is still delegated to our server |
 | **Cost** | Per-minute transcriber + LLM tokens + TTS | Realtime audio tokens (typically higher per minute) | Test only; don't route real traffic |
 

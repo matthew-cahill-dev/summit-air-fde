@@ -43,12 +43,12 @@ The rules are layered so a lower layer still holds when a higher one fails.
 - **Spoken formats.** Times as people say them, phone numbers in groups, Queens house numbers as written ("thirty-seven twelve eighty-second street"). The backend helps: slot `label`s are already speakable ("tomorrow, Tuesday, October 21, between 10 AM and 1 PM").
 - **Intake without a checklist.** The technician questions are listed for the model's benefit, framed as "woven into the conversation… skip anything already said… drop the less important ones if the caller is stressed".
 - **Config, not prompt:**
-  - LiveKit smart endpointing, plus a 1.5 s wait after Ava asks for an address, phone or ZIP, so callers can pause mid-thought (ARCHITECTURE ADR-11).
+  - Deepgram Flux end-of-turn detection with the `fast` preset, measured by a live A/B (ARCHITECTURE ADR-11). (Earlier configuration: LiveKit smart endpointing plus a 1.5 s wait after Ava asked for an address, phone or ZIP.)
   - `stopSpeakingPlan.numWords = 2`, so "uh-huh" doesn't cut Ava off.
   - TTS gets whole sentences.
   - Idle hooks ("I'm still here whenever you're ready").
   - A greeting whose first words are skippable if the line clips them.
-  - "Ava" is respelled "Ayva" for the TTS.
+  - The greeting says plain "Ava": a respelling ("Ayva") was read by the voice as "EYE-vuh".
   - `endCall` speaks the only goodbye (ADR-10).
 
 ## What the prompt deliberately does NOT control
@@ -95,4 +95,4 @@ Every row below came from a real production call or tool log; [TESTING.md](TESTI
 ## Known risks still open
 
 - The prompt is long (about 2,800 words rendered, ~4,260 tokens estimated). GPT-4.1 handles it, but a faster, smaller model would likely drop rules. `assistant.json` documents `gpt-4.1-mini` as the alternative; re-run the simulations before any model change.
-- Spanish handling relies on an English-tuned transcriber (`deepgram nova-3`, `language: en`) and an English voice. Ava can say a sentence of Spanish and route the call, not hold a Spanish conversation. See [LIMITATIONS.md](LIMITATIONS.md).
+- Spanish handling relies on an English-tuned transcriber (Deepgram Flux, English) and an English voice. Ava can say a sentence of Spanish and route the call, not hold a Spanish conversation. See [LIMITATIONS.md](LIMITATIONS.md).
