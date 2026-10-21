@@ -1,5 +1,5 @@
 // Goodbye tail: Vapi delegates every hang-up to us (phone-call-control); we answer at once, then
-// end the call through monitor.controlUrl a fixed 0.4 s after the goodbye. See src/server/vapi/call-control.ts.
+// end the call through monitor.controlUrl (default: right after the answer). See src/server/vapi/call-control.ts.
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -20,12 +20,12 @@ import { post, TEST_SECRET, testRepos } from "./helpers";
 const CONTROL = "https://phone-call-websocket.aws-us-west-2-backend-production1.vapi.ai/call-123/control";
 
 /** Records every step; `defer` queues the end-call so tests can check it runs only after the answer. */
-function fakeControl(opts: { failFirst?: number; now?: number } = {}) {
+function fakeControl(opts: { failFirst?: number; now?: number; sendDelayMs?: number } = {}) {
   const events: string[] = [];
   const deferred: Array<() => Promise<unknown>> = [];
   let failures = opts.failFirst ?? 0;
   const deps: CallControlDeps = {
-    sendDelayMs: DEFAULT_HANGUP_SEND_DELAY_MS,
+    sendDelayMs: opts.sendDelayMs ?? 400,
     now: () => opts.now ?? NOW,
     async post(url, body) {
       if (failures > 0) {
@@ -52,7 +52,17 @@ function fakeControl(opts: { failFirst?: number; now?: number } = {}) {
 const NOW = 1_792_589_000_000;
 const hangUp = (over: JsonObject = {}) => ({ type: "phone-call-control", request: "hang-up", call: { id: "call-123", monitor: { controlUrl: CONTROL } }, ...over });
 
-describe("ending order: goodbye in full → answer Vapi at once → end-call a fixed 0.4 s after the goodbye", () => {
+describe("ending order: goodbye in full → answer Vapi at once → end-call a fixed delay after the goodbye", () => {
+  it("default delay is 0: end-call goes out right after the answer (it still never precedes it: deferred)", async () => {
+    expect(DEFAULT_HANGUP_SEND_DELAY_MS).toBe(0);
+    const { deps, events, flush } = fakeControl({ sendDelayMs: DEFAULT_HANGUP_SEND_DELAY_MS });
+    const out = handlePhoneCallControl(hangUp({ timestamp: NOW - 300 }), deps);
+    expect(out).toMatchObject({ handled: "hang-up", delayMs: 0 });
+    expect(events).toEqual(["deferred"]);
+    await flush();
+    expect(events).toEqual(["deferred", 'post controlUrl {"type":"end-call"}']);
+  });
+
   // Measured Oct 21 (Vapi logs + SIP pcaps): Vapi accepts our end-call only after we've answered
   // its hang-up request. Holding the answer until end-call succeeded deadlocked (502 → re-deliveries
   // → line open ~11 s). Answered first + end-call 1.5 s later: BYE 3.57 s after the goodbye.
@@ -171,23 +181,54 @@ describe("every ending path uses the same padded hang-up", () => {
     expect(prompt).not.toMatch(/hang up yourself|transfer_to_on_call to end|say goodbye and stop/i);
   });
 
-  it("every model variant, voice and target delegates hang-up to the padded handler", () => {
+  const ENV = { APP_URL: "https://x.example", VAPI_CREDENTIAL_ID: "c", APP_TIMEZONE: "America/New_York" };
+  const goodbyeOf = (a: JsonObject) => {
+    const endCall = ((a.model as JsonObject).tools as Array<{ type: string; messages: Array<{ content: string; blocking?: boolean }> }>).find((t) => t.type === "endCall")!;
+    return endCall.messages[0];
+  };
+
+  it("every model variant, voice and target keeps the chosen ending: controlled delegates, native-padded doesn't", () => {
     const targets = [MAIN_TARGET.overlay, ...names("targets").map((t) => parseTarget(t, read(join(VAPI, "targets", `${t}.json`))).overlay)];
-    for (const variant of names("variants/model")) {
-      for (const voice of names("variants/voice")) {
-        for (const target of targets) {
-          const { assistant } = composeAssistant(base, {
-            variant: read(join(VAPI, "variants/model", `${variant}.json`)),
-            voice: read(join(VAPI, "variants/voice", `${voice}.json`)),
-            target,
-          });
-          const built = buildDesiredAssistant(assistant, "P", [], { APP_URL: "https://x.example", VAPI_CREDENTIAL_ID: "c", APP_TIMEZONE: "America/New_York" });
-          const label = `${variant}/${voice}/${String(built.name)}`;
-          expect(built.serverMessages, label).toContain("phone-call-control");
-          expect((built.monitorPlan as JsonObject | undefined)?.controlEnabled, label).not.toBe(false);
-          expect((built.server as JsonObject).url, label).toBe("https://x.example/api/vapi/events");
+    for (const ending of names("variants/ending")) {
+      for (const variant of names("variants/model")) {
+        for (const voice of names("variants/voice")) {
+          for (const target of targets) {
+            const { assistant } = composeAssistant(base, {
+              variant: read(join(VAPI, "variants/model", `${variant}.json`)),
+              voice: read(join(VAPI, "variants/voice", `${voice}.json`)),
+              ending: read(join(VAPI, "variants/ending", `${ending}.json`)),
+              target,
+            });
+            const built = buildDesiredAssistant(assistant, "P", [], ENV);
+            const label = `${ending}/${variant}/${voice}/${String(built.name)}`;
+            expect((built.server as JsonObject).url, label).toBe("https://x.example/api/vapi/events");
+            expect(built.serverMessages, label).toContain("end-of-call-report");
+            if (ending === "controlled") {
+              expect(built.serverMessages, label).toContain("phone-call-control");
+              expect((built.monitorPlan as JsonObject | undefined)?.controlEnabled, label).not.toBe(false);
+            } else {
+              expect(built.serverMessages, label).not.toContain("phone-call-control");
+            }
+          }
         }
       }
     }
+  });
+
+  it("native-padded: Vapi hangs up itself, and only a throwaway '… bye!' can be clipped", () => {
+    expect(names("variants/ending").sort()).toEqual(["controlled", "native-padded"]);
+    expect(base._defaults).toMatchObject({ ending: "controlled" });
+    const native = composeAssistant(base, { variant: {}, voice: {}, ending: read(join(VAPI, "variants/ending/native-padded.json")), target: {} }).assistant;
+    const goodbye = goodbyeOf(native);
+    expect(goodbye).toMatchObject({ content: "Thanks for calling Summit Air. Take care, and goodbye for now… bye!", blocking: true });
+    expect(native.endCallMessage).toBe(goodbye.content);
+    // The end-call phrase still matches, and the real farewell comes before the padding.
+    expect(goodbye.content.indexOf("goodbye for now")).toBeLessThan(goodbye.content.indexOf("bye!"));
+    expect(native.endCallPhrases).toEqual(["goodbye for now"]);
+    expect(native.serverMessages).toEqual(["end-of-call-report", "status-update"]);
+    // The controlled ending changes nothing: assistant.json already has its values.
+    const controlled = composeAssistant(base, { variant: {}, voice: {}, ending: read(join(VAPI, "variants/ending/controlled.json")), target: {} });
+    expect(controlled.assistant).toEqual(base);
+    expect(goodbyeOf(base).content).toBe("Thanks for calling Summit Air. Take care, and goodbye for now.");
   });
 });

@@ -33,9 +33,9 @@ describe("applyOverlay", () => {
   });
 
   it("the default selection comes from assistant.json _defaults, and composing it changes nothing", () => {
-    expect(DEFAULT_SELECTION).toEqual({ variant: "gpt-4.1", voice: "emma", endpointing: "fast", target: "main" });
+    expect(DEFAULT_SELECTION).toEqual({ variant: "gpt-4.1", voice: "emma", endpointing: "fast", ending: "controlled", target: "main" });
     const defaults = defaultSelection(base);
-    expect(defaults).toEqual({ variant: "gpt-4.1", voice: "emma", endpointing: "fast", target: "main" });
+    expect(defaults).toEqual({ variant: "gpt-4.1", voice: "emma", endpointing: "fast", ending: "controlled", target: "main" });
     // Every default names an existing overlay file.
     expect(models).toContain(defaults.variant);
     expect(voices).toContain(defaults.voice);
@@ -44,6 +44,7 @@ describe("applyOverlay", () => {
       variant: read(join(VAPI, `variants/model/${defaults.variant}.json`)),
       voice: read(join(VAPI, `variants/voice/${defaults.voice}.json`)),
       endpointing: read(join(VAPI, `variants/endpointing/${defaults.endpointing}.json`)),
+      ending: read(join(VAPI, `variants/ending/${defaults.ending}.json`)),
       target: MAIN_TARGET.overlay,
     });
     expect(assistant).toEqual(base); // assistant.json is written with the default preset's values

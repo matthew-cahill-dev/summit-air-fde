@@ -1,4 +1,4 @@
-// Every call ending: the goodbye plays in full, then a short fixed tail, then the line drops.
+// The "controlled" ending (vapi/variants/ending/controlled.json): the goodbye plays in full, then we hang up.
 //
 // Why we hang up ourselves: with Vapi's own hang-up the SIP BYE leaves ~0.1 s after the goodbye
 // audio stops (pcap of call 01a15cfc) and the carrier clipped the last words on the phone. With
@@ -17,8 +17,10 @@
 //   - Answered first, then end-call 1.5 s later (morning version): BYE 3.57 s after the goodbye.
 // So: answer at once, then send end-call a fixed, short HANGUP_SEND_DELAY_MS after the goodbye
 // ends (Vapi's message.timestamp), with quick retries in case our answer hasn't landed yet.
-// Expected BYE ≈ goodbye end + delay + ~1.6-1.8 s (end-call → BYE), i.e. ~2 s; the caller hears
-// ~1.2-1.8 s of silence after the last word because their audio runs ~0.5-1 s behind ours.
+//   - Answered first, end-call ~0.4 s later (call 01a15f31): BYE 3.89 s after the goodbye. In both
+//     calls the BYE came ~3.0-3.3 s after Vapi received our answer, wherever our end-call landed:
+//     Vapi's teardown, not our end-call, sets the floor (~3.5 s). Hence the default delay of 0 and
+//     the A/B ending `native-padded` (vapi/variants/ending/), which drops phone-call-control.
 // Hard guard: end-call is never first sent later than MAX_SEND_AFTER_GOODBYE_MS after the goodbye.
 // The real teardown (SIP BYE) is read from Vapi's pcap by `npm run call-report`, which flags > 2.5 s.
 import { logEvent } from "@/server/lib/log";
@@ -27,7 +29,7 @@ type Obj = Record<string, unknown>;
 const isObj = (v: unknown): v is Obj => typeof v === "object" && v !== null && !Array.isArray(v);
 
 /** How long after the goodbye ends (Vapi's send timestamp) the end-call is sent. */
-export const DEFAULT_HANGUP_SEND_DELAY_MS = 400;
+export const DEFAULT_HANGUP_SEND_DELAY_MS = 0;
 /** Hard guard on our side: the first end-call never goes out later than this after the goodbye. */
 export const MAX_SEND_AFTER_GOODBYE_MS = 1000;
 /** Retry delays for the end-call POST (4 attempts in all, the last ~1.75 s after the first). */

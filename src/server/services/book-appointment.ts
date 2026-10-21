@@ -12,6 +12,7 @@ import { VULNERABLE_OCCUPANTS } from "@/server/triage/rules";
 import { defineTool, type ToolContext, type ToolOutcome } from "@/server/vapi/types";
 import { findOfferableSlots, isActiveMember } from "./availability";
 import { intakeRecord, technicianIntakeShape } from "./intake";
+import { requireLookup } from "./lookup-guard";
 import { zipSchema } from "./triage-issue";
 
 export const bookAppointmentSchema = z
@@ -174,6 +175,11 @@ async function alternatives(ctx: ToolContext, args: BookArgs, county: string, cu
 export const bookAppointmentTool = defineTool({
   schema: bookAppointmentSchema,
   async handler(args, ctx): Promise<ToolOutcome> {
+    // An unverified booking only after lookup_customer has checked for an account (requirement c).
+    if (!args.customer_id) {
+      const blocked = await requireLookup(ctx, "book_appointment");
+      if (blocked) return blocked;
+    }
     const rawPhone = args.phone ?? ctx.callerPhone;
     const phoneE164 = rawPhone ? normalizePhoneE164(rawPhone) : null;
     if (args.phone && !phoneE164) {

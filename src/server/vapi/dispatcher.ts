@@ -2,6 +2,7 @@ import type { z } from "zod";
 import { canonicalJSON, sha256Hex } from "@/server/lib/canonical-json";
 import { logEvent } from "@/server/lib/log";
 import type { Repositories } from "@/server/repositories";
+import { RETRYABLE_ERROR_CODES } from "@/server/repositories/types";
 import { parseToolCallsEnvelope, type ParsedToolCall } from "./envelope";
 import type { ToolRegistry } from "./registry";
 import type { ToolOutcome, ToolSettings } from "./types";
@@ -176,7 +177,8 @@ async function invokeOne(
   try {
     const stored = ctx.callId ? await deps.repos.toolInvocations.findByKey(key) : null;
     idempotencyMs = ms(idempotencyStarted);
-    if (stored && !(stored.ok === false && stored.result.error_code === "internal_error")) {
+    const retryable = stored?.ok === false && (RETRYABLE_ERROR_CODES as readonly unknown[]).includes(stored.result.error_code);
+    if (stored && !retryable) {
       logEvent("tool_invocation", {
         callId: ctx.callId,
         tool: call.name,

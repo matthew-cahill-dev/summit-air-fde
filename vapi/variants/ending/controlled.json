@@ -1,0 +1,3 @@
+{
+  "_comments": "DEFAULT for now. Vapi delegates every hang-up to /api/vapi/events (phone-call-control); we answer at once, then end the call via the control URL (src/server/vapi/call-control.ts). Full goodbye on the phone, but measured SIP BYE 3.57 s (01a15e9b) and 3.89 s (01a15f31) after the goodbye: Vapi tears down ~3.0-3.3 s after receiving our answer, wherever our end-call lands. assistant.json already has these values; this file only makes the choice explicit."
+}

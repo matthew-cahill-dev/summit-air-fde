@@ -1,0 +1,22 @@
+{
+  "_comments": "A/B: Vapi's own hang-up. Without phone-call-control, Vapi sends the SIP BYE ~0.1 s after the goodbye audio stops (pcap of 01a15cfc: +118 ms), and the caller's audio runs ~0.5-1 s behind, so the last ~0.2-0.7 s can be clipped on some carriers. Padding: the goodbye ends with a throwaway '… bye!' (the ellipsis gives a natural beat) so only that can be clipped, never 'goodbye for now'. A trailing silent pause isn't available: Vapi voices have no SSML or pause option (VapiVoice in the API spec: voiceId, version, speed, language, pronunciationDictionary, chunkPlan; only WellSaid exposes enableSsml). endCallPhrases still contains 'goodbye for now' as the backstop; Vapi waits for the assistant to finish speaking before a phrase hangs up.",
+  "serverMessages": [
+    "end-of-call-report",
+    "status-update"
+  ],
+  "endCallMessage": "Thanks for calling Summit Air. Take care, and goodbye for now… bye!",
+  "model": {
+    "tools": [
+      {
+        "type": "endCall",
+        "messages": [
+          {
+            "type": "request-start",
+            "content": "Thanks for calling Summit Air. Take care, and goodbye for now… bye!",
+            "blocking": true
+          }
+        ]
+      }
+    ]
+  }
+}

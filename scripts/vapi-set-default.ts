@@ -1,4 +1,4 @@
-// `npm run vapi:set-default -- [--variant <model>] [--voice <voice>] [--endpointing <preset>]`
+// `npm run vapi:set-default -- [--variant <model>] [--voice <voice>] [--endpointing <preset>] [--ending <preset>]`
 // `npm run vapi:set-default -- --show`
 // Records which overlays a plain `npm run vapi:sync` publishes, in vapi/assistant.json `_defaults`.
 // Local file change only: nothing is sent to Vapi until you run `npm run vapi:sync`.
@@ -8,7 +8,7 @@ import { defaultSelection } from "../src/vapi-sync/variants";
 
 const VAPI_DIR = join(process.cwd(), "vapi");
 const FILE = join(VAPI_DIR, "assistant.json");
-const KINDS = { variant: "model", voice: "voice", endpointing: "endpointing" } as const;
+const KINDS = { variant: "model", voice: "voice", endpointing: "endpointing", ending: "ending" } as const;
 
 const available = (dir: string) =>
   readdirSync(join(VAPI_DIR, "variants", dir))
@@ -34,17 +34,17 @@ function main() {
     changes[flag] = name;
   }
 
-  const show = (label: string, sel: { variant: string; voice: string; endpointing: string }) =>
-    console.log(`${label}: --variant ${sel.variant} --voice ${sel.voice} --endpointing ${sel.endpointing}`);
+  const show = (label: string, sel: { variant: string; voice: string; endpointing: string; ending: string }) =>
+    console.log(`${label}: --variant ${sel.variant} --voice ${sel.voice} --endpointing ${sel.endpointing} --ending ${sel.ending}`);
 
   if (argv.includes("--show") || Object.keys(changes).length === 0) {
     show("Defaults (a plain `npm run vapi:sync` publishes)", current);
     for (const flag of Object.keys(KINDS) as Array<keyof typeof KINDS>) console.log(`  ${flag.padEnd(11)} available: ${available(KINDS[flag]).join(", ")}`);
-    if (Object.keys(changes).length === 0 && !argv.includes("--show")) console.log("\nPass --variant, --voice and/or --endpointing to change them.");
+    if (Object.keys(changes).length === 0 && !argv.includes("--show")) console.log("\nPass --variant, --voice, --endpointing and/or --ending to change them.");
     return;
   }
 
-  const next = { variant: current.variant, voice: current.voice, endpointing: current.endpointing, ...changes };
+  const next = { variant: current.variant, voice: current.voice, endpointing: current.endpointing, ending: current.ending, ...changes };
   // Rewrite with _defaults right after _comments; everything else keeps its order.
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(assistant)) {

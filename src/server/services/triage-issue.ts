@@ -6,6 +6,7 @@ import { todayInZone } from "@/server/lib/time";
 import { ISSUE_TYPES, triageRules, VULNERABLE_OCCUPANTS, type TriageDecision } from "@/server/triage/rules";
 import { defineTool, type ToolContext, type ToolOutcome } from "@/server/vapi/types";
 import { findOfferableSlots, isActiveMember } from "./availability";
+import { requireLookup } from "./lookup-guard";
 
 export const zipSchema = z
   .string()
@@ -85,6 +86,12 @@ async function recordSafetyStop(args: TriageArgs, decision: TriageDecision, ctx:
 export const triageIssueTool = defineTool({
   schema: triageIssueSchema,
   async handler(args, ctx): Promise<ToolOutcome> {
+    // Membership is checked first on every home call; businesses and safety never wait on it.
+    const safety = args.gas_smell || args.co_alarm || args.burning_smell_or_smoke || args.co_symptoms || args.medical_emergency;
+    if (args.property_type !== "commercial" && !safety) {
+      const blocked = await requireLookup(ctx, "triage_issue");
+      if (blocked) return blocked;
+    }
     const zipRow = await ctx.repos.serviceArea.findZip(args.zip);
     const cov = coverageOf(zipRow);
     const area = {

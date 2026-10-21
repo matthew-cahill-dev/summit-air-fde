@@ -169,6 +169,11 @@ Short ADRs. Each one gives the context, the decision, and what it costs.
   - `npm run call-report` reads the SIP BYE from Vapi's pcap (`artifact.presignedPcapUrl`) and prints "Teardown (SIP BYE after the goodbye stopped)". It flags anything over **2.5 s** (exit code 2), a missing BYE, and an idle hook that fired after the goodbye.
   - The server logs `call_control_scheduled` (received_after_goodbye_ms, delay_ms) and `call_control` (attempt, sent_after_goodbye_ms, accepted_after_goodbye_ms) per call.
 - **Failsafe.** End-call is retried 4 times. If all fail, the failure is logged. The answer was already 200, so Vapi doesn't re-deliver; re-delivery can't help an end-call that Vapi only accepts after our answer. The caller normally hangs up anyway, and `maxDurationSeconds: 600` caps the call.
+- **Update (call `01a15f31`): the controlled floor is ~3.5 s.** End-call now goes out right after our answer, yet the BYE came 3.89 s after the goodbye. In both measured calls the BYE followed Vapi's receipt of our answer by ~3.0–3.3 s, so Vapi's teardown sets it, not our end-call. `HANGUP_SEND_DELAY_MS` now defaults to 0 (still after the answer, still retried).
+- **Two endings to A/B by phone** (`npm run vapi:sync -- --ending controlled|native-padded`, `vapi/variants/ending/`):
+  - `controlled` (default for now): the above. The full goodbye is heard, then ~3.5 s of silence.
+  - `native-padded`: removes `phone-call-control`, so Vapi hangs up itself (BYE ~0.1 s after the audio). The goodbye ends "…goodbye for now… bye!", so only the throwaway "bye!" can be clipped. There's no trailing-pause option: Vapi voices have no SSML or pause setting in the API spec.
+  - The choice: the full real farewell heard, with the shortest silence. Set it with `npm run vapi:set-default -- --ending <name>`.
 - **Open risk and fallback.**
   - The end-call → BYE chain (~1.6–1.8 s) is from one call. If the next live call shows the BYE more than 2.5 s after the goodbye, or end-call being ignored, the fallback is one line: remove `phone-call-control` from `serverMessages`. Vapi then hangs up itself ~0.1 s after the goodbye, which reliably ends the call but clips the last word on some carriers.
   - Vapi has no padding setting for its own hang-up (checked: `/tools/hang-up` docs, the API spec), and the Emma voice has no SSML pauses. A tail inside the audio isn't available.

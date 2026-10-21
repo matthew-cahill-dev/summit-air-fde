@@ -185,7 +185,7 @@ describe("persona, call flow and failure handling (live-call fixes)", () => {
     };
     const order = [
       at("2. Safety screen"),
-      at("3. A business (restaurant, store, office): skip lookup_customer; call triage_issue now with property_type commercial. Otherwise call lookup_customer with no arguments"),
+      at("3. Right after the safety screen, call lookup_customer with no arguments (caller ID) before asking anything else."),
       at("4. From then on, follow the next step in each tool result's say. Ask technician questions only when a tool tells you to."),
       at("5. Before booking, recap as one casual sentence"),
     ];
@@ -311,7 +311,7 @@ describe("M5 prompt rules: requirements and the unexpected", () => {
     expect(off).toContain("A landlord or property manager calling about one apartment or house is residential");
     expect(off).toContain("multi_unit_central_system true");
     expect(off).toContain("office_review");
-    expect(off).toContain("skip lookup_customer; call triage_issue now with property_type commercial");
+    expect(off).toContain("skip lookup_customer and call triage_issue now with property_type commercial");
   });
 
   it("verified callers are never re-asked for anything on the account (live: ZIP, house/apartment, home?, last name)", () => {

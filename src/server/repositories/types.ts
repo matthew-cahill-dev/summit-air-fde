@@ -64,11 +64,17 @@ export type StoredInvocation = {
   result: Record<string, unknown>;
 };
 
+/**
+ * Stored failures a later identical call may replace instead of replaying: a transient error, and
+ * lookup_required (triage/booking refused until lookup_customer ran; the same arguments succeed after).
+ */
+export const RETRYABLE_ERROR_CODES = ["internal_error", "lookup_required"] as const;
+
 export interface ToolInvocationRepository {
   findByKey(key: string): Promise<StoredInvocation | null>;
   /**
-   * Insert the invocation. If the key already exists, only a prior transient
-   * failure (error_code "internal_error") is overwritten. Returns the row that
+   * Insert the invocation. If the key already exists, only a prior retryable
+   * failure (RETRYABLE_ERROR_CODES) is overwritten. Returns the row that
    * is now stored, which may be a concurrent winner's.
    */
   record(input: {
@@ -86,6 +92,8 @@ export interface ToolInvocationRepository {
   countFailedVerifications(vapiCallId: string): Promise<number>;
   /** Arguments of the latest successful call of `toolName` on this call (e.g. triage_issue), or null. */
   latestOkArgs(vapiCallId: string, toolName: string): Promise<Record<string, unknown> | null>;
+  /** Whether `toolName` was invoked at all on this call (any outcome). */
+  wasInvoked(vapiCallId: string, toolName: string): Promise<boolean>;
 }
 
 export type EndOfCallReport = {

@@ -42,6 +42,8 @@ export type CallReport = {
    * (Ava cut in); numAssistantInterrupted = "times the assistant was interrupted by the user" (barge-in).
    */
   interruptions: { avaCutIn: number | null; callerBargedIn: number | null };
+  /** Requirement (c): did lookup_customer run, and was the caller verified? */
+  identity: Identity;
   /** Timings from Vapi's per-call log (artifact.presignedLogUrl), when it was fetched. */
   log: LogAnalysis | null;
   /** The real line drop from Vapi's SIP capture (artifact.presignedPcapUrl), when it was fetched. */
@@ -53,6 +55,46 @@ export type CallReport = {
 };
 
 export type Stats = { n: number; p50: number | null; p95: number | null; max: number | null };
+
+export type Identity = { lookups: number; verified: boolean; member: boolean | null; triagedBeforeLookup: boolean };
+
+/** From the transcript's tool calls and results: lookups, verification, and whether triage came first. */
+export function identityOf(messages: JsonObject[]): Identity {
+  const names = new Map<string, string>();
+  let lookups = 0;
+  let verified = false;
+  let member: boolean | null = null;
+  let triagedBeforeLookup = false;
+  for (const m of messages) {
+    if (m.role === "tool_calls" && Array.isArray(m.toolCalls)) {
+      for (const tc of m.toolCalls as JsonObject[]) {
+        const name = str(obj(tc.function)?.name) ?? "?";
+        names.set(String(tc.id), name);
+        if (name === "lookup_customer") lookups++;
+        if (name === "triage_issue" && lookups === 0) triagedBeforeLookup = true;
+      }
+    } else if (m.role === "tool_call_result" && names.get(String(m.toolCallId)) === "lookup_customer") {
+      try {
+        const r = JSON.parse(String(m.result ?? "{}")) as JsonObject;
+        if (r.verified === true) {
+          verified = true;
+          member = r.is_member === true;
+        }
+      } catch {
+        // Not JSON: an error string.
+      }
+    }
+  }
+  return { lookups, verified, member, triagedBeforeLookup };
+}
+
+export function formatIdentity(i: Identity): string {
+  if (i.lookups === 0) return "  ⚠ Identity: lookup_customer NEVER ran (membership not checked)" + (i.triagedBeforeLookup ? "; triage_issue ran without it" : "");
+  return (
+    `  Identity: lookup_customer ran ${i.lookups}x; caller ${i.verified ? `verified (${i.member ? "active member" : "not a member"})` : "NOT verified"}` +
+    (i.triagedBeforeLookup ? "; ⚠ triage_issue ran before the first lookup" : "")
+  );
+}
 
 const num = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
 const str = (v: unknown): string | null => (typeof v === "string" && v.trim() ? v.trim() : null);
@@ -184,6 +226,7 @@ export function buildCallReport(call: JsonObject): CallReport {
     vapiLatencies,
     vapiAverages: averages,
     interruptions: { avaCutIn: num(perf?.numUserInterrupted), callerBargedIn: num(perf?.numAssistantInterrupted) },
+    identity: identityOf(messages),
     log: null,
     teardown: null,
     lastAssistantMessage: bots.length ? str(bots[bots.length - 1].message) : null,
@@ -205,6 +248,7 @@ const fmtStats = (s: Stats) => `n=${s.n} p50=${ms(s.p50).trim()} p95=${ms(s.p95)
 export function formatCallReport(r: CallReport): string {
   const lines: string[] = [];
   lines.push(`Call ${r.id}  started ${r.startedAt ?? "?"}  ${r.durationSec ?? "?"} s  ended: ${r.endedReason ?? "?"}`);
+  lines.push(formatIdentity(r.identity));
   lines.push("");
   lines.push("  #   gap      tools                                  caller → Ava");
   for (const t of r.turns) {

@@ -73,7 +73,7 @@ const envSchema = z.object({
   // (the hang-up guard). See src/server/vapi/call-control.ts. Replaces HANGUP_TAIL_MS, which is ignored.
   HANGUP_SEND_DELAY_MS: z.preprocess(
     (v) => (typeof v === "string" && v.trim() !== "" ? Number(v) : undefined),
-    z.number().int().min(0).max(1000).default(400),
+    z.number().int().min(0).max(1000).default(0),
   ),
 });
 

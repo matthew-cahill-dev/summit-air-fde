@@ -1,7 +1,7 @@
-import { and, count, desc, eq, sql } from "drizzle-orm";
+import { and, count, desc, eq, inArray, sql } from "drizzle-orm";
 import type { Db } from "@/server/db/client";
 import { toolInvocations } from "@/server/db/schema";
-import type { StoredInvocation, ToolInvocationRepository } from "./types";
+import { RETRYABLE_ERROR_CODES, type StoredInvocation, type ToolInvocationRepository } from "./types";
 
 const columns = {
   idempotencyKey: toolInvocations.idempotencyKey,
@@ -35,6 +35,15 @@ export function createToolInvocationRepository(db: Db): ToolInvocationRepository
           ),
         );
       return row?.n ?? 0;
+    },
+
+    async wasInvoked(vapiCallId, toolName) {
+      const [row] = await db
+        .select({ id: toolInvocations.id })
+        .from(toolInvocations)
+        .where(and(eq(toolInvocations.vapiCallId, vapiCallId), eq(toolInvocations.toolName, toolName)))
+        .limit(1);
+      return Boolean(row);
     },
 
     async latestOkArgs(vapiCallId, toolName) {
@@ -71,8 +80,8 @@ export function createToolInvocationRepository(db: Db): ToolInvocationRepository
             dbMs: sql`excluded.db_ms`,
             createdAt: sql`now()`,
           },
-          // Only a transient failure may be replaced by a retry.
-          setWhere: and(eq(toolInvocations.ok, false), sql`${toolInvocations.result}->>'error_code' = 'internal_error'`),
+          // Only a retryable failure (transient, or "call lookup_customer first") may be replaced by a retry.
+          setWhere: and(eq(toolInvocations.ok, false), inArray(sql`${toolInvocations.result}->>'error_code'`, [...RETRYABLE_ERROR_CODES])),
         })
         .returning(columns);
       if (written) return toStored(written);

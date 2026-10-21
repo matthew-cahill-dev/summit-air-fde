@@ -3,7 +3,7 @@ import { and, eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { dispatchRequests } from "@/server/db/schema";
 import { handleToolsRequest } from "@/server/vapi/http";
-import { payloadOf, post, testDb, testDeps, testSettings, toolCallsBody } from "./helpers";
+import { payloadOf, post, recordLookup, testDb, testDeps, testSettings, toolCallsBody } from "./helpers";
 
 const baseArgs = {
   issue_type: "maintenance",
@@ -16,11 +16,13 @@ const baseArgs = {
 };
 
 async function triage(args: Record<string, unknown>, opts: { callId?: string; transfer?: boolean } = {}) {
+  const callId = opts.callId ?? `call-${randomUUID()}`;
+  await recordLookup(callId); // lookup_customer runs first on every home call (lookup-guard.ts)
   const res = await handleToolsRequest(
     post(
       "/api/vapi/tools",
       toolCallsBody({
-        callId: opts.callId ?? `call-${randomUUID()}`,
+        callId,
         callerNumber: "+17185550188",
         calls: [{ id: "t", name: "triage_issue", arguments: { ...baseArgs, ...args } }],
       }),

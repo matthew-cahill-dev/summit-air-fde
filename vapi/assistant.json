@@ -15,12 +15,13 @@
     "hooks": "Idle messages via customer.speech.timeout hooks, for silence mid-call (replaces the older messagePlan.idleMessages). They also fire while a delegated hang-up is pending (Oct 21 regression: 'Take your time. I'm here.' 10 s after the goodbye), which is why the hang-up must land within ~2 s.",
     "server": "Events server for end-of-call reports, keep-warm status updates and phone-call-control. backoffPlan: Vapi re-delivers a message whose request failed (non-2xx or timeout), 3 times with exponential backoff from 1 s; for end-of-call reports when our server is briefly down. phone-call-control is always answered 200 at once (never re-delivered): re-delivery can't help an end-call that Vapi only accepts after our answer.",
     "maxDurationSeconds": "600 (Vapi's default; was 900). The last-resort cap if a call is somehow never hung up. The longest live call so far was ~5 minutes.",
-    "_defaults": "Which overlays a plain `npm run vapi:sync` applies: model variant (vapi/variants/model), voice (vapi/variants/voice), endpointing preset (vapi/variants/endpointing). Change with `npm run vapi:set-default -- --variant <x> --voice <y> --endpointing <z>`; show with `npm run vapi:set-default -- --show`."
+    "_defaults": "Which overlays a plain `npm run vapi:sync` applies: model variant (vapi/variants/model), voice (vapi/variants/voice), endpointing preset (vapi/variants/endpointing), ending (vapi/variants/ending: controlled = our server hangs up via phone-call-control; native-padded = Vapi hangs up, goodbye padded with '… bye!'). Change with `npm run vapi:set-default -- --variant <x> --voice <y> --endpointing <z>`; show with `npm run vapi:set-default -- --show`."
   },
   "_defaults": {
     "variant": "gpt-4.1",
     "voice": "emma",
-    "endpointing": "fast"
+    "endpointing": "fast",
+    "ending": "controlled"
   },
   "name": "Summit Air Virtual Assistant",
   "firstMessageMode": "assistant-speaks-first",

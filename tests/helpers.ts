@@ -62,18 +62,35 @@ export function payloadOf(entry: { result?: string; error?: string }) {
   return JSON.parse((entry.result ?? entry.error) as string) as Record<string, unknown>;
 }
 
+/** Record that lookup_customer ran on this call (what the model does first on every home call). */
+export async function recordLookup(callId: string) {
+  await testRepos().toolInvocations.record({
+    idempotencyKey: `${callId}:lookup_customer:test-setup`,
+    vapiCallId: callId,
+    toolName: "lookup_customer",
+    args: {},
+    ok: true,
+    result: { ok: true, found: false, verified: false, say: "test setup" },
+    latencyMs: 0,
+  });
+}
+
 /** Run one tool call through the real HTTP handler; returns the parsed payload and raw entry. */
 export async function callTool(
   name: string,
   args: unknown,
-  opts: { callId?: string; callerNumber?: string; deps?: Partial<VapiHttpDeps> } = {},
+  opts: { callId?: string; callerNumber?: string; deps?: Partial<VapiHttpDeps>; noLookup?: boolean } = {},
 ) {
   const { handleToolsRequest } = await import("@/server/vapi/http");
+  const callId = opts.callId ?? `call-${crypto.randomUUID()}`;
+  // triage_issue and unverified book_appointment require lookup_customer earlier in the call
+  // (lookup-guard.ts). Tests of other behavior start from a call where it ran; noLookup opts out.
+  if (!opts.noLookup && (name === "triage_issue" || name === "book_appointment")) await recordLookup(callId);
   const res = await handleToolsRequest(
     post(
       "/api/vapi/tools",
       toolCallsBody({
-        callId: opts.callId ?? `call-${crypto.randomUUID()}`,
+        callId,
         callerNumber: opts.callerNumber,
         calls: [{ id: "t", name, arguments: args }],
       }),

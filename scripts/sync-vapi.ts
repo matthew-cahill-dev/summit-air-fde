@@ -5,7 +5,8 @@
 //   --variant  model variant from vapi/variants/model/<name>.json
 //   --voice    voice variant from vapi/variants/voice/<name>.json
 //   --endpointing  end-of-turn preset from vapi/variants/endpointing/<name>.json (fast | safe)
-//   Defaults for all three: vapi/assistant.json `_defaults` (set with `npm run vapi:set-default`).
+//   --ending   how calls hang up, vapi/variants/ending/<name>.json (controlled | native-padded)
+//   Defaults for all four: vapi/assistant.json `_defaults` (set with `npm run vapi:set-default`).
 //   --target   main (default: VAPI_ASSISTANT_ID, the assistant on the phone number) or a file in
 //              vapi/targets/ (e.g. s2s: its own assistant id env var; created on first live sync).
 //   Each run applies exactly the flags given, so a plain sync goes back to the defaults.
@@ -34,7 +35,7 @@ function env(name: string, required: boolean): string | undefined {
   return v || undefined;
 }
 
-function overlayFile(kind: "model" | "voice" | "endpointing", name: string): JsonObject {
+function overlayFile(kind: "model" | "voice" | "endpointing" | "ending", name: string): JsonObject {
   const dir = join(VAPI_DIR, "variants", kind);
   const path = join(dir, `${name}.json`);
   if (!existsSync(path)) {
@@ -67,6 +68,7 @@ async function main() {
     variant: flagValue(argv, "--variant") ?? defaults.variant,
     voice: flagValue(argv, "--voice") ?? defaults.voice,
     endpointing: flagValue(argv, "--endpointing") ?? defaults.endpointing,
+    ending: flagValue(argv, "--ending") ?? defaults.ending,
     target: flagValue(argv, "--target") ?? defaults.target,
   };
   const target = targetConfig(selection.target);
@@ -108,12 +110,13 @@ async function main() {
     variant: overlayFile("model", selection.variant),
     voice: overlayFile("voice", selection.voice),
     endpointing: overlayFile("endpointing", selection.endpointing),
+    ending: overlayFile("ending", selection.ending),
     target: target.overlay,
   });
   const buildAssistant = (toolIds: string[]) => buildDesiredAssistant(composed.assistant, prompt, toolIds, syncEnv);
   console.log(
-    `Selection: --target ${selection.target} --variant ${selection.variant} --voice ${selection.voice} --endpointing ${selection.endpointing}` +
-      ` (defaults: ${defaults.variant} / ${defaults.voice} / ${defaults.endpointing})`,
+    `Selection: --target ${selection.target} --variant ${selection.variant} --voice ${selection.voice} --endpointing ${selection.endpointing} --ending ${selection.ending}` +
+      ` (defaults: ${defaults.variant} / ${defaults.voice} / ${defaults.endpointing} / ${defaults.ending})`,
   );
 
   console.log(
