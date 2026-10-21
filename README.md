@@ -1,6 +1,6 @@
 # Summit Air: Ava, the AI phone agent
 
-Ava answers Summit Air's phone line, any hour of the day. She finds out what's wrong, keeps callers safe, recognizes returning customers and Comfort Club members, and either books a technician into a real arrival window or gets the right person to call back. Every call, booking and emergency lands in one operations console the office works from. Summit Air is a fictional residential HVAC company in New York City.
+Ava answers Summit Air's phone line, any hour of the day. She finds out what's wrong, keeps callers safe, recognizes returning customers and Comfort Club members, and either books a technician into a real arrival window or gets the right person to call back. Every call, booking and emergency lands in one operations console the office works from.
 
 **The business outcome**
 
