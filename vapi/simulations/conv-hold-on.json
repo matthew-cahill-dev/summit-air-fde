@@ -1,0 +1,25 @@
+{
+  "title": "\"Hold on, give me a second\"",
+  "requirement": "quality",
+  "tags": [
+    "conversation",
+    "voice"
+  ],
+  "expectedTools": [
+    "triage_issue",
+    "book_appointment"
+  ],
+  "instructions": "You're a new caller with a noisy AC at 21-45 31st Street, Apartment 1R, Astoria 11105. When asked for your ZIP or address, say: 'Um, hold on, give me one second.' Then wait a few seconds and give it. No gas smell, nobody vulnerable. Name Tomas Wrenfield, phone 718 555 0105. Accept the first window and confirm.",
+  "checks": [
+    {
+      "name": "short_ack",
+      "question": "When the caller said \"hold on\", did the assistant reply with at most a couple of words (like \"Sure.\") or stay quiet?",
+      "expect": true
+    },
+    {
+      "name": "no_reprompt",
+      "question": "While the caller was getting the information, did the assistant prompt again or repeat its question?",
+      "expect": false
+    }
+  ]
+}

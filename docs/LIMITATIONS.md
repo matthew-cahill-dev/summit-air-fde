@@ -5,6 +5,7 @@ What this demo does not do, and the business assumptions the owner must confirm 
 ## Known limitations
 
 **Scheduling and data**
+- **One appointment per call.** A second `book_appointment` in the same call with another window *moves* the call's booking. A caller who needs two homes visited in one call gets the second as an office callback.
 - **Seeded data, not a real FSM.** Customers, memberships, equipment and arrival windows are fictional seed data (`npm run db:seed`). Capacity is "seats per arrival window per borough", not technicians, routes, skills or drive time.
 - **Bookings can't be changed by phone.** Reschedule and cancel requests become office callbacks (deliberate: a wrong cancellation is worse than a callback). There's no cancellation flow in the console either; staff would use the FSM.
 - **No SMS or email confirmations.** The caller hears the window and address once, on the call.
@@ -17,7 +18,7 @@ What this demo does not do, and the business assumptions the owner must confirm 
 - **Live transfer** works only when `ON_CALL_TRANSFER_NUMBER` is set at sync time, and it's a blind transfer (no warm handoff summary).
 - **Membership sign-up** isn't done on the call. Interested non-members get an office callback.
 - **Prices:** only the diagnostic fee and the membership prices. Repairs and installs are "quoted on site".
-- **Prompt length** (about 2,800 words, ~4,260 tokens estimated) is fine for GPT-4.1, and the stable ~98% is cacheable. A smaller or faster model would need the simulations re-run first.
+- **Prompt length** (about 3,100 words, ~4,600 tokens estimated at 4 characters a token; v4 dropped the technician checklist and duplicated call-flow steps and added the unexpected-call rules) is fine for GPT-4.1, and the stable ~98% is cacheable. A smaller or faster model would need the simulations re-run first.
 - **Multi-unit buildings** are a binary flag. Mixed cases ("the boiler serves my two-family house") depend on the model setting it correctly, and the office sees the transcript.
 
 **Verification and safety**
@@ -26,6 +27,8 @@ What this demo does not do, and the business assumptions the owner must confirm 
 - **Emergency policy is a callback SLA (15 minutes), not a dispatch.** Ava never says a technician is on the way.
 
 **Testing**
+- **Transcriber latency figures in Vapi's metrics are inflated.** `transcriberLatency` is measured from Vapi's own VAD event (often the start of the caller's sentence), not from when they stopped talking, so long utterances show 2.6–4.6 s. The caller-side wait in call-report is the reliable number (ADR-11).
+- **Some red-team scenarios need voice** (`--only voice`: interruptions, silence, "hold on", a mumbled word). On chat they test the wording only.
 - **Simulations are built but not yet run** against the live assistant (`npm run evals -- --confirm` spends Vapi credits, and the integration hasn't been exercised end to end yet).
 - **The live call log** in [TESTING.md](TESTING.md) is a template to fill in, not a record of results.
 
@@ -36,7 +39,7 @@ What this demo does not do, and the business assumptions the owner must confirm 
 **Deployment**
 - **Replit's schema diff can propose destructive DROPs.** On republish, Replit diffs the workspace (dev) database against production and applies the difference. If dev is behind `main`, that diff drops production columns. This happened once and was caught at review. The mitigation is procedural: run `git fetch origin && git reset --hard origin/main && npm ci && npm run db:migrate` in the Replit Shell before every republish, and stop if the publish dialog shows any `DROP` (README, "Deploying to Replit"). A real deployment would use a database the platform doesn't manage, with migrations run by CI (see ARCHITECTURE ADR-7).
 - **Vapi publishing.** Vapi's changelog (Aug 2026) says edits no longer go live until published. `vapi:sync` checks that the assistant version advanced and warns if it didn't; whether *tool* updates also need a separate publish hasn't been verified on a live sync yet.
-- **Hang-ups depend on our server.** With `phone-call-control`, Vapi no longer hangs up or forwards calls itself; `/api/vapi/events` does both. Failsafe: end-call is retried 3 times; we confirm to Vapi only after it succeeds, so a failure or crash makes Vapi re-deliver (`backoffPlan`, 3 retries); calls are capped at 10 minutes (`maxDurationSeconds`). Not documented: whether Vapi's max-duration cutoff is also delegated. The ~1.2 s Vapi teardown time behind the 1.5 s tail target was measured on one call; re-check with `call-report`.
+- **Hang-ups depend on our server.** With `phone-call-control`, Vapi no longer hangs up or forwards calls itself; `/api/vapi/events` does both. It answers at once and sends end-call 0.4 s after the goodbye (retried 4 times). The end-call → BYE chain (~1.6–1.8 s, so the line drops ~2 s after the goodbye) comes from one call and must be confirmed live with `npm run call-report` (SIP BYE from the pcap, flagged over 2.5 s). Fallback if it misbehaves: remove `phone-call-control` from `serverMessages`; Vapi then hangs up ~0.1 s after the goodbye, which can clip the last word on the phone.
 - **Latency fixes are measured, not yet re-measured.** The Oct 21 baseline is in TESTING.md. Flux end-of-turn, `waitSeconds` 0.3, the smaller first chunk and the 24 h prompt cache are configured per the docs. The < 1.0 s median target probably needs `--variant gpt-4.1-mini` (or `waitSeconds` 0.2), which needs a live A/B.
 - **Flux and keyterms.** Confirmed working: Vapi's call log shows all 48 keyterms on the Flux connection (Oct 21).
 - **Tool round trips.** Vapi's log shows the tool webhook at ~1.0–1.3 s. About 0.56–0.66 s of that is transport we can't change in code (Vapi → Replit edge → VM and back). Our part was a DB reconnect after 30 s idle (+~215 ms, fixed) plus sequential ~27 ms queries, because the database isn't in the VM's region. Co-locating the database and VM (ideally near Vapi, us-west-2) is the remaining infra fix. Vapi also waits for a tool's filler to finish speaking before continuing.
@@ -93,3 +96,6 @@ Every value below is marked `ASSUMPTION` in code. Each one changes behavior in o
 | Payment | Due at time of service, card or check | What Ava says |
 | Office phone | (718) 555-0100 (fictional, so never spoken to callers) | Business facts |
 | Gas utility numbers | National Grid (718) 643-4050; Con Edison 1-800-752-6633 | Safety section of the prompt; confirm they're current |
+| Call recording disclosure | "Calls may be recorded for quality and training." (Vapi records every call) | What Ava says if asked |
+| Booking horizon wording | "about two weeks out" (matches the 14-day routine horizon) | What Ava says about far-off dates; office callback for further out |
+| Holidays | None configured: a date with no windows is "nothing open that day", with no reason given | Scheduling answers |

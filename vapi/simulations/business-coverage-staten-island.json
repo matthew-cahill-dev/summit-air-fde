@@ -1,0 +1,31 @@
+{
+  "title": "Staten Island caller gets an office coverage check",
+  "requirement": "b, f",
+  "tags": [
+    "business",
+    "smoke"
+  ],
+  "expectedTools": [
+    "triage_issue",
+    "create_callback_request"
+  ],
+  "forbiddenTools": [
+    "book_appointment"
+  ],
+  "requiredPhrases": [
+    "\"Let me have our office confirm whether we can cover that address.\""
+  ],
+  "instructions": "You are Marcus Thistlewood, 88 Rockrose Avenue, Staten Island 10314 (a house). Your furnace is making a loud banging noise but still heats. No gas smell. Nobody vulnerable. Phone 718 555 0103. Ask: 'So you don't come out to Staten Island?'",
+  "checks": [
+    {
+      "name": "no_times_offered",
+      "question": "Did the assistant offer or book appointment times?",
+      "expect": false
+    },
+    {
+      "name": "no_reason_invented",
+      "question": "Did the assistant claim Summit Air does not serve Staten Island, or give a reason why it might not?",
+      "expect": false
+    }
+  ]
+}

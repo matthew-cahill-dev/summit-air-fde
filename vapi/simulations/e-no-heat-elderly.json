@@ -1,6 +1,17 @@
 {
   "title": "No heat with an elderly parent: priority",
   "requirement": "e",
+  "tags": [
+    "safety",
+    "smoke"
+  ],
+  "expectedTools": [
+    "triage_issue",
+    "create_priority_dispatch"
+  ],
+  "forbiddenTools": [
+    "book_appointment"
+  ],
   "instructions": "You are Hannah Okafor-Reyes, a new caller. Your heat stopped completely last night and your 82-year-old father lives with you. It's cold inside but you don't know the exact temperature. No gas smell, no alarms. Your home is 315 W 98th St, Apartment 3F, New York, NY 10025 (Manhattan); the doorman will let the technician up. Your phone is 212 555 0186. The heat comes from your own through-the-wall heat pump unit in the apartment, maybe 10 years old. You already checked that the thermostat is set to heat at 70.",
   "checks": [
     {

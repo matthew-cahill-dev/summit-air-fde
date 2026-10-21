@@ -132,13 +132,29 @@ describe("call-report reads Vapi's call log (webhook latency and real hang-up ti
   it("splits a tool's time into the webhook and the filler, and measures the silent tail", () => {
     const a = analyzeLog(rows);
     expect(a.tools[0]).toEqual({ names: ["lookup_customer"], totalMs: 1560, webhookMs: 984, fillerStartMs: 300, fillerStopMs: 1559 });
-    expect(a.ending).toEqual({ goodbyeStartMs: 266, goodbyeDurationMs: 3169, hangupAckAfterGoodbyeMs: 565, silentTailMs: 3107 });
+    expect(a.ending).toEqual({
+      goodbyeStartMs: 266,
+      goodbyeDurationMs: 3169,
+      goodbyeStopAt: T + 203_435,
+      hangupAckAfterGoodbyeMs: 565,
+      hangupAckStatus: 200,
+      silentTailMs: 3107,
+      hookAfterGoodbye: false,
+    });
     expect(a.webhooks.map((w) => w.messageType)).toEqual(["tool-calls", "phone-call-control"]);
   });
 
   it("copes with an empty or partial log", () => {
     expect(analyzeLog([])).toEqual({ webhooks: [], tools: [], ending: null });
     const partial = analyzeLog([row(0, "assistant.tool.started", { toolNames: ["endCall"] })]);
-    expect(partial.ending).toEqual({ goodbyeStartMs: null, goodbyeDurationMs: null, hangupAckAfterGoodbyeMs: null, silentTailMs: null });
+    expect(partial.ending).toEqual({
+      goodbyeStartMs: null,
+      goodbyeDurationMs: null,
+      goodbyeStopAt: null,
+      hangupAckAfterGoodbyeMs: null,
+      hangupAckStatus: null,
+      silentTailMs: null,
+      hookAfterGoodbye: false,
+    });
   });
 });

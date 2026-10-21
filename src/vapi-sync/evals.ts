@@ -22,10 +22,31 @@ export type ScenarioFile = {
   title: string;
   /** Which reviewer requirement it demonstrates: a–f, "unexpected" or "quality". */
   requirement: string;
+  /** Subsets for `--only <tag>`: safety, privacy, business, conversation, voice, smoke, … plus req-a … req-f. */
+  tags: string[];
   /** What the simulated caller knows and wants, written to the tester. */
   instructions: string;
+  /** Tools the assistant must call, in this order (others may come in between). Becomes a check. */
+  expectedTools: string[];
+  /** Tools the assistant must never call on this call. One check each. */
+  forbiddenTools: string[];
+  /** Things the assistant must say (in its own words unless quoted exactly). One check each. */
+  requiredPhrases: string[];
   checks: ScenarioCheck[];
 };
+
+/** Tool names the criteria may use (function tools plus Vapi's built-in endCall). */
+export const KNOWN_TOOLS = [
+  "lookup_customer",
+  "triage_issue",
+  "get_availability",
+  "check_service_area",
+  "book_appointment",
+  "create_priority_dispatch",
+  "create_callback_request",
+  "transfer_to_on_call",
+  "endCall",
+] as const;
 
 const NAME_RE = /^[a-z][a-z0-9_]{0,39}$/;
 
@@ -43,7 +64,24 @@ export function parseScenarioFile(id: string, raw: unknown): ScenarioFile {
   if (instructions && instructions.length > 10_000) problems.push("instructions is over 10000 characters");
   if (title && (SCENARIO_PREFIX + title).length > 80) problems.push(`title is too long (Vapi allows 80 with the "${SCENARIO_PREFIX}" prefix)`);
   const checks = Array.isArray(v.checks) ? (v.checks as JsonObject[]) : [];
-  if (checks.length === 0) problems.push("at least one check is required");
+  const strList = (k: string) => {
+    const raw = v[k];
+    if (raw === undefined) return [];
+    if (!Array.isArray(raw) || raw.some((x) => typeof x !== "string" || !x.trim())) {
+      problems.push(`${k} must be a list of non-empty strings`);
+      return [];
+    }
+    return (raw as string[]).map((x) => x.trim());
+  };
+  const tags = strList("tags");
+  const expectedTools = strList("expectedTools");
+  const forbiddenTools = strList("forbiddenTools");
+  const requiredPhrases = strList("requiredPhrases");
+  for (const t of [...expectedTools, ...forbiddenTools]) {
+    if (!(KNOWN_TOOLS as readonly string[]).includes(t)) problems.push(`unknown tool "${t}"`);
+  }
+  for (const t of tags) if (!/^[a-z][a-z0-9-]*$/.test(t)) problems.push(`tag "${t}" must be lowercase kebab-case`);
+  if (checks.length + expectedTools.length + forbiddenTools.length + requiredPhrases.length === 0) problems.push("at least one check is required");
   const seen = new Set<string>();
   checks.forEach((c, i) => {
     if (typeof c.name !== "string" || !NAME_RE.test(c.name)) problems.push(`checks[${i}].name must be snake_case, at most 40 characters`);
@@ -53,13 +91,81 @@ export function parseScenarioFile(id: string, raw: unknown): ScenarioFile {
     if (typeof c.expect !== "boolean") problems.push(`checks[${i}].expect must be true or false`);
   });
   if (problems.length) throw new Error(`vapi/simulations/${id}.json: ${problems.join("; ")}`);
-  return {
+  const parsed: ScenarioFile = {
     id,
     title: title!,
     requirement: requirement!,
+    tags: scenarioTags(id, requirement!, tags),
     instructions: instructions!,
+    expectedTools,
+    forbiddenTools,
+    requiredPhrases,
     checks: checks.map((c) => ({ name: c.name as string, question: (c.question as string).trim(), expect: c.expect as boolean })),
   };
+  const all = allChecks(parsed).map((c) => c.name);
+  const dup = all.find((n, i) => all.indexOf(n) !== i);
+  if (dup) throw new Error(`vapi/simulations/${id}.json: check "${dup}" clashes with a generated check`);
+  return parsed;
+}
+
+/** Explicit tags plus req-<letter> for each requirement letter. Sorted, unique. */
+export function scenarioTags(id: string, requirement: string, explicit: string[]): string[] {
+  const reqs = requirement
+    .split(/,\s*/)
+    .map((r) => r.trim().toLowerCase())
+    .filter(Boolean)
+    .map((r) => (/^[a-f]$/.test(r) ? `req-${r}` : r));
+  return [...new Set([...explicit, ...reqs])].sort();
+}
+
+/**
+ * The pass criteria as judge checks: the tool order, each forbidden tool, each required phrase,
+ * then the hand-written checks. Every one must hold for the scenario to pass.
+ */
+export function allChecks(s: ScenarioFile): ScenarioCheck[] {
+  const generated: ScenarioCheck[] = [];
+  if (s.expectedTools.length) {
+    generated.push({
+      name: "tool_order",
+      question:
+        `Look at the assistant's tool calls. Did it call ${s.expectedTools.join(", then ")}, in that order? ` +
+        "Other tool calls in between are fine, and a tool may be called more than once.",
+      expect: true,
+    });
+  }
+  for (const t of s.forbiddenTools) {
+    generated.push({ name: `never_${t.toLowerCase()}`.slice(0, 40), question: `Did the assistant call the ${t} tool at any point?`, expect: false });
+  }
+  s.requiredPhrases.forEach((p, i) => {
+    generated.push({
+      name: `says_${i + 1}`,
+      question: /^".*"$/.test(p) ? `Did the assistant say, word for word or nearly so, ${p}?` : `Did the assistant say this (in its own words): ${p}?`,
+      expect: true,
+    });
+  });
+  return [...generated, ...s.checks];
+}
+
+/** Pick scenarios by id or tag (`--only safety,e-gas-smell`). Unknown names are an error. */
+export function selectScenarios(all: ScenarioFile[], only: string[] | null): ScenarioFile[] {
+  if (!only || only.length === 0) return all;
+  const unknown = only.filter((o) => !all.some((s) => s.id === o || s.tags.includes(o)));
+  if (unknown.length) {
+    const tags = [...new Set(all.flatMap((s) => s.tags))].sort();
+    throw new Error(`Unknown scenario id or tag: ${unknown.join(", ")}. Tags: ${tags.join(", ")}`);
+  }
+  return all.filter((s) => only.some((o) => s.id === o || s.tags.includes(o)));
+}
+
+/** One-line pass criteria for the docs table and the run listing. */
+export function passCriteria(s: ScenarioFile): string {
+  const parts = [
+    s.expectedTools.length ? `tools: ${s.expectedTools.join(" → ")}` : null,
+    s.forbiddenTools.length ? `never: ${s.forbiddenTools.join(", ")}` : null,
+    s.requiredPhrases.length ? `says: ${s.requiredPhrases.length}` : null,
+    `checks: ${s.checks.length}`,
+  ].filter(Boolean);
+  return parts.join("; ");
 }
 
 export const scenarioName = (s: ScenarioFile) => SCENARIO_PREFIX + s.title;
@@ -74,7 +180,7 @@ export function buildScenarioDto(s: ScenarioFile): JsonObject {
   return {
     name: scenarioName(s),
     instructions: s.instructions + CLOSING,
-    evaluations: s.checks.map((c) => ({
+    evaluations: allChecks(s).map((c) => ({
       structuredOutput: {
         name: c.name,
         type: "ai",

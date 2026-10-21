@@ -1,0 +1,27 @@
+{
+  "title": "\"When's my technician coming?\"",
+  "requirement": "c, f",
+  "tags": [
+    "business"
+  ],
+  "expectedTools": [
+    "lookup_customer"
+  ],
+  "forbiddenTools": [
+    "book_appointment",
+    "create_callback_request"
+  ],
+  "instructions": "You are Theo Ashgrove. Ask: 'When is my technician coming?' When asked, your last name is Ashgrove and your street is 141 East 19th Street, New York 10003. After you get the answer, say thanks and goodbye.",
+  "checks": [
+    {
+      "name": "verified_first",
+      "question": "Did the assistant avoid giving appointment details before the caller gave their last name and street?",
+      "expect": true
+    },
+    {
+      "name": "gave_day_and_window",
+      "question": "After verification, did the assistant give a day and arrival window for the upcoming visit?",
+      "expect": true
+    }
+  ]
+}

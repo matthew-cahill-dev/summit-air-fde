@@ -1,6 +1,16 @@
 {
   "title": "Property manager, building-wide boiler",
   "requirement": "b",
+  "tags": [
+    "business"
+  ],
+  "expectedTools": [
+    "triage_issue",
+    "create_callback_request"
+  ],
+  "forbiddenTools": [
+    "book_appointment"
+  ],
   "instructions": "You are Jordan Pike, the property manager for a 12-unit apartment building at 410 Ocean Parkway, Brooklyn 11218. The building's central boiler stopped this morning, so none of the 12 apartments have heat or hot water. No gas smell, no alarms. You don't know of any tenant who is elderly or has a medical condition. Your phone is 347 555 0181. You want someone out today.",
   "checks": [
     {

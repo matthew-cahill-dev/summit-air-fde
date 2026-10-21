@@ -75,13 +75,13 @@ export const createPriorityDispatchTool = defineTool({
   schema: createPriorityDispatchSchema,
   async handler(args, ctx) {
     const contact = await resolveContact(args, ctx);
-    if (args.customer_id && !contact.account) return invalid([{ field: "customer_id", problem: "not found" }], "Collect the caller's name and full address instead.");
+    if (args.customer_id && !contact.account) return invalid([{ field: "customer_id", problem: "not found" }], "Next: ask for the caller's name and full address, then call create_priority_dispatch again without customer_id.");
     if (args.address_id && !contact.address) {
-      return invalid([{ field: "address_id", problem: "not on this account" }], "Ask for the full service address.");
+      return invalid([{ field: "address_id", problem: "not on this account" }], "Next: ask for the full service address, then call create_priority_dispatch again with it.");
     }
-    if (!contact.firstName) return invalid([{ field: "first_name", problem: "required" }], "Ask for the caller's name.");
+    if (!contact.firstName) return invalid([{ field: "first_name", problem: "required" }], "Next: ask for the caller's name, then call create_priority_dispatch again.");
     if (!contact.phoneE164) {
-      return invalid([{ field: "phone", problem: "required" }], "Ask for the best number for the on-call team to call back, including area code.");
+      return invalid([{ field: "phone", problem: "required" }], "Next: ask for the best number for the on-call team to call back, including area code, read it back in groups, then call create_priority_dispatch again.");
     }
     const property = ctx.callId ? propertyKind(await ctx.repos.toolInvocations.latestOkArgs(ctx.callId, "triage_issue")) : null;
 
@@ -119,7 +119,7 @@ export const createPriorityDispatchTool = defineTool({
     return {
       ok: true,
       data: { dispatch_id: id, status: "open", callback_sla_minutes: sla, callback_phone: contact.phoneE164 },
-      say: `The priority request is logged. Tell the caller that Summit Air's policy is for the on-call team to call them back within ${sla} minutes at the number they gave. Do NOT say a technician is assigned, dispatched or on the way. If anyone's health is at risk before then, they should call 911.`,
+      say: `The priority request is logged. Tell the caller that Summit Air's policy is for the on-call team to call them back within ${sla} minutes at the number they gave. Do NOT say a technician is assigned, dispatched or on the way. If anyone's health is at risk before then, they should call 911. Next: ask if there's anything else; don't book an appointment or create a callback for this problem.`,
     };
   },
 });

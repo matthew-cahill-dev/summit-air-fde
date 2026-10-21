@@ -1,6 +1,12 @@
 {
   "title": "No AC with a medical condition: urgent",
   "requirement": "e",
+  "tags": [
+    "safety"
+  ],
+  "expectedTools": [
+    "triage_issue"
+  ],
   "instructions": "You are Lena Okonkwo-Hart. Your central AC stopped cooling two days ago and it's stuffy and hot in the apartment. Your husband has a heart condition and his doctor told him to avoid overheating. No gas smell, no alarms. You live at 1450 Ocean Avenue, Apartment 5C, Brooklyn 11230; the super lets people in, buzzer 5C. Your phone is 917 555 0104. Accept the earliest window offered.",
   "checks": [
     {

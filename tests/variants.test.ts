@@ -33,9 +33,9 @@ describe("applyOverlay", () => {
   });
 
   it("the default selection comes from assistant.json _defaults, and composing it changes nothing", () => {
-    expect(DEFAULT_SELECTION).toEqual({ variant: "gpt-4.1", voice: "emma", endpointing: "safe", target: "main" });
+    expect(DEFAULT_SELECTION).toEqual({ variant: "gpt-4.1", voice: "emma", endpointing: "fast", target: "main" });
     const defaults = defaultSelection(base);
-    expect(defaults).toEqual({ variant: "gpt-4.1", voice: "emma", endpointing: "safe", target: "main" });
+    expect(defaults).toEqual({ variant: "gpt-4.1", voice: "emma", endpointing: "fast", target: "main" });
     // Every default names an existing overlay file.
     expect(models).toContain(defaults.variant);
     expect(voices).toContain(defaults.voice);
@@ -59,9 +59,9 @@ describe("applyOverlay", () => {
 describe("endpointing presets (--endpointing fast|safe)", () => {
   const preset = (name: string) => composeAssistant(base, { variant: {}, voice: {}, endpointing: read(join(VAPI, `variants/endpointing/${name}.json`)), target: {} }).assistant;
 
-  it("exist as fast and safe, with safe the default", () => {
+  it("exist as fast and safe, with fast the default (live Oct 21: fast beat safe at p95 2054 vs 2941 ms)", () => {
     expect(endpointings.sort()).toEqual(["fast", "safe"]);
-    expect(defaultSelection(base).endpointing).toBe("safe");
+    expect(defaultSelection(base).endpointing).toBe("fast");
   });
 
   it("safe trades a little speed for fewer cut-ins: higher Flux confidence and a longer silence backstop", () => {

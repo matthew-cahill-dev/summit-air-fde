@@ -1,6 +1,13 @@
 {
   "title": "Daughter books for her elderly mother's home",
   "requirement": "d, e",
+  "tags": [
+    "business",
+    "conversation"
+  ],
+  "expectedTools": [
+    "triage_issue"
+  ],
   "instructions": "You are Maria Alvarez calling about your mother's home, not your own. Your mother Rosa Alvarez is 84 and lives alone at 12 Linden Street, Apartment 3B, Brooklyn 11221. Her radiators have been only lukewarm since yesterday; the heat isn't completely off and it's about 64 degrees inside. No gas smell. You've never been a Summit Air customer. Your phone is 347 555 0182; your mother's phone is 718 555 0183 and she'll be home to let the technician in. Buzzer 3B. She has a cat. Confirm the read-back and accept the first window.",
   "checks": [
     {

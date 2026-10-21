@@ -1,6 +1,16 @@
 {
   "title": "Returning member is verified and recognized",
   "requirement": "c",
+  "tags": [
+    "privacy",
+    "business",
+    "smoke"
+  ],
+  "expectedTools": [
+    "lookup_customer",
+    "triage_issue",
+    "book_appointment"
+  ],
   "instructions": "You are Dana Quillfeather, an existing Summit Air customer and Comfort Club Plus member. Your ductless mini-split in the living room has started making a rattling noise since last week; it still cools and heats. No gas smell. Your home is 412 Seventh Avenue, Brooklyn 11215. When asked, say you're an existing customer, your last name is Quillfeather (spell it if asked: Q U I L L F E A T H E R) and your street address is four twelve Seventh Avenue. Your phone is 718 555 0101. Nobody vulnerable at home. Accept the first window offered and confirm the read-back.",
   "checks": [
     {

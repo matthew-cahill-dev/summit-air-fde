@@ -51,8 +51,13 @@ export function verifiedPayload(context: FoundContext): Record<string, unknown> 
   };
 }
 
+/** The next step for anyone who isn't (or can't be) verified. No technician questions before triage. */
+export const NEW_CALLER_NEXT =
+  "Next: get the service address (the ZIP only if they haven't said it), confirm home or business only if it's unclear, ask once whether anyone at home is elderly, a baby, pregnant or has a medical condition, then call triage_issue. No technician questions yet.";
+
 const VERIFIED_SAY =
-  "Identity verified. You may now greet them by first name and use these account details. Ask for the unit if one is on file and they didn't say it.";
+  "Verified. You may greet them by first name and use these account details. ZIP, borough and home type are on file; don't ask for them. Ask for the unit only if one is on file and they didn't say it. " +
+  "Next: if you don't know yet whether anyone at home is elderly, a baby, pregnant or has a medical condition, ask once; then call triage_issue immediately (customer_id, the ZIP from addresses, property_type residential). No technician questions yet.";
 const MEMBER_SAY = ` They're an active member: when it's relevant (offering times, or if cost comes up), mention briefly that ${BUSINESS.facts.memberBenefits}. Don't list benefits otherwise.`;
 const NEXT_APPOINTMENT_SAY =
   " If they ask when their technician is coming, give next_appointment (day and window only). To reschedule or cancel, don't change anything yourself: offer an office callback (create_callback_request, reason other, details with the appointment and what they want) and say the office will confirm.";
@@ -74,13 +79,13 @@ async function verifiedOutcome(context: FoundContext, ctx: ToolContext, extra: R
 const UNVERIFIED: ToolOutcome = {
   ok: true,
   data: { found: false, verified: false, verification_failed: true },
-  say: "Couldn't verify that. Don't hint at whether an account exists or what's on file. Ask them to repeat the street address once; otherwise continue as a new customer.",
+  say: `Couldn't verify that. Don't hint at whether an account exists or what's on file. Next: ask them to repeat the street address once and call lookup_customer again; if it still doesn't match, continue as a new customer without comment. ${NEW_CALLER_NEXT}`,
 };
 
 const LOCKED: ToolOutcome = {
   ok: true,
   data: { found: false, verified: false, verification_locked: true },
-  say: "Too many attempts. Stop trying to verify and continue as a new customer, collecting their details fresh.",
+  say: `Too many attempts. Stop trying to verify and don't mention it; continue as a new customer, collecting their details fresh. ${NEW_CALLER_NEXT}`,
 };
 
 async function tooManyAttempts(ctx: ToolContext): Promise<boolean> {
@@ -106,8 +111,8 @@ export const lookupCustomerTool = defineTool({
           data: { found: false, verified: false, ambiguous: true, needs: result.needs },
           say:
             result.needs === "zip"
-              ? "Couldn't verify from that alone. Ask for the ZIP code and call lookup_customer again with last_name, street_address and zip."
-              : "Couldn't verify from that alone. Ask for the phone number on the account and look up with phone and street_address.",
+              ? "Couldn't verify from that alone. Next: ask for the ZIP code and call lookup_customer again with last_name, street_address and zip."
+              : "Couldn't verify from that alone. Next: ask for the phone number on the account and call lookup_customer with phone and street_address.",
         };
       }
       return UNVERIFIED;
@@ -120,7 +125,7 @@ export const lookupCustomerTool = defineTool({
       return {
         ok: true,
         data: { found: false, verified: false, caller_id_unavailable: true },
-        say: "Caller ID isn't available. Ask where they need service; if they say they're an existing customer, look up with their last name and street_address.",
+        say: `Caller ID isn't available. If they say they're an existing customer, ask for their last name and street and call lookup_customer with last_name and street_address. Otherwise: ${NEW_CALLER_NEXT}`,
       };
     }
     const phoneE164 = normalizePhoneE164(raw);
@@ -129,7 +134,7 @@ export const lookupCustomerTool = defineTool({
         ok: false,
         errorCode: "invalid_arguments",
         message: "Invalid: phone (not a valid phone number)",
-        say: "That number didn't look right. Ask the caller to repeat it, including area code.",
+        say: "That number didn't look right. Next: ask the caller to repeat it, including area code, and call lookup_customer again.",
         data: { invalid_fields: [{ field: "phone", problem: "not a valid phone number" }] },
       };
     }
@@ -142,7 +147,7 @@ export const lookupCustomerTool = defineTool({
       return {
         ok: true,
         data: { found: false, verified: false },
-        say: "No account for this number. Ask if the account might be under another phone number, or for their last name and street address. Otherwise treat them as a new customer.",
+        say: `No account for this number. If they say they're an existing customer, ask for their last name and street and call lookup_customer with last_name and street_address. Otherwise treat them as new: ${NEW_CALLER_NEXT}`,
       };
     }
     if (!args.street_address) {
@@ -150,7 +155,7 @@ export const lookupCustomerTool = defineTool({
       return {
         ok: true,
         data: { found: true, verified: false, verification_required: true },
-        say: "Don't use or mention any account details yet. Ask: what's the street address for the service? Then call lookup_customer again with street_address exactly as they said it.",
+        say: "Don't use or mention any account details yet. Next: if they already said the street, call lookup_customer again right now with street_address exactly as they said it; otherwise ask \"What's the address where you need service?\" and then call it. Don't ask for borough, ZIP or home type.",
       };
     }
     const stated = args.street_address;

@@ -1,0 +1,24 @@
+{
+  "title": "Asks for a Saturday visit",
+  "requirement": "f, unexpected",
+  "tags": [
+    "business"
+  ],
+  "expectedTools": [
+    "triage_issue",
+    "book_appointment"
+  ],
+  "instructions": "You're a new caller at 21-45 31st Street, Apartment 1R, Astoria 11105. Your thermostat display is blank. No gas smell. Nobody vulnerable. Ask: 'Can someone come Saturday? I work weekdays.' If told weekdays only, ask for the latest weekday window and accept it, then confirm the read-back. Name Tomas Wrenfield, phone 718 555 0105.",
+  "checks": [
+    {
+      "name": "weekdays_honest",
+      "question": "Did the assistant say plainly that appointments are on weekdays only?",
+      "expect": true
+    },
+    {
+      "name": "no_saturday_booking",
+      "question": "Did the assistant book or promise a Saturday visit?",
+      "expect": false
+    }
+  ]
+}

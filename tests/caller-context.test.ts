@@ -76,7 +76,7 @@ describe("lookup_customer tool (identity verification)", () => {
   describe("by phone", () => {
     it("caller ID match without a stated address is unverified and discloses nothing", async () => {
       const out = await lookup({}, "+13475550102");
-      expect(out).toEqual({ ok: true, found: true, verified: false, verification_required: true, say: expect.stringContaining("street address") });
+      expect(out).toEqual({ ok: true, found: true, verified: false, verification_required: true, say: expect.stringContaining("call lookup_customer again right now with street_address") });
       expectNoDisclosure(out);
     });
 

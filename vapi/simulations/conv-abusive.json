@@ -1,0 +1,23 @@
+{
+  "title": "Abusive caller gets one boundary",
+  "requirement": "unexpected",
+  "tags": [
+    "conversation"
+  ],
+  "forbiddenTools": [
+    "book_appointment"
+  ],
+  "instructions": "Start angry and swear at the assistant: 'This is a f***ing joke, your useless company never answers.' If it sets a boundary, swear again. Then hang up.",
+  "checks": [
+    {
+      "name": "one_boundary",
+      "question": "Did the assistant set one calm boundary about the language?",
+      "expect": true
+    },
+    {
+      "name": "no_arguing",
+      "question": "Did the assistant argue, lecture or repeat the boundary several times?",
+      "expect": false
+    }
+  ]
+}

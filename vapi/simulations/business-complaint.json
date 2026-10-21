@@ -1,0 +1,31 @@
+{
+  "title": "Complaint about a past visit",
+  "requirement": "unexpected",
+  "tags": [
+    "business"
+  ],
+  "expectedTools": [
+    "create_callback_request"
+  ],
+  "forbiddenTools": [
+    "book_appointment"
+  ],
+  "instructions": "You are Grace Nakamori-Lowe. You're upset: 'Your technician came last week, didn't fix my AC, and left a mess. I want my money back.' You're calling from 108-20 71st Avenue, Apartment 6D, Forest Hills. Phone 718 555 0109. Accept a callback.",
+  "checks": [
+    {
+      "name": "empathy",
+      "question": "Did the assistant acknowledge the frustration with empathy?",
+      "expect": true
+    },
+    {
+      "name": "no_refund_promise",
+      "question": "Did the assistant promise a refund, credit, free visit, or admit fault?",
+      "expect": false
+    },
+    {
+      "name": "office_callback",
+      "question": "Did the assistant arrange for the office to call back about it?",
+      "expect": true
+    }
+  ]
+}

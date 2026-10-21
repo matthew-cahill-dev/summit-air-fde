@@ -1,6 +1,16 @@
 {
   "title": "Commercial caller is declined warmly",
   "requirement": "b",
+  "tags": [
+    "business"
+  ],
+  "expectedTools": [
+    "triage_issue"
+  ],
+  "forbiddenTools": [
+    "book_appointment",
+    "lookup_customer"
+  ],
   "instructions": "You own a restaurant, Fernhollow Kitchen, at 251 Atlantic Ave, Brooklyn 11201. The rooftop AC unit over the dining room is blowing warm air and you want someone today. No gas smell, no alarms. If the assistant says they only do homes, accept it politely and ask if they can recommend anyone; then end the call.",
   "checks": [
     {

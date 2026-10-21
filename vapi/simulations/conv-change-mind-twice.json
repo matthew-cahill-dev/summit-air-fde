@@ -1,0 +1,24 @@
+{
+  "title": "Changes the window twice before confirming",
+  "requirement": "f, quality",
+  "tags": [
+    "conversation"
+  ],
+  "expectedTools": [
+    "triage_issue",
+    "book_appointment"
+  ],
+  "instructions": "You're a new caller, Ana Ferro, 211 Prospect Park West, Apartment 2, Brooklyn 11215. Your mini-split is leaking water onto the floor (not near any outlets). No gas smell, nobody vulnerable. Phone 347 555 0150. Pick the first window offered, then say 'actually, the other one is better', then 'sorry, no, the first one after all'. Confirm the final read-back.",
+  "checks": [
+    {
+      "name": "final_window_right",
+      "question": "Did the final read-back use the window the caller chose last?",
+      "expect": true
+    },
+    {
+      "name": "one_booking",
+      "question": "Did the assistant end up with exactly one booking (not two)?",
+      "expect": true
+    }
+  ]
+}

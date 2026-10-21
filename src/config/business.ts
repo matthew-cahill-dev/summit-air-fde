@@ -133,6 +133,10 @@ export const BUSINESS = {
     // ASSUMPTION: payment.
     payment: "Payment is due at the time of service by card or check.",
     serviceArea: "Brooklyn, Queens and Manhattan",
+    // ASSUMPTION: Vapi records every call (the recordings feed the console), so callers who ask are told.
+    recordingDisclosure: "Calls may be recorded for quality and training.",
+    // ASSUMPTION: how far out routine visits can be booked (matches scheduling.routineHorizonDays).
+    bookingHorizon: "about two weeks out",
   },
 } as const;
 

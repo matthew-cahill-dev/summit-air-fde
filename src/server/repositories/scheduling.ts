@@ -98,6 +98,35 @@ function bookingTx(tx: Tx): BookingTx {
       await tx.update(appointments).set({ intake: input.intake, technicianNotes: input.technicianNotes }).where(eq(appointments.id, id));
     },
 
+    async lockCall(vapiCallId) {
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`booking:${vapiCallId}`}))`);
+    },
+
+    async findCallAppointment(vapiCallId) {
+      const [row] = await tx
+        .select({ id: appointments.id, slotId: appointments.slotId, intake: appointments.intake })
+        .from(appointments)
+        .where(and(eq(appointments.vapiCallId, vapiCallId), eq(appointments.status, "confirmed")))
+        .orderBy(asc(appointments.createdAt))
+        .limit(1);
+      return row ? { ...row, intake: (row.intake ?? null) as Record<string, unknown> | null } : null;
+    },
+
+    async releaseSeat(slotId) {
+      await tx
+        .update(appointmentSlots)
+        .set({ booked: sql`${appointmentSlots.booked} - 1` })
+        .where(and(eq(appointmentSlots.id, slotId), sql`${appointmentSlots.booked} > 0`));
+    },
+
+    async replaceAppointment(id, input) {
+      await tx.update(appointments).set({ ...input, status: "confirmed" }).where(eq(appointments.id, id));
+    },
+
+    async cancelAppointment(id) {
+      await tx.update(appointments).set({ status: "cancelled" }).where(eq(appointments.id, id));
+    },
+
     async claimSeat(slotId, rules) {
       // Single statement: concurrent claims serialize on the row lock and each
       // re-checks the WHERE clause, so capacity can never be exceeded.

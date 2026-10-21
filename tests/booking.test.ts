@@ -181,7 +181,8 @@ describe("get_availability", () => {
     }
 
     const saturday = await callTool("get_availability", { zip: "11372", urgency: "routine", preferred_day: "saturday" });
-    expect(saturday.payload).toMatchObject({ ok: true, preference_matched: false });
+    expect(saturday.payload).toMatchObject({ ok: true, preference_matched: false, scheduling_note: "weekdays_only" });
+    expect(saturday.payload.say).toMatch(/Monday to Friday/);
   });
 
   it("morning preference only returns windows starting before noon", async () => {

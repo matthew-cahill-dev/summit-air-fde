@@ -48,7 +48,7 @@ export const createCallbackRequestTool = defineTool({
         ok: false,
         errorCode: "invalid_arguments",
         message: "Missing: phone",
-        say: "Ask for the best callback number, including area code, and read it back in groups before trying again.",
+        say: "Next: ask for the best callback number, including area code, read it back in groups, then call create_callback_request again.",
         data: { invalid_fields: [{ field: "phone", problem: "required" }] },
       };
     }
@@ -99,7 +99,8 @@ export const createCallbackRequestTool = defineTool({
         (args.preferred_callback_time ? " Mention the office will try for their preferred time but can't guarantee it." : "") +
         (args.language && !/^english$/i.test(args.language)
           ? ` Say it once in English, then once in simple ${args.language}: the office will call them back in ${args.language}.`
-          : ""),
+          : "") +
+        " Next: ask if there's anything else. Call create_callback_request again only if something about this request changes (it updates the same one).",
     };
   },
 });

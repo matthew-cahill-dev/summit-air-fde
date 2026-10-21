@@ -1,0 +1,25 @@
+{
+  "title": "Two problems in one call",
+  "requirement": "a, d",
+  "tags": [
+    "conversation",
+    "business"
+  ],
+  "expectedTools": [
+    "triage_issue",
+    "book_appointment"
+  ],
+  "instructions": "You're a new caller, Ana Ferro, 211 Prospect Park West, Apartment 2, Brooklyn 11215. Two problems: the bedroom mini-split isn't cooling, and the thermostat in the hallway keeps resetting itself. No gas smell, nobody vulnerable. Phone 347 555 0150. Accept the first window and confirm.",
+  "checks": [
+    {
+      "name": "both_in_readback",
+      "question": "Did the read-back before booking mention both the mini-split not cooling and the thermostat resetting?",
+      "expect": true
+    },
+    {
+      "name": "one_booking",
+      "question": "Did the assistant book a single visit covering both problems (not two bookings)?",
+      "expect": true
+    }
+  ]
+}

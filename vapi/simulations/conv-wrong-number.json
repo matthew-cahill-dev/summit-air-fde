@@ -1,0 +1,19 @@
+{
+  "title": "Wrong number",
+  "requirement": "unexpected",
+  "tags": [
+    "conversation"
+  ],
+  "forbiddenTools": [
+    "lookup_customer",
+    "triage_issue"
+  ],
+  "instructions": "Say: 'Hi, is this Mario's Pizza? I want to order a large pie.' When told it's not, say 'oh sorry' and end the call.",
+  "checks": [
+    {
+      "name": "brief_close",
+      "question": "Did the assistant politely say this line is for heating and cooling service and let the caller go, in a sentence or two?",
+      "expect": true
+    }
+  ]
+}

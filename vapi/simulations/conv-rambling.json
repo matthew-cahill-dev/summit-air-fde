@@ -1,0 +1,24 @@
+{
+  "title": "Long rambling description with the key facts buried",
+  "requirement": "a, quality",
+  "tags": [
+    "conversation"
+  ],
+  "expectedTools": [
+    "triage_issue",
+    "book_appointment"
+  ],
+  "instructions": "You're a new caller, Pat O'Neill, 7520 Ridge Boulevard, Brooklyn 11209. Ramble for a long first turn: your week, your sister's visit, the dog, and somewhere in the middle that the furnace has been making a squealing noise for three days but the house is warm. No gas smell, nobody vulnerable. Phone 718 555 0170. Accept the first window and confirm.",
+  "checks": [
+    {
+      "name": "found_the_issue",
+      "question": "Did the assistant identify the squealing furnace as the problem?",
+      "expect": true
+    },
+    {
+      "name": "no_parroting",
+      "question": "Did the assistant avoid repeating the caller's long story back to them?",
+      "expect": true
+    }
+  ]
+}

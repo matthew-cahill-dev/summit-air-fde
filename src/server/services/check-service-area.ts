@@ -30,27 +30,27 @@ export function evaluateServiceArea(
     return {
       ok: true,
       data: { ...base, serviceable: false, reason: "residential_only" },
-      say: "Politely explain Summit Air only services residential homes, so we can't help with a commercial property.",
+      say: "Politely explain Summit Air only services residential homes, so we can't help with a commercial property. Next: thank them and end the call.",
     };
   }
   if (cov.coverage === "coverage_check") {
     return {
       ok: true,
       data: { ...base, serviceable: false, reason: "coverage_unconfirmed", borough: cov.borough },
-      say: `Don't book or offer times. Say: "Let me have our office confirm whether we can cover that address." Then call create_callback_request with reason other and details starting "coverage check: ${cov.borough}". Don't give a reason or say we don't serve it.`,
+      say: `Don't book or offer times. Say: "Let me have our office confirm whether we can cover that address." Next: call create_callback_request with reason other and details starting "coverage check: ${cov.borough}". Don't give a reason or say we don't serve it.`,
     };
   }
   if (!inArea) {
     return {
       ok: true,
       data: { ...base, serviceable: false, reason: "out_of_area" },
-      say: `Explain that this ZIP is outside our service area (homes in ${BUSINESS.facts.serviceArea}). Double-check the ZIP with the caller before ending.`,
+      say: `Explain that this ZIP is outside our service area (homes in ${BUSINESS.facts.serviceArea}). Next: double-check the ZIP with the caller; if it was misheard, check again with the corrected one.`,
     };
   }
   return {
     ok: true,
     data: { ...base, serviceable: true },
-    say: `This address is in our ${county} County service area.`,
+    say: `This address is in our ${county} County service area. Next: continue with triage_issue.`,
   };
 }
 

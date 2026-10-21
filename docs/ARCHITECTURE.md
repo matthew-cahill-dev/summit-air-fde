@@ -145,31 +145,33 @@ Short ADRs. Each one gives the context, the decision, and what it costs.
 - **Decision.** The leave-now / call-911-from-outside script is in the system prompt and is spoken *before* any tool call. The prompt says it never depends on a tool. `triage_issue` then records a `safety_stop` follow-up as best effort, and its `say` adapts if recording failed ("Do not say the office was notified"). The agent always says Summit Air has not called 911.
 - **Tradeoff.** The model is trusted to recognize the trigger. Mitigations: the explicit safety-screen question on every call, Deepgram keyterms for "carbon monoxide", and a live scenario and eval for it (`e-gas-smell`).
 
-### ADR-10: Call endings: the goodbye in full, ~1.5 s of silence, then a hang-up we control
+### ADR-10: Call endings: the goodbye in full, a short fixed tail, then a hang-up we control
 
 - **Context.**
   - Round 1: the model said its own goodbye, then Vapi's was cut off mid-word.
-  - Round 2: the recording had the full goodbye but the phone clipped it, because Vapi hung up 0.15–0.67 s before the audio ended and the carrier dropped the rest. **Recording complete, phone path clipped → tail padding.**
-  - Round 3 (Oct 21 morning, call `01a15e9b`, Vapi's own call log): the goodbye now plays in full on the phone. Its order was already right: it started 266 ms after `endCall`, about 1.2 s after the caller finished, as on any turn. But the line dropped **3.1 s** after the last word, not 1.5 s:
-    - the 1.5 s wait was counted from when the hang-up request *reached us* (~0.4–0.6 s after Vapi sent it);
-    - Vapi then took ~1.2 s to tear the call down after our end-call request.
-  - Note: the "3436 ms" next to `endCall` in call-report is the tool's duration, which includes the spoken goodbye because the goodbye is blocking. It isn't silence before the goodbye.
+  - Round 2: the recording had the full goodbye but the phone clipped it. With Vapi's own hang-up, the SIP BYE leaves **~0.1 s** after the goodbye audio stops (pcap of call `01a15cfc`: BYE at +118 ms). The caller's audio runs ~0.5–1 s behind ours, so the carrier dropped the last words. **Recording complete, phone path clipped → tail padding.**
+  - Round 3 (Oct 21 morning, `01a15e9b`): we answered Vapi's hang-up request at once, then sent end-call 1.5 s later. The goodbye played in full, but the BYE left **3.57 s** after it (the caller heard ~3.1 s of silence).
+  - Round 4 (Oct 21 afternoon, `01a15edf` and `01a15ee6`): an "anchored" version that answered Vapi **only after its end-call succeeded**. Root cause of the regression, from Vapi's call log and SIP capture:
+    1. Vapi sends `phone-call-control` ~5 ms after the goodbye stops. Per the API spec, delegation means "Vapi will no longer do the actual transfer and hangup".
+    2. Vapi doesn't accept our end-call while it is still waiting for our answer to that request. All 3 attempts per delivery failed fast, so we answered **502**.
+    3. Vapi re-delivered twice (backoff 1 s, 2 s; ≈1.9 s per delivery including our 1.1 s of retry sleeps). After **8.6–8.8 s** it gave up and ended the call itself (`endedAt` = the failed webhook + ~10 ms).
+    4. Meanwhile the line stayed open (the stream was torn down ~2.6 s later, ~11.3 s after the goodbye), and the idle hook "Take your time. I'm here." fired into it 10 s after the goodbye.
+  - The old "line torn down" figure in call-report was Vapi's stream-cleanup log row. That row lags the call's end by ~2.6 s in every mode, so it isn't the line drop. The SIP BYE in Vapi's packet capture is.
 - **Decision.**
   1. **One goodbye.** The model never says goodbye; it calls `endCall`, whose blocking `request-start` message is the closing line. `endCallPhrases: ["goodbye for now"]` is the backstop.
-  2. **Server-timed hang-up** (`src/server/vapi/call-control.ts`). Vapi delegates hang-up and forwarding to `/api/vapi/events` (`serverMessages: ["phone-call-control"]`); we end the call with `{"type":"end-call"}` to `call.monitor.controlUrl`.
-     - The wait is **anchored to the end of the goodbye**: the later of Vapi's `timestamp` on the request (sent as the blocking goodbye stops) and the goodbye's own `endTime` in the live artifact.
-     - We send end-call at `goodbyeEnd + HANGUP_TAIL_MS (1500) − measured teardown (1200)`, so the line drops ~1.5 s after the last word.
-     - **The farewell is never delayed:** Vapi speaks it before asking us to hang up, and we only ever delay the hang-up. If a request arrives while the goodbye is still playing, the anchor moves to its end, so it can't be cut. Tests cover each ordering case.
+  2. **Answer at once, then a fixed short tail** (`src/server/vapi/call-control.ts`). `/api/vapi/events` answers `phone-call-control` with 200 immediately and never with 5xx. The end-call (`{"type":"end-call"}` to `call.monitor.controlUrl`) runs after the answer (Next's `after()`), at the goodbye's end (Vapi's `timestamp`) + `HANGUP_SEND_DELAY_MS` (default **400 ms**).
+     - Retries: 250, 500 and 1000 ms apart, in case our answer hasn't landed yet.
+     - **Hard guard:** the first end-call is never sent later than 1.0 s after the goodbye, whatever is configured.
+     - Expected BYE: about goodbye + 0.4 s + the ~1.6–1.8 s chain from end-call to BYE (from the morning call), i.e. **~2.0–2.2 s**. The caller hears **~1.2–1.8 s** of silence after the last word, because their audio lags ours.
+     - The anchored math (`farewellEndAt`, the teardown estimate) is gone: it was the part that couldn't be verified.
   3. **Every ending path is the same.** Goodbye, safety stop, commercial decline, non-service call, abusive caller and end-call phrase all produce the same Vapi hang-up request. A test checks every model × voice × target × endpointing combination delegates it.
-- **Failsafe** (calls now end only when our server says so):
-  - **(a)** We answer `phone-call-control` only *after* the end-call succeeded. It's tried 3 times, 300 ms then 800 ms apart.
-  - **(b)** If all attempts fail, or there's no control URL, or this process dies mid-wait, Vapi gets a 502 or a timeout. `assistant.server.backoffPlan` (exponential, 3 retries from 1 s) then re-delivers the request to us. Re-delivery is harmless for every message type we handle.
-  - **(c)** `maxDurationSeconds: 600` caps a call that still never ends. Whether Vapi's own max-duration cutoff is itself delegated isn't documented; if it is, (b) is the guard.
-  - **(d)** In practice the caller hangs up after the goodbye anyway.
-  - Failed attempts are logged as `call_control` with `ok:false`.
-- **Tradeoff.**
-  - The hang-up depends on our server, mitigated by (a)–(c).
-  - The teardown estimate (1.2 s) comes from one call. `npm run call-report` now reads Vapi's log and prints "line torn down N ms after the last word", so it can be re-measured on every call.
+- **Measured on every call.**
+  - `npm run call-report` reads the SIP BYE from Vapi's pcap (`artifact.presignedPcapUrl`) and prints "Teardown (SIP BYE after the goodbye stopped)". It flags anything over **2.5 s** (exit code 2), a missing BYE, and an idle hook that fired after the goodbye.
+  - The server logs `call_control_scheduled` (received_after_goodbye_ms, delay_ms) and `call_control` (attempt, sent_after_goodbye_ms, accepted_after_goodbye_ms) per call.
+- **Failsafe.** End-call is retried 4 times. If all fail, the failure is logged. The answer was already 200, so Vapi doesn't re-deliver; re-delivery can't help an end-call that Vapi only accepts after our answer. The caller normally hangs up anyway, and `maxDurationSeconds: 600` caps the call.
+- **Open risk and fallback.**
+  - The end-call → BYE chain (~1.6–1.8 s) is from one call. If the next live call shows the BYE more than 2.5 s after the goodbye, or end-call being ignored, the fallback is one line: remove `phone-call-control` from `serverMessages`. Vapi then hangs up itself ~0.1 s after the goodbye, which reliably ends the call but clips the last word on some carriers.
+  - Vapi has no padding setting for its own hang-up (checked: `/tools/hang-up` docs, the API spec), and the Emma voice has no SSML pauses. A tail inside the audio isn't available.
 
 ### ADR-11: Turn-taking and latency, measured
 
@@ -179,19 +181,26 @@ Short ADRs. Each one gives the context, the decision, and what it costs.
   |---|---|
   | Oct 20 night, LiveKit "Conservative" | 2030 / 3180 ms |
   | Oct 21 morning, Flux 0.7 / 3000 + wait 0.3 | **1504 / 2065 ms** |
+  | Oct 21 afternoon, `safe` (0.8 / 4000 + wait 0.2), call `01a15edf` | 1501 / 2941 ms, worst turn 5.5 s (Vapi) |
+  | Oct 21 afternoon, `fast` (0.7 / 3000 + wait 0.2), call `01a15ee6` | **1461 / 2054 ms**, worst turn 3.7 s (Vapi), 0 overlaps |
 
   Morning breakdown (p50): transcriber/EOT ~397 ms, model TTFT ~473 ms, voice ~253 ms, plus `waitSeconds`.
 - **Cut-ins, corrected.** call-report had Vapi's two interruption counters swapped. Per the spec, `numUserInterrupted` is "the user was interrupted by the assistant". So the morning call had **1 Ava cut-in** and **4 caller barge-ins**.
   - The cut-in followed a complete question ("What'd you say?") that the caller then continued, exactly the case a higher end-of-turn confidence targets.
   - All 4 barge-ins came during Ava turns of 8–14 s, fixed in the prompt: one or two short sentences, about 25 words, one-sentence recaps.
-- **Decision: two presets** (`--endpointing fast|safe`, `vapi/variants/endpointing/`). **`safe` is the default.**
+- **Decision: two presets** (`--endpointing fast|safe`, `vapi/variants/endpointing/`). **`fast` is the default since Oct 21** (it was `safe`): on two live calls, fast beat safe on every measure (see the table below and TESTING.md).
 
   | Preset | Flux `eotThreshold` | `eotTimeoutMs` | `waitSeconds` | Expected |
   |---|---|---|---|---|
-  | `safe` (default) | **0.8** | **4000** | **0.2** | Deepgram: 0.8–0.9 = "fewer false positives, slightly increased latency". The extra 0.1 s of EOT certainty is roughly offset by 0.1 s less fixed wait, so the median should stay ~1.5 s with fewer cut-ins. 4 s lets callers pause mid-thought |
-  | `fast` | 0.7 | 3000 | 0.2 | The morning config minus 0.1 s of wait: lowest median, more cut-ins after complete sentences |
+  | `fast` (default) | **0.7** | **3000** | **0.2** | Live: p50 1461 / p95 2054 ms, 0 overlaps, and the caller said it felt much better |
+  | `safe` | 0.8 | 4000 | 0.2 | Deepgram: 0.8–0.9 = "fewer false positives, slightly increased latency". Live: p50 1501 / p95 2941 ms, no fewer overlaps (0). Kept for callers who pause a lot mid-sentence |
 
   `waitSeconds` doesn't prevent cut-ins once Flux has decided the turn ended (the morning cut-in happened with 0.3), so both presets use 0.2.
+- **"Transcriber p95 ~2.6 s" is a measurement artifact, not a delay** (Vapi's log, both afternoon calls). Vapi's `transcriberLatency` is `transcriberLatencyFromUserSpeech`, anchored at its own VAD event, not at the end of the caller's speech:
+  - Call `01a15ee6` turn 7: 2603 ms = Flux EndOfTurn (77.654 s) − the caller's speech *start* (75.051 s). It includes the caller's own 2.5 s sentence.
+  - Call `01a15edf` turn 1: 4641 ms = EndOfTurn (14.051 s) − a mid-sentence VAD "stopping" event (9.411 s). The VAD lost the caller's soft continuation ("um, actually lives with me"), and the caller kept talking until ~13.8 s.
+  - On both turns Flux sent EndOfTurn ~0.2 s after the end of the audio it had seen. The caller-side wait (caller stops → Ava starts) is unaffected: p50 1.46–1.50 s.
+  - **No change on our side.** The real end-of-turn delay is Flux's (eotThreshold, already at Deepgram's default 0.7 in `fast`). The large figures are how Vapi labels its metric; this is documented as a provider measurement quirk. call-report's caller-side wait is the number to watch.
 - **Flux keyterms are confirmed.** The call log shows Vapi's `wss://api.deepgram.com/v2/listen?model=flux-general-en…` URL carrying all 48 keyterms.
 - **Tool overhead** (Vapi's log, `serverMessage.requestSucceeded.latencyMs`). The tool-calls webhook took 984–1274 ms (p50 999 ms). Of that:
   - **Writing the arguments isn't the cost:** 88 ms from first token to tool call.

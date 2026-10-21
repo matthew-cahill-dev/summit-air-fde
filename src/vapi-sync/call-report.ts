@@ -44,6 +44,8 @@ export type CallReport = {
   interruptions: { avaCutIn: number | null; callerBargedIn: number | null };
   /** Timings from Vapi's per-call log (artifact.presignedLogUrl), when it was fetched. */
   log: LogAnalysis | null;
+  /** The real line drop from Vapi's SIP capture (artifact.presignedPcapUrl), when it was fetched. */
+  teardown: Teardown | null;
   lastAssistantMessage: string | null;
   recordingUrl: string | null;
   /** Response waits (non-negative gaps only); negative gaps are overlaps (someone barged in). */
@@ -183,6 +185,7 @@ export function buildCallReport(call: JsonObject): CallReport {
     vapiAverages: averages,
     interruptions: { avaCutIn: num(perf?.numUserInterrupted), callerBargedIn: num(perf?.numAssistantInterrupted) },
     log: null,
+    teardown: null,
     lastAssistantMessage: bots.length ? str(bots[bots.length - 1].message) : null,
     recordingUrl: str(artifact.recordingUrl) ?? str(mono?.combinedUrl) ?? str(call.recordingUrl),
     summary: {
@@ -227,6 +230,7 @@ export function formatCallReport(r: CallReport): string {
   if (avg.length) lines.push(`  Vapi averages: ${avg.map(([k, v]) => `${k.replace("LatencyAverage", "")}=${Math.round(v!)}ms`).join("  ")}`);
   lines.push(`  Interruptions: Ava cut in on the caller ${r.interruptions.avaCutIn ?? "?"}x; caller barged in on Ava ${r.interruptions.callerBargedIn ?? "?"}x`);
   if (r.log) lines.push(...formatLogAnalysis(r.log));
+  if (r.teardown) lines.push(formatTeardown(r.teardown));
   lines.push(`  Last Ava message: ${r.lastAssistantMessage ? JSON.stringify(r.lastAssistantMessage) : "-"}`);
   lines.push(`  Recording: ${r.recordingUrl ?? "-"}`);
   return lines.join("\n");
@@ -256,10 +260,16 @@ export type EndingTiming = {
   /** endCall started → goodbye audio started. */
   goodbyeStartMs: number | null;
   goodbyeDurationMs: number | null;
-  /** Goodbye stopped → phone-call-control hang-up request acknowledged by our server. */
+  /** Goodbye stopped (epoch ms): the anchor for everything below. */
+  goodbyeStopAt: number | null;
+  /** Goodbye stopped → our answer to phone-call-control reached Vapi (or its final failure). */
   hangupAckAfterGoodbyeMs: number | null;
-  /** Goodbye stopped → Vapi tore the call down (stream cleanup): the silence the caller heard. */
+  /** HTTP status of that answer (the Oct 21 regression answered 502 after 8.6 s). */
+  hangupAckStatus: number | null;
+  /** Goodbye stopped → Vapi's stream cleanup. Not the line drop: it lags Vapi's end of call by ~2.6 s. */
   silentTailMs: number | null;
+  /** An idle hook ("Are you still there?") fired after the goodbye: the line was still open. */
+  hookAfterGoodbye: boolean;
 };
 
 export type LogAnalysis = { webhooks: WebhookTiming[]; tools: ToolSpan[]; ending: EndingTiming | null };
@@ -303,8 +313,11 @@ export function analyzeLog(rowsIn: LogRow[]): LogAnalysis {
       ending = {
         goodbyeStartMs: speechStart ? speechStart.time - r.time : null,
         goodbyeDurationMs: speechStart && speechStop ? speechStop.time - speechStart.time : null,
+        goodbyeStopAt: stop,
         hangupAckAfterGoodbyeMs: control && stop !== null ? control.time - stop : null,
+        hangupAckStatus: num(control?.attributes?.statusCode),
         silentTailMs: cleanup && stop !== null ? cleanup.time - stop : null,
+        hookAfterGoodbye: stop !== null && after.some((x) => ev(x) === "call.hookTriggered" && x.time > stop),
       };
     }
   });
@@ -323,8 +336,63 @@ function formatLogAnalysis(a: LogAnalysis): string[] {
   const e = a.ending;
   if (e) {
     lines.push(
-      `    Ending: goodbye starts ${ms(e.goodbyeStartMs).trim()} after endCall, lasts ${ms(e.goodbyeDurationMs).trim()}; hang-up request acknowledged ${ms(e.hangupAckAfterGoodbyeMs).trim()} after it; line torn down ${ms(e.silentTailMs).trim()} after the last word`,
+      `    Ending: goodbye starts ${ms(e.goodbyeStartMs).trim()} after endCall, lasts ${ms(e.goodbyeDurationMs).trim()}; our hang-up answer reached Vapi ${ms(e.hangupAckAfterGoodbyeMs).trim()} after it (HTTP ${e.hangupAckStatus ?? "?"}); Vapi stream cleanup at +${ms(e.silentTailMs).trim()}`,
     );
+    if (e.hookAfterGoodbye) lines.push("    ⚠ An idle hook fired after the goodbye: the line was still open.");
   }
   return lines;
+}
+
+// ---------------------------------------------------------------------------
+// The real line drop: the SIP BYE in Vapi's packet capture (artifact.presignedPcapUrl, classic
+// pcap of the SIP signalling). Measured Oct 21: Vapi's own hang-up sends BYE ~0.1 s after the
+// goodbye stops; the morning delegated version 3.57 s; Vapi's "cleanup" log row is not the drop.
+
+/** Anything later than this after the goodbye stops is flagged (the caller hears dead air). */
+export const TEARDOWN_LIMIT_MS = 2500;
+
+/** Epoch ms of every SIP BYE request in a classic pcap (µs or ns timestamps, either byte order). */
+export function sipByeTimes(pcap: Uint8Array): number[] {
+  if (pcap.length < 24) return [];
+  const view = new DataView(pcap.buffer, pcap.byteOffset, pcap.byteLength);
+  const magicLE = view.getUint32(0, true);
+  const formats: Record<number, { le: boolean; nano: boolean }> = {
+    0xa1b2c3d4: { le: true, nano: false },
+    0xa1b23c4d: { le: true, nano: true },
+    0xd4c3b2a1: { le: false, nano: false },
+    0x4d3cb2a1: { le: false, nano: true },
+  };
+  const fmt = formats[magicLE];
+  if (!fmt) return [];
+  const out: number[] = [];
+  const decoder = new TextDecoder("latin1");
+  for (let p = 24; p + 16 <= pcap.length; ) {
+    const sec = view.getUint32(p, fmt.le);
+    const frac = view.getUint32(p + 4, fmt.le);
+    const incl = view.getUint32(p + 8, fmt.le);
+    const data = pcap.subarray(p + 16, Math.min(pcap.length, p + 16 + incl));
+    if (/(^|\r?\n|[^A-Z])BYE sip:/.test(decoder.decode(data))) out.push(sec * 1000 + (fmt.nano ? frac / 1e6 : frac / 1000));
+    p += 16 + incl;
+  }
+  return out;
+}
+
+export type Teardown = { byeAfterGoodbyeMs: number | null; flagged: boolean; note: string };
+
+/** Goodbye stop → first SIP BYE after it, flagged when over TEARDOWN_LIMIT_MS (or missing). */
+export function teardownTiming(goodbyeStopAt: number | null, byeTimes: number[]): Teardown {
+  if (goodbyeStopAt === null) return { byeAfterGoodbyeMs: null, flagged: false, note: "no endCall goodbye in the log" };
+  const bye = byeTimes.filter((t) => t >= goodbyeStopAt - 1000).sort((a, b) => a - b)[0];
+  if (bye === undefined) return { byeAfterGoodbyeMs: null, flagged: true, note: "no SIP BYE in the capture (the line wasn't hung up by the end of the capture)" };
+  const after = Math.round(bye - goodbyeStopAt);
+  return {
+    byeAfterGoodbyeMs: after,
+    flagged: after > TEARDOWN_LIMIT_MS,
+    note: after > TEARDOWN_LIMIT_MS ? `over the ${TEARDOWN_LIMIT_MS} ms limit` : after < 500 ? "very early: the carrier may clip the last words" : "ok",
+  };
+}
+
+export function formatTeardown(t: Teardown): string {
+  const flag = t.flagged ? "⚠ " : "";
+  return `  ${flag}Teardown (SIP BYE after the goodbye stopped): ${t.byeAfterGoodbyeMs === null ? "-" : `${t.byeAfterGoodbyeMs}ms`} (${t.note})`;
 }

@@ -1,0 +1,28 @@
+{
+  "title": "Wants a tune-up two months from now",
+  "requirement": "f, unexpected",
+  "tags": [
+    "business"
+  ],
+  "expectedTools": [
+    "triage_issue"
+  ],
+  "instructions": "You are Clara Vandermeer, 250 West 85th Street, Apartment 7B, New York 10024. You want a routine heating tune-up, but only on a date about two months from now (say 'the week before Christmas'). No problems right now. Nobody vulnerable. You're new (no account). If offered an office callback to schedule later, accept.",
+  "checks": [
+    {
+      "name": "honest_horizon",
+      "question": "Did the assistant explain honestly that appointments are booked about two weeks out?",
+      "expect": true
+    },
+    {
+      "name": "no_invented_date",
+      "question": "Did the assistant book or promise a date about two months out?",
+      "expect": false
+    },
+    {
+      "name": "offered_alternative",
+      "question": "Did the assistant offer the earliest window or an office callback to schedule further out?",
+      "expect": true
+    }
+  ]
+}

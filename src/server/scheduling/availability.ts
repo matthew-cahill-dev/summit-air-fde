@@ -1,6 +1,6 @@
 // Pure slot selection: which arrival windows a caller may be offered.
 import { BUSINESS } from "@/config/business";
-import { localInfo, spokenWindow, type Weekday } from "@/server/lib/time";
+import { localInfo, spokenWindow, type CalendarDate, type Weekday } from "@/server/lib/time";
 
 export type SlotCandidate = {
   id: string;
@@ -42,6 +42,8 @@ export type SelectOptions = {
   isMember: boolean;
   preferredWindow?: PreferredWindow;
   preferredDay?: Weekday;
+  /** A specific local date. */
+  preferredDate?: CalendarDate;
   /** Only windows starting strictly after this instant ("anything later?"). */
   after?: Date;
 };
@@ -77,6 +79,8 @@ export function selectSlots(
   const matchesPreference = (s: SlotCandidate) => {
     const info = localInfo(s.startsAt, opts.timeZone);
     if (opts.preferredDay && info.weekday !== opts.preferredDay) return false;
+    const d = opts.preferredDate;
+    if (d && (info.date.year !== d.year || info.date.month !== d.month || info.date.day !== d.day)) return false;
     if (opts.preferredWindow === "morning" && info.hour >= config.morningEndsHour) return false;
     if (opts.preferredWindow === "afternoon" && info.hour < config.morningEndsHour) return false;
     return true;
@@ -91,7 +95,7 @@ export function selectSlots(
   }
 
   const preferred = pool.filter(matchesPreference);
-  const hasPreference = Boolean(opts.preferredDay || (opts.preferredWindow && opts.preferredWindow !== "any"));
+  const hasPreference = Boolean(opts.preferredDay || opts.preferredDate || (opts.preferredWindow && opts.preferredWindow !== "any"));
   const preferenceMatched = !hasPreference || preferred.length > 0;
   const chosen = (preferred.length ? preferred : pool).slice(0, config.maxOfferedSlots);
 

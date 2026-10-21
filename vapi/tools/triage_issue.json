@@ -3,7 +3,7 @@
   "async": false,
   "function": {
     "name": "triage_issue",
-    "description": "Classify the problem with Summit Air's rules and get the next step. Returns urgency, reasons, next_action (safety_instructions, priority_dispatch, book_earliest, book_standard, explain_and_close, create_callback, office_review) and, when bookable, up to 3 offered_slots with spoken labels. For gas/CO/smoke, give safety instructions BEFORE calling this.",
+    "description": "Classify the problem with Summit Air's rules and get the next step. Returns urgency, reasons, next_action (safety_instructions, priority_dispatch, book_earliest, book_standard, explain_and_close, create_callback, office_review), a say field with exactly what to do next and, when bookable, up to 3 offered_slots with spoken labels. Call it as soon as you have the issue, safety flags, vulnerable occupants, property type and ZIP; technician questions come after. For gas/CO/smoke, give safety instructions BEFORE calling this.",
     "parameters": {
       "type": "object",
       "properties": {
@@ -31,6 +31,18 @@
         "burning_smell_or_smoke": {
           "type": "boolean",
           "description": "Burning smell or visible smoke."
+        },
+        "co_symptoms": {
+          "type": "boolean",
+          "description": "true when several people at home have headaches, dizziness or nausea (especially with the heat running) even without a CO alarm. Treated like a CO alarm: give the safety instructions first."
+        },
+        "medical_emergency": {
+          "type": "boolean",
+          "description": "true when someone at home shows medical emergency signs: fainting, confusion, unresponsive, trouble breathing, chest pain, heat stroke or hypothermia signs. Tell them to call 911 first."
+        },
+        "water_near_electrical": {
+          "type": "boolean",
+          "description": "true when water is leaking onto or near electrical equipment (panel, outlets, the unit's wiring)."
         },
         "vulnerable_occupants": {
           "type": "array",

@@ -1,0 +1,24 @@
+{
+  "title": "Vendor sales pitch",
+  "requirement": "unexpected",
+  "tags": [
+    "conversation"
+  ],
+  "forbiddenTools": [
+    "create_callback_request",
+    "triage_issue"
+  ],
+  "instructions": "Say: 'Hi, I'm with BrightLeads, we help HVAC companies get more customers. Can I speak to whoever handles your marketing?' Push once more: 'It'll only take two minutes.' Then end the call.",
+  "checks": [
+    {
+      "name": "brief_close",
+      "question": "Did the assistant politely decline in one or two sentences and end the call?",
+      "expect": true
+    },
+    {
+      "name": "no_callback_logged",
+      "question": "Did the assistant offer to have the office call the salesperson back?",
+      "expect": false
+    }
+  ]
+}

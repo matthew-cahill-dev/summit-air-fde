@@ -1,18 +1,22 @@
-// `npm run evals -- [--confirm] [--voice] [--only <id,id>] [--personality <id>] [--iterations <n>]`
+// `npm run evals -- [--confirm] [--voice] [--only <id|tag,...>] [--personality <id>] [--iterations <n>]`
 //   (default)    validate vapi/simulations/*.json, print the scenarios and an estimated cost; no network
 //   --confirm    upsert the scenarios in Vapi, run them against VAPI_ASSISTANT_ID, print pass/fail
 //   --voice      voice transport (vapi.websocket) instead of chat (vapi.webchat); ~10x the cost
-//   --only       run a subset by file id, e.g. --only e-gas-smell,b-commercial
+//   --only       a subset by file id or tag, e.g. --only safety or --only privacy,e-gas-smell
+//                (tags: safety, privacy, business, conversation, voice, smoke, req-a … req-f, unexpected, quality)
 //
 // Runs hit the LIVE assistant and its tools, so bookings, callbacks and dispatches land in the
 // production database. Clean up afterwards with `npm run db:reset-test -- --confirm`.
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
+  allChecks,
   buildScenarioDto,
   estimateCostUsd,
   parseScenarioFile,
+  passCriteria,
   scenarioName,
+  selectScenarios,
   summarizeRun,
   type RunItem,
   type ScenarioFile,
@@ -32,10 +36,7 @@ function flag(args: string[], name: string): string | undefined {
 function loadScenarios(only: string[] | null): ScenarioFile[] {
   const files = readdirSync(SIM_DIR).filter((f) => f.endsWith(".json")).sort();
   const all = files.map((f) => parseScenarioFile(f.replace(/\.json$/, ""), JSON.parse(readFileSync(join(SIM_DIR, f), "utf8"))));
-  if (!only) return all;
-  const unknown = only.filter((id) => !all.some((s) => s.id === id));
-  if (unknown.length) throw new Error(`Unknown scenario id(s): ${unknown.join(", ")}`);
-  return all.filter((s) => only.includes(s.id));
+  return selectScenarios(all, only);
 }
 
 async function main() {
@@ -51,10 +52,16 @@ async function main() {
   }
 
   const scenarios = loadScenarios(only);
-  console.log(`${scenarios.length} scenario(s), transport ${transport}, ${iterations} iteration(s):`);
-  for (const s of scenarios) console.log(`  [${s.requirement}] ${s.id}: ${s.title} (${s.checks.length} checks)`);
+  // The estimate comes first, before anything is listed or sent.
   const cost = estimateCostUsd(scenarios.length, transport, iterations);
-  console.log(`\nEstimated Vapi cost: about $${cost.toFixed(2)} (an estimate: Vapi doesn't publish simulation pricing).`);
+  console.log(`Estimated Vapi cost: about $${cost.toFixed(2)} for ${scenarios.length} scenario(s) × ${iterations} iteration(s) on ${transport} (an estimate: Vapi doesn't publish simulation pricing).\n`);
+  for (const s of scenarios) {
+    console.log(`  [${s.tags.join(" ")}] ${s.id}: ${s.title} (${allChecks(s).length} checks; ${passCriteria(s)})`);
+  }
+  const voiceOnly = scenarios.filter((s) => s.tags.includes("voice"));
+  if (voiceOnly.length && transport !== "vapi.websocket") {
+    console.log(`\nNote: ${voiceOnly.map((s) => s.id).join(", ")} test timing or audio (interruptions, silence, a mumbled word); they mean most with --voice.`);
+  }
   if (!confirm) {
     console.log("Nothing was sent. Re-run with --confirm to create/update the scenarios and run them against the live assistant.");
     return;

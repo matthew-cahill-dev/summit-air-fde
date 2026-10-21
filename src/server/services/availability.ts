@@ -1,6 +1,6 @@
 // Shared by triage_issue, get_availability and book_appointment (alternatives).
 import type { Repositories } from "@/server/repositories";
-import type { Weekday } from "@/server/lib/time";
+import type { CalendarDate, Weekday } from "@/server/lib/time";
 import {
   DEFAULT_SCHEDULING_CONFIG,
   earliestBookableStart,
@@ -15,6 +15,8 @@ export type AvailabilityRequest = {
   isMember: boolean;
   preferredWindow?: PreferredWindow;
   preferredDay?: Weekday;
+  /** A specific local date ("the 28th"), already checked against the booking horizon. */
+  preferredDate?: CalendarDate;
   after?: Date;
   /** Exclude this slot (e.g. the one that was just taken). */
   excludeSlotId?: string;
@@ -38,6 +40,7 @@ export async function findOfferableSlots(repos: Repositories, req: AvailabilityR
       isMember: req.isMember,
       preferredWindow: req.preferredWindow,
       preferredDay: req.preferredDay,
+      preferredDate: req.preferredDate,
       after: req.after,
     },
     config,

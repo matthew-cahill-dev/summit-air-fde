@@ -1,0 +1,26 @@
+{
+  "title": "Question about an invoice charge",
+  "requirement": "unexpected",
+  "tags": [
+    "business"
+  ],
+  "expectedTools": [
+    "create_callback_request"
+  ],
+  "forbiddenTools": [
+    "book_appointment"
+  ],
+  "instructions": "You're calling about a charge on your last invoice: 'I was charged $129 but I'm a member, isn't the diagnostic fee waived?' Your name is Wen Larkspur, phone 917 555 0111. Accept a callback.",
+  "checks": [
+    {
+      "name": "no_billing_decision",
+      "question": "Did the assistant decide or promise that the charge would be reversed or refunded?",
+      "expect": false
+    },
+    {
+      "name": "office_callback",
+      "question": "Did the assistant arrange an office callback about the invoice?",
+      "expect": true
+    }
+  ]
+}

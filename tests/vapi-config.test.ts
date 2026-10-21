@@ -177,7 +177,7 @@ describe("persona, call flow and failure handling (live-call fixes)", () => {
     expect(p.match(/^Ava: /gm)).toHaveLength(3);
   });
 
-  it("call order: safety → lookup (residential only) → address + vulnerability → triage immediately → times", () => {
+  it("call order: safety → lookup (residential only) → follow each tool result's next step → recap → book once", () => {
     const at = (s: string) => {
       const i = p.indexOf(s);
       expect(i, s).toBeGreaterThan(0);
@@ -186,15 +186,11 @@ describe("persona, call flow and failure handling (live-call fixes)", () => {
     const order = [
       at("2. Safety screen"),
       at("3. A business (restaurant, store, office): skip lookup_customer; call triage_issue now with property_type commercial. Otherwise call lookup_customer with no arguments"),
-      at("4. Only what triage needs: the service address"),
-      at("5. Call triage_issue immediately"),
-      at("book_earliest or book_standard: offer the offered_slots right away"),
-      at("7. Once they pick a window, ask the remaining technician questions briefly, then recap"),
+      at("4. From then on, follow the next step in each tool result's say. Ask technician questions only when a tool tells you to."),
+      at("5. Before booking, recap as one casual sentence"),
     ];
     expect([...order].sort((a, b) => a - b)).toEqual(order);
-    expect(p).toContain("Ask at most two technician questions (below) before this");
-    expect(p).toContain("ask at most one or two quick technician questions, then call create_priority_dispatch");
-    expect(p).toContain("the service address (any form; if you still lack a ZIP, ask for just the ZIP once, casually)");
+    expect(p).toContain("call book_appointment once, with caller_confirmed true and everything they told you");
   });
 
   it("empty results, 'No result returned' and any error are failures → apologize once, then a callback", () => {
@@ -236,8 +232,8 @@ describe("persona, call flow and failure handling (live-call fixes)", () => {
     expect(assistantFile.backgroundSound).toBe("off"); // Vapi's phone default is "office"
   });
 
-  it("turn-taking: Deepgram Flux end-of-turn ('safe' preset values), no dead endpointing config", () => {
-    expect(assistantFile.transcriber).toMatchObject({ provider: "deepgram", model: "flux-general-en", language: "en", eotThreshold: 0.8, eotTimeoutMs: 4000 });
+  it("turn-taking: Deepgram Flux end-of-turn ('fast' preset values, the default), no dead endpointing config", () => {
+    expect(assistantFile.transcriber).toMatchObject({ provider: "deepgram", model: "flux-general-en", language: "en", eotThreshold: 0.7, eotTimeoutMs: 3000 });
     const plan = assistantFile.startSpeakingPlan as JsonObject;
     // Vapi: don't set smartEndpointingPlan with Flux; custom rules and transcriptionEndpointingPlan are ignored.
     expect(plan).toEqual({ waitSeconds: 0.2 });
@@ -301,14 +297,11 @@ describe("M5 prompt rules: requirements and the unexpected", () => {
   const off = renderSystemPrompt(template, { transferAvailable: false, timeZone: "America/New_York" });
   const on = renderSystemPrompt(template, { transferAvailable: true, timeZone: "America/New_York" });
 
-  it("technician intake is gathered naturally, one at a time, skipping what's known, never as a checklist", () => {
-    expect(off).toContain("# What the technician needs");
-    expect(off).toContain("one at a time, skipping anything already said. Never run through them like a checklist");
-    for (const item of ["When it started", "brand or rough age", "thermostat mode and setting", "breaker", "error code", "Pets", "read it back in groups"]) {
-      expect(off).toContain(item);
-    }
-    // Live: after "not sure" on equipment, Ava still asked for error codes.
-    expect(off).toContain('If they say "not sure" about something, drop that topic and its follow-ups');
+  it("technician intake: no checklist in the prompt (live: seeing it early made Ava ask it before triage); the tool result asks for it", () => {
+    expect(off).not.toContain("# What the technician needs");
+    expect(off).not.toMatch(/thermostat mode and setting|brand or rough age/);
+    // The checklist now arrives with the offered windows (see robustness-batch.test.ts).
+    expect(off).toContain("Ask technician questions only when a tool tells you to.");
   });
 
   it("property type: confirmed only when unclear; businesses skip lookup; multi-unit central systems go to the office", () => {

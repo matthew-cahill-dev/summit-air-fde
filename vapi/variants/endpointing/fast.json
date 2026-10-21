@@ -1,5 +1,5 @@
 {
-  "_comments": "Lowest latency: the Oct 21 morning configuration minus 0.1 s of fixed wait. Flux eotThreshold 0.7 (Deepgram's default), eotTimeoutMs 3000 (docs' 'fast' band), waitSeconds 0.2. Expect a slightly lower median than 'safe' and more cut-ins when callers pause after a complete sentence.",
+  "_comments": "DEFAULT since Oct 21. Deepgram Flux eotThreshold 0.7 (Deepgram's default), eotTimeoutMs 3000 (docs' 'fast' band), waitSeconds 0.2. Live A/B on two calls (01a15ee6 fast vs 01a15edf safe): caller-side p50 1461 vs 1501 ms, p95 2054 vs 2941 ms, worst turn 3.7 vs 5.5 s, 0 overlaps on both, and the caller said it felt much better.",
   "transcriber": {
     "eotThreshold": 0.7,
     "eotTimeoutMs": 3000

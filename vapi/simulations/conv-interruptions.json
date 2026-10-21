@@ -1,0 +1,25 @@
+{
+  "title": "Caller interrupts mid-sentence",
+  "requirement": "quality",
+  "tags": [
+    "conversation",
+    "voice"
+  ],
+  "expectedTools": [
+    "triage_issue",
+    "book_appointment"
+  ],
+  "instructions": "You're a new caller, Jo Banks, 45 Clinton Street, Brooklyn 11201 (a house). Your heat is out, it's 60 degrees inside, nobody vulnerable, no gas smell. Phone 718 555 0160. Interrupt the assistant twice while it is speaking, once to say 'sorry, it's Clinton, not Clifton', and once to ask 'how long will this take?'. Accept the first window and confirm.",
+  "checks": [
+    {
+      "name": "handled_correction",
+      "question": "Did the assistant use Clinton Street (not Clifton) after the correction?",
+      "expect": true
+    },
+    {
+      "name": "no_full_restart",
+      "question": "After being interrupted, did the assistant avoid repeating its whole previous turn from the start?",
+      "expect": true
+    }
+  ]
+}

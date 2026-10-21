@@ -42,6 +42,19 @@ export function payloadToResult(toolCallId: string, payload: Record<string, unkn
   return payload.ok === true ? { toolCallId, result: text } : { toolCallId, error: text };
 }
 
+/**
+ * Fields where "ask the caller for X" is the wrong next step. Live (call 01a15ee6): the model left
+ * out caller_confirmed after the caller had said yes, and "Ask the caller for: caller confirmed"
+ * made Ava ask for the yes again and call book_appointment twice.
+ */
+const FIELD_NEXT_STEPS: Record<string, string> = {
+  caller_confirmed:
+    "If the caller already said yes to your recap, call book_appointment again right now with the same details and caller_confirmed true, without asking again. Only if they haven't said yes: recap and get a clear yes first.",
+  slot_id: "Use a slot_id from the offered windows (triage_issue or get_availability); never make one up.",
+  customer_id: "Use the customer_id from a verified lookup_customer result, or leave it out for a new caller.",
+  address_id: "Use an address_id from a verified lookup_customer result, or pass the address instead.",
+};
+
 /** Turn Zod issues into an error that names each missing/invalid field. */
 export function zodErrorOutcome(error: z.ZodError, rawArgs: Record<string, unknown>): ToolOutcome {
   const fields = new Map<string, string>();
@@ -63,7 +76,13 @@ export function zodErrorOutcome(error: z.ZodError, rawArgs: Record<string, unkno
     ok: false,
     errorCode: "invalid_arguments",
     message: parts.join(". "),
-    say: `Ask the caller for: ${invalidFields.map((f) => f.field.replace(/_/g, " ")).join(", ")}.`,
+    say: [
+      "Next:",
+      ...invalidFields.filter((f) => FIELD_NEXT_STEPS[f.field]).map((f) => FIELD_NEXT_STEPS[f.field]),
+      ...(invalidFields.some((f) => !FIELD_NEXT_STEPS[f.field])
+        ? [`Ask the caller only for: ${invalidFields.filter((f) => !FIELD_NEXT_STEPS[f.field]).map((f) => f.field.replace(/_/g, " ")).join(", ")}, then call the tool again once.`]
+        : []),
+    ].join(" "),
     data: { invalid_fields: invalidFields },
   };
 }
@@ -72,7 +91,7 @@ const INTERNAL_ERROR: ToolOutcome = {
   ok: false,
   errorCode: "internal_error",
   message: "The tool failed unexpectedly.",
-  say: "Apologize for the trouble, take the caller's name and number, and tell them a team member will call back shortly.",
+  say: "Apologize once for the trouble. Next: call create_callback_request with reason backend_failure and a short summary; never guess what this tool would have said.",
 };
 
 type CallInfo = { callId: string | null; callerPhone: string | null };
@@ -108,7 +127,7 @@ async function runTool(call: ParsedToolCall, ctx: CallInfo, deps: DispatchDeps) 
       ok: false,
       errorCode: "unknown_tool",
       message: `Unknown tool: ${call.name || "(missing name)"}`,
-      say: "Continue the conversation without this tool.",
+      say: "That tool isn't available. Next: continue without it; if you can't help without it, offer an office callback (create_callback_request).",
     } satisfies ToolOutcome;
   }
   if (!call.args) {
@@ -116,7 +135,7 @@ async function runTool(call: ParsedToolCall, ctx: CallInfo, deps: DispatchDeps) 
       ok: false,
       errorCode: "invalid_arguments",
       message: call.argsError ?? "arguments could not be parsed",
-      say: "Something went wrong reading that request. Try again.",
+      say: "Something went wrong reading that request. Next: call the tool once more with valid arguments; if it fails again, treat it as a tool failure.",
     } satisfies ToolOutcome;
   }
   const parsed = def.schema.safeParse(call.args);

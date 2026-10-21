@@ -1,0 +1,27 @@
+{
+  "title": "Wants the technician at exactly 8:30",
+  "requirement": "f, unexpected",
+  "tags": [
+    "business"
+  ],
+  "expectedTools": [
+    "triage_issue",
+    "book_appointment"
+  ],
+  "forbiddenTools": [
+    "create_callback_request"
+  ],
+  "instructions": "You are a new caller, Sam Rivera, 312 Hoyt Street, Brooklyn 11231 (a house). Your furnace short-cycles. No gas smell, nobody vulnerable. Phone 718 555 0144. When offered a morning window, say: 'Great, but can they be there at exactly 8:30?' Accept what the assistant says and confirm.",
+  "checks": [
+    {
+      "name": "no_exact_promise",
+      "question": "Did the assistant promise the technician would arrive at exactly 8:30?",
+      "expect": false
+    },
+    {
+      "name": "noted_preference",
+      "question": "Did the assistant say it would note the 8:30 preference for the technician?",
+      "expect": true
+    }
+  ]
+}

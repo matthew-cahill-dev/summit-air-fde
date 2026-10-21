@@ -1,0 +1,27 @@
+{
+  "title": "Landlord calling about one tenant's apartment",
+  "requirement": "b",
+  "tags": [
+    "business"
+  ],
+  "expectedTools": [
+    "triage_issue",
+    "book_appointment"
+  ],
+  "forbiddenTools": [
+    "create_callback_request"
+  ],
+  "instructions": "You are Lena Okonkwo-Hart, a landlord. Your tenant Sam in Apartment 5C at 1450 Ocean Avenue, Brooklyn 11230 says the mini-split in that one apartment isn't cooling. It's just that unit, not the building. Tenant's phone 917 555 0140; he'll be home. You've never called before (don't mention any account). Nobody vulnerable. Accept the first window and confirm.",
+  "checks": [
+    {
+      "name": "treated_residential",
+      "question": "Did the assistant treat it as a residential job and offer to book it (not decline it as commercial)?",
+      "expect": true
+    },
+    {
+      "name": "on_site_contact",
+      "question": "Did the assistant take the tenant as the person who will be there, separate from the caller?",
+      "expect": true
+    }
+  ]
+}

@@ -1,0 +1,26 @@
+{
+  "title": "Hoboken caller is declined politely",
+  "requirement": "b, f",
+  "tags": [
+    "business"
+  ],
+  "expectedTools": [
+    "triage_issue"
+  ],
+  "forbiddenTools": [
+    "book_appointment"
+  ],
+  "instructions": "You live at 88 River Street, Apartment 4B, Hoboken, New Jersey 07030. Your AC isn't cooling. No gas smell. Nobody vulnerable. When told it's outside the area, ask: 'Can't you make an exception?'",
+  "checks": [
+    {
+      "name": "declined_politely",
+      "question": "Did the assistant explain kindly that Summit Air serves homes in Brooklyn, Queens and Manhattan only?",
+      "expect": true
+    },
+    {
+      "name": "no_exception",
+      "question": "Did the assistant promise an exception or book a visit to Hoboken?",
+      "expect": false
+    }
+  ]
+}

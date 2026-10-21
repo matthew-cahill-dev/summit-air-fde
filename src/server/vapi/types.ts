@@ -21,14 +21,18 @@ export type ToolContext = {
   now: Date;
 };
 
-/** What a tool handler returns. Serialized into the Vapi `result` (ok) or `error` (not ok) string. */
+/**
+ * What a tool handler returns. Serialized into the Vapi `result` (ok) or `error` (not ok) string.
+ * `say` is required: every result tells the model its next step, so the call order lives in the
+ * tool results, not in a checklist the model sees from the first turn.
+ */
 export type ToolOutcome =
-  | { ok: true; data: Record<string, unknown>; say?: string }
+  | { ok: true; data: Record<string, unknown>; say: string }
   | {
       ok: false;
       errorCode: string;
       message: string;
-      say?: string;
+      say: string;
       data?: Record<string, unknown>;
     };
 

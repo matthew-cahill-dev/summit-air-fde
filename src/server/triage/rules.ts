@@ -38,6 +38,12 @@ export type TriageFlags = {
    * property manager calling about a single apartment or house is NOT this: that's residential.
    */
   centralMultiUnit?: boolean;
+  /** Carbon monoxide symptoms without an alarm: several people at home with headaches, dizziness or nausea. */
+  coSymptoms?: boolean;
+  /** Someone at home shows medical emergency signs (fainting, confusion, trouble breathing, heat stroke, hypothermia…). */
+  medicalEmergency?: boolean;
+  /** Water is leaking onto or near electrical equipment (a panel, outlets, the unit's wiring). */
+  waterNearElectrical?: boolean;
 };
 
 export type ServiceAreaInfo = {
@@ -108,6 +114,8 @@ export function triageRules(
   if (flags.gasSmell) reasons.push("Caller reports a gas smell");
   if (flags.coAlarm) reasons.push("Carbon monoxide alarm reported");
   if (flags.burningSmellOrSmoke) reasons.push("Burning smell or smoke reported");
+  // Symptoms without an alarm are treated like the alarm: CO can't be smelled or seen.
+  if (flags.coSymptoms) reasons.push("Possible carbon monoxide symptoms at home (no alarm)");
   if (reasons.length) {
     return { urgency: "safety_stop", reasons, nextAction: "safety_instructions", serviceable, notServiceableReason };
   }
@@ -167,6 +175,15 @@ export function triageRules(
     reasons.push("Active leak reported");
   } else {
     reasons.push(`Routine request: ${flags.issueType.replace(/_/g, " ")}`);
+  }
+  if (flags.waterNearElectrical) {
+    if (urgency === "routine") urgency = "urgent";
+    reasons.push("Water leaking near electrical equipment");
+  }
+  // A medical emergency at home makes any HVAC problem an emergency (the caller is told to call 911 first).
+  if (flags.medicalEmergency) {
+    urgency = "emergency";
+    reasons.push("Medical emergency signs reported at home: caller told to call 911");
   }
 
   // 3. Serviceability decides whether we can act on it. A borough the office hasn't confirmed

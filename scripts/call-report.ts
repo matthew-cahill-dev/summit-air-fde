@@ -3,9 +3,11 @@
 //   any assistant with --any-assistant).
 // Read-only: GET /call/{id} or GET /call?limit=N from the Vapi API, then per-turn latency
 // (caller stop → Ava start), Vapi's own latency breakdown, tool durations, p50/p95,
-// ended reason, last assistant message and recording URL. Never prints the API key.
+// ended reason, last assistant message and recording URL. With the call log and SIP capture
+// (skipped by --no-log): webhook times and the real hang-up (SIP BYE), flagged over 2.5 s
+// (exit code 2). Never prints the API key.
 import { gunzipSync } from "node:zlib";
-import { analyzeLog, buildCallReport, formatCallReport, responseGaps, stats, type JsonObject, type LogRow } from "../src/vapi-sync/call-report";
+import { analyzeLog, buildCallReport, formatCallReport, responseGaps, sipByeTimes, stats, teardownTiming, TEARDOWN_LIMIT_MS, type JsonObject, type LogRow } from "../src/vapi-sync/call-report";
 
 async function main() {
   const args = process.argv.slice(2);
@@ -65,6 +67,21 @@ async function main() {
       } catch {
         // The log is optional; the report stands without it.
       }
+      // The real line drop: the SIP BYE in Vapi's packet capture, timed from the goodbye's end.
+      const pcapUrl = typeof artifact.presignedPcapUrl === "string" ? artifact.presignedPcapUrl : null;
+      const stopAt = reports[i].log?.ending?.goodbyeStopAt ?? null;
+      if (pcapUrl && stopAt !== null) {
+        try {
+          const res = await fetch(pcapUrl);
+          if (res.ok) {
+            const raw = Buffer.from(await res.arrayBuffer());
+            const pcap = raw[0] === 0x1f && raw[1] === 0x8b ? gunzipSync(raw) : raw;
+            reports[i].teardown = teardownTiming(stopAt, sipByeTimes(pcap));
+          }
+        } catch {
+          // Optional too.
+        }
+      }
     }
   }
   if (args.includes("--json")) {
@@ -72,6 +89,11 @@ async function main() {
     return;
   }
   console.log(reports.map(formatCallReport).join("\n\n" + "-".repeat(100) + "\n\n"));
+  const late = reports.filter((r) => r.teardown?.flagged);
+  if (late.length) {
+    console.log(`\n⚠ ${late.length} call(s) with a teardown over ${TEARDOWN_LIMIT_MS} ms (or none at all): ${late.map((r) => r.id).join(", ")}`);
+    process.exitCode = 2;
+  }
   if (reports.length > 1) {
     const s = stats(reports.flatMap((r) => responseGaps(r.turns)));
     console.log(`\nAll ${reports.length} calls, caller stop → Ava start: n=${s.n} p50=${s.p50}ms p95=${s.p95}ms max=${s.max}ms`);

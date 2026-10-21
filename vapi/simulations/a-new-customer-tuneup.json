@@ -1,6 +1,18 @@
 {
   "title": "New customer books a furnace tune-up",
   "requirement": "a, d, f",
+  "tags": [
+    "business",
+    "smoke"
+  ],
+  "expectedTools": [
+    "lookup_customer",
+    "triage_issue",
+    "book_appointment"
+  ],
+  "forbiddenTools": [
+    "create_callback_request"
+  ],
   "instructions": "You are Avery Lindqvist, a new customer. Your gas furnace hasn't had a tune-up in two years and you want one before winter; nothing is broken. You live in a house at 77 Demo Place, Brooklyn, ZIP 11215 (no apartment). It's a Carrier furnace, about 8 years old. No pets, nobody elderly or vulnerable at home. Your phone number is 718 555 0170. Accept the first arrival window you're offered. If you're asked whether everything in the read-back is right, say yes. If the assistant mentions a membership, say 'no thanks'.",
   "checks": [
     {

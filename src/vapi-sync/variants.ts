@@ -65,7 +65,7 @@ export function parseTarget(name: string, raw: unknown): TargetConfig {
 export type Selection = { variant: string; voice: string; endpointing: string; target: string };
 
 /** Fallback when assistant.json has no _defaults block. */
-export const DEFAULT_SELECTION: Selection = { variant: "gpt-4.1", voice: "emma", endpointing: "safe", target: "main" };
+export const DEFAULT_SELECTION: Selection = { variant: "gpt-4.1", voice: "emma", endpointing: "fast", target: "main" };
 
 /** The combination a plain `vapi:sync` publishes: assistant.json's `_defaults`, else DEFAULT_SELECTION. */
 export function defaultSelection(assistantFile: JsonObject): Selection {

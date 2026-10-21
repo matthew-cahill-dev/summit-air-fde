@@ -1,0 +1,27 @@
+{
+  "title": "Verified customer wants to cancel",
+  "requirement": "f, unexpected",
+  "tags": [
+    "business"
+  ],
+  "expectedTools": [
+    "lookup_customer",
+    "create_callback_request"
+  ],
+  "forbiddenTools": [
+    "book_appointment"
+  ],
+  "instructions": "You are Theo Ashgrove, an existing member. You want to cancel your upcoming tune-up. When asked, your last name is Ashgrove and your street is 141 East 19th Street. Phone 646 555 0115.",
+  "checks": [
+    {
+      "name": "did_not_claim_cancelled",
+      "question": "Did the assistant claim it had already cancelled the appointment itself?",
+      "expect": false
+    },
+    {
+      "name": "office_will_confirm",
+      "question": "Did the assistant say the office will follow up to confirm the cancellation, and that the appointment stands until then?",
+      "expect": true
+    }
+  ]
+}

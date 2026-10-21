@@ -1,5 +1,5 @@
 {
-  "_comments": "DEFAULT. Fewer cut-ins at almost the same median. Deepgram Flux eotThreshold 0.8 (Deepgram: 0.8-0.9 = 'higher certainty required before ending a turn, fewer false positives, slightly increased latency'), eotTimeoutMs 4000 (a caller can pause up to 4 s mid-thought before Flux forces a turn end; was 3000), waitSeconds 0.2 (was 0.3: once Flux is confident the caller is done, extra fixed wait only adds latency). Oct 21 morning call on 0.7 / 3000 / 0.3: median 1504 ms, 1 cut-in, after a complete question ('What'd you say?') followed by more speech: the case a higher confidence threshold targets.",
+  "_comments": "Fewer cut-ins in theory, slower in practice. Deepgram Flux eotThreshold 0.8 (Deepgram: 0.8-0.9 = 'higher certainty required before ending a turn, fewer false positives, slightly increased latency'), eotTimeoutMs 4000, waitSeconds 0.2. Default until Oct 21; on live call 01a15edf it was slower than 'fast' at p95 (2941 vs 2054 ms) with no fewer overlaps (0 vs 0). Keep for callers who pause a lot mid-sentence.",
   "transcriber": {
     "eotThreshold": 0.8,
     "eotTimeoutMs": 4000

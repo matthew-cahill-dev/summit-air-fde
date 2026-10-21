@@ -183,7 +183,7 @@ describe("path 3: outside NYC is declined politely", () => {
   it("triage explains and closes; booking refuses", async () => {
     const { payload } = await callTool("triage_issue", triageArgs("07030"));
     expect(payload).toMatchObject({ next_action: "explain_and_close", coverage: "out_of_area", not_serviceable_reason: "out_of_area" });
-    expect(payload.say).toContain("we only serve Brooklyn, Queens and Manhattan");
+    expect(payload.say).toContain("we only serve homes in Brooklyn, Queens and Manhattan");
     const slot = await makeSlot({ county: "New York", capacity: 2, booked: 0 });
     const book = await callTool("book_appointment", newCaller(slot.id, { line1: "88 River St", zip: "07030" }), { callerNumber: "+12015550764" });
     expect(book.payload).toMatchObject({ ok: false, error_code: "out_of_area" });

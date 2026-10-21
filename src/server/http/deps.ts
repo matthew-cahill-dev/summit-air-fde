@@ -1,3 +1,4 @@
+import { after } from "next/server";
 import { getEnv } from "@/lib/env";
 import { getDbFor } from "@/server/db/client";
 import { createRepositories } from "@/server/repositories";
@@ -17,6 +18,7 @@ export function productionVapiDeps(): VapiHttpDeps {
       transferAvailable: Boolean(env.ON_CALL_TRANSFER_NUMBER),
       demoCallerMap: env.DEMO_CALLER_PHONES,
     },
-    callControl: defaultCallControlDeps(env.HANGUP_TAIL_MS),
+    // The end-call runs after Vapi has our answer (see call-control.ts).
+    callControl: defaultCallControlDeps(env.HANGUP_SEND_DELAY_MS, (task) => after(task)),
   };
 }

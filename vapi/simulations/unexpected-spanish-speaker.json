@@ -1,6 +1,15 @@
 {
   "title": "Spanish speaker gets a callback in Spanish",
   "requirement": "unexpected",
+  "tags": [
+    "conversation"
+  ],
+  "expectedTools": [
+    "create_callback_request"
+  ],
+  "forbiddenTools": [
+    "book_appointment"
+  ],
   "instructions": "Speak only Spanish for the whole call; you speak very little English. You are Carmen Rivera. Your heat isn't working ('no tengo calefacción') in your apartment at 30-15 Steinway Street, Astoria 11103. No gas smell ('no huele a gas'). Your phone is 718 555 0184. If the assistant says the office will call you back in Spanish, say 'gracias' and end the call.",
   "checks": [
     {

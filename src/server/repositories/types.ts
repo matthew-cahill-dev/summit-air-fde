@@ -201,21 +201,32 @@ export interface BookingTx {
   ): Promise<{ id: string; status: "confirmed" | "cancelled"; intake: Record<string, unknown> | null } | null>;
   /** A detail added after booking (e.g. an arrival preference): new intake and technician notes, same appointment. */
   updateAppointmentDetails(id: string, input: { intake: Record<string, unknown>; technicianNotes: string }): Promise<void>;
+  /** Serializes bookings within one call (transaction-scoped advisory lock on the call id). */
+  lockCall(vapiCallId: string): Promise<void>;
+  /** This call's confirmed appointment, if it booked one (one active appointment per call). */
+  findCallAppointment(vapiCallId: string): Promise<{ id: string; slotId: string; intake: Record<string, unknown> | null } | null>;
+  /** Gives a seat back (a window changed during the call). Never below zero. */
+  releaseSeat(slotId: string): Promise<void>;
+  /** Rewrites an appointment in place (new window and details), confirmed. Used to move or revive one. */
+  replaceAppointment(id: string, input: AppointmentInput): Promise<void>;
+  cancelAppointment(id: string): Promise<void>;
   /** Atomic: UPDATE ... SET booked = booked + 1 WHERE booked < capacity (minus reserved) RETURNING. */
   claimSeat(slotId: string, rules: ClaimRules): Promise<boolean>;
-  insertAppointment(input: {
-    slotId: string;
-    customerId: string;
-    addressId: string;
-    serviceType: "maintenance" | "repair" | "diagnostic";
-    urgency: Urgency;
-    issueSummary: string;
-    symptoms: string[];
-    intake: Record<string, unknown>;
-    technicianNotes: string;
-    vapiCallId: string | null;
-  }): Promise<{ id: string }>;
+  insertAppointment(input: AppointmentInput): Promise<{ id: string }>;
 }
+
+export type AppointmentInput = {
+  slotId: string;
+  customerId: string;
+  addressId: string;
+  serviceType: "maintenance" | "repair" | "diagnostic";
+  urgency: Urgency;
+  issueSummary: string;
+  symptoms: string[];
+  intake: Record<string, unknown>;
+  technicianNotes: string;
+  vapiCallId: string | null;
+};
 
 export interface SchedulingRepository {
   /** Slots in a county starting within [from, to] that still have a free seat, earliest first. */

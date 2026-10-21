@@ -1,0 +1,25 @@
+{
+  "title": "A mumbled word that makes no sense",
+  "requirement": "quality",
+  "tags": [
+    "conversation",
+    "voice"
+  ],
+  "expectedTools": [
+    "triage_issue",
+    "book_appointment"
+  ],
+  "instructions": "You're a new caller at 1450 Ocean Avenue, Apartment 5C, Brooklyn 11230. When describing the problem say: 'The heat pump is making a weird mercury flurble sound.' If asked to repeat, say 'a rattling sound'. No gas smell, nobody vulnerable. Name Lena Okonkwo-Hart, phone 917 555 0104. Accept the first window and confirm.",
+  "checks": [
+    {
+      "name": "asked_to_repeat",
+      "question": "Did the assistant ask the caller to repeat the unclear words instead of guessing?",
+      "expect": true
+    },
+    {
+      "name": "no_parrot_garble",
+      "question": "Did the assistant repeat \"mercury\" or \"flurble\" back to the caller?",
+      "expect": false
+    }
+  ]
+}

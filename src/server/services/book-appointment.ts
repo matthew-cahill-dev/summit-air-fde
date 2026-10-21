@@ -125,9 +125,31 @@ function coverageCheckOutcome(borough: string | null): ToolOutcome {
     ok: false,
     errorCode: "coverage_check",
     message: `Coverage for ${where} isn't confirmed`,
-    say: `Don't book. Say: "Let me have our office confirm whether we can cover that address." Then call create_callback_request with reason other and details starting "coverage check: ${where}". Don't give a reason or say we don't serve it.`,
+    say: `Don't book. Say: "Let me have our office confirm whether we can cover that address." Next: call create_callback_request with reason other and details starting "coverage check: ${where}". Don't give a reason or say we don't serve it.`,
     data: { coverage_check: true, borough },
   };
+}
+
+const DONT_REBOOK = "Don't call book_appointment again unless the caller changes the window or a detail.";
+
+/** What Ava does next after a successful book_appointment. */
+export function bookedSay(b: {
+  already: boolean;
+  moved: boolean;
+  detailsUpdated: boolean;
+  window: string;
+  address: { line1: string; unit: string | null };
+  offerMembership: boolean;
+}): string {
+  const where = `${b.address.line1}${b.address.unit ? `, unit ${b.address.unit}` : ""}`;
+  if (b.detailsUpdated) {
+    return "Same booking, no second appointment: the new detail is now in the technician's notes. Say so in one short sentence (e.g. you've noted they'd like around eight thirty, though it's a window). No callback is needed for this. Next: ask if there's anything else. " + DONT_REBOOK;
+  }
+  if (b.already) return `Already booked: ${b.window}, at ${where}. Recap it in one sentence. Next: ask if there's anything else. ${DONT_REBOOK}`;
+  if (b.moved) {
+    return `Changed, not added: their one booking is now ${b.window}, at ${where}, and the earlier window is released. Confirm the new window in one sentence. Next: ask if there's anything else. ${DONT_REBOOK}`;
+  }
+  return `Booked. Recap it in one sentence: ${b.window}, at ${where}.` + (b.offerMembership ? MEMBERSHIP_SAY : "") + ` Next: ask if there's anything else. ${DONT_REBOOK}`;
 }
 
 const confirmationCode = (appointmentId: string) => `SA-${appointmentId.replace(/-/g, "").slice(0, 6).toUpperCase()}`;
@@ -159,7 +181,7 @@ export const bookAppointmentTool = defineTool({
         ok: false,
         errorCode: "invalid_arguments",
         message: "Invalid: phone (not a valid phone number)",
-        say: "Ask for the best callback number again, including area code.",
+        say: "Next: ask for the best callback number again, including area code, then call book_appointment again.",
         data: { invalid_fields: [{ field: "phone", problem: "not a valid phone number" }] },
       };
     }
@@ -169,7 +191,7 @@ export const bookAppointmentTool = defineTool({
         ok: false,
         errorCode: "invalid_arguments",
         message: "Missing: phone",
-        say: "Ask for the best callback number for the appointment.",
+        say: "Next: ask for the best callback number for the appointment, then call book_appointment again.",
         data: { invalid_fields: [{ field: "phone", problem: "required" }] },
       };
     }
@@ -185,7 +207,7 @@ export const bookAppointmentTool = defineTool({
           ok: false,
           errorCode: "out_of_area",
           message: `ZIP ${args.address.zip} is outside the service area`,
-          say: `Confirm the ZIP. If it's right, explain we only serve ${BUSINESS.facts.serviceArea}.`,
+          say: `Confirm the ZIP. If it's right, explain we only serve homes in ${BUSINESS.facts.serviceArea}. Next: if it was misheard, call triage_issue again with the corrected ZIP; otherwise ask if there's anything else.`,
         };
       }
       newAddressCounty = zipRow.county;
@@ -201,6 +223,8 @@ export const bookAppointmentTool = defineTool({
 
     try {
       const booked = await ctx.repos.scheduling.runBooking(async (tx) => {
+        // Two book_appointment calls from one phone call never interleave (one appointment per call).
+        if (ctx.callId) await tx.lockCall(ctx.callId);
         const slot = await tx.getSlot(args.slot_id);
         if (!slot) throw new BookingRejected("slot_not_found");
         slotCounty = slot.county;
@@ -296,14 +320,21 @@ export const bookAppointmentTool = defineTool({
             vapiCallId: ctx.callId,
           });
 
-        // Same customer, same window: no second booking. Details added since (an arrival
-        // preference, pets, a code) update this appointment's notes instead of needing a callback.
+        // One active appointment per call. Same window again (the caller holds it): no second
+        // booking; added details (an arrival preference, pets, a code) update its notes. A
+        // different window in the same call is a change: the call's appointment moves and its
+        // old seat is released.
+        const callAppt = ctx.callId ? await tx.findCallAppointment(ctx.callId) : null;
         const existing = await tx.findAppointment(customer.id, slot.id);
         if (existing?.status === "confirmed") {
           const merged = mergeIntake(existing.intake, newIntake);
           const changed = JSON.stringify(merged) !== JSON.stringify(existing.intake ?? {});
           if (changed) await tx.updateAppointmentDetails(existing.id, { intake: merged, technicianNotes: notesFor(merged) });
-          return { appointmentId: existing.id, already: true, detailsUpdated: changed, slot, address, customer, isMember };
+          if (callAppt && callAppt.id !== existing.id) {
+            await tx.cancelAppointment(callAppt.id);
+            await tx.releaseSeat(callAppt.slotId);
+          }
+          return { appointmentId: existing.id, already: true, moved: false, detailsUpdated: changed, slot, address, customer, isMember };
         }
 
         const claimed = await tx.claimSeat(slot.id, {
@@ -312,9 +343,10 @@ export const bookAppointmentTool = defineTool({
           memberPriorityUntil: new Date(ctx.now.getTime() + cfg.memberPriorityWindowHours * 3_600_000),
           memberReservedSeats: cfg.memberReservedSeatsPerSlot,
         });
-        if (!claimed) throw new BookingRejected("slot_taken", slot.county);
+        if (!claimed) throw new BookingRejected("slot_taken", slot.county); // the call's booking (if any) stands
 
-        const appt = await tx.insertAppointment({
+        const intake = callAppt ? mergeIntake(callAppt.intake, newIntake) : newIntake;
+        const fields = {
           slotId: slot.id,
           customerId: customer.id,
           addressId: address.id,
@@ -322,18 +354,35 @@ export const bookAppointmentTool = defineTool({
           urgency: args.urgency,
           issueSummary: args.issue_summary,
           symptoms: args.symptoms,
-          intake: newIntake,
-          technicianNotes: notesFor(newIntake),
+          intake,
+          technicianNotes: notesFor(intake),
           vapiCallId: ctx.callId,
-        });
-        return { appointmentId: appt.id, already: false, detailsUpdated: false, slot, address, customer, isMember };
+        };
+        let appointmentId: string;
+        if (existing) {
+          // A cancelled booking of this customer in this window: bring it back (unique per customer and window).
+          await tx.replaceAppointment(existing.id, fields);
+          appointmentId = existing.id;
+          if (callAppt) {
+            await tx.cancelAppointment(callAppt.id);
+            await tx.releaseSeat(callAppt.slotId);
+          }
+        } else if (callAppt) {
+          await tx.replaceAppointment(callAppt.id, fields);
+          await tx.releaseSeat(callAppt.slotId);
+          appointmentId = callAppt.id;
+        } else {
+          appointmentId = (await tx.insertAppointment(fields)).id;
+        }
+        return { appointmentId, already: false, moved: Boolean(callAppt), detailsUpdated: false, slot, address, customer, isMember };
       });
 
       const window = spokenWindow(booked.slot.startsAt, booked.slot.endsAt, ctx.settings.timeZone, ctx.now);
-      logEvent("appointment_booked", { callId: ctx.callId, already: booked.already, newCustomer });
-      // A replay (already) never re-offers: the caller heard it the first time.
+      logEvent("appointment_booked", { callId: ctx.callId, already: booked.already, moved: booked.moved, newCustomer });
+      // A replay (already) or a change never re-offers: the caller heard it the first time.
       const offerMembership =
         !booked.already &&
+        !booked.moved &&
         shouldOfferMembership({
           isMember: booked.isMember,
           urgency: args.urgency,
@@ -353,12 +402,9 @@ export const bookAppointmentTool = defineTool({
           address: { line1: booked.address.line1, unit: booked.address.unit, zip: booked.address.zip },
           offer_membership: offerMembership,
           details_updated: booked.detailsUpdated,
+          changed_window: booked.moved,
         },
-        say: booked.detailsUpdated
-          ? "Same booking, no second appointment: the new detail is now in the technician's notes. Say so in one short sentence (e.g. you've noted they'd like around eight thirty, though it's a window). No callback is needed for this."
-          : `The booking is confirmed. Recap it in one short sentence: ${window}, at ${booked.address.line1}${booked.address.unit ? `, unit ${booked.address.unit}` : ""}.` +
-            (offerMembership ? MEMBERSHIP_SAY : "") +
-            " Then ask if there's anything else.",
+        say: bookedSay({ ...booked, window, offerMembership }),
       };
     } catch (err) {
       if (err instanceof BookingRejected) return rejected(err, args, ctx, slotCounty, resolvedCustomerId);
@@ -369,7 +415,7 @@ export const bookAppointmentTool = defineTool({
           return {
             ok: true,
             data: { booked: true, already_booked: true, appointment_id: existing.id, confirmation_code: confirmationCode(existing.id) },
-            say: "The booking is confirmed. Recap the window and address.",
+            say: `Booked. Recap the window and address in one sentence. Next: ask if there's anything else. ${DONT_REBOOK}`,
           };
         }
       }
@@ -394,8 +440,8 @@ async function rejected(
         message: "That arrival window was just taken.",
         data: { reason: "slot_taken", alternatives: alts },
         say: alts.length
-          ? "Apologize: that window was just taken. Offer these alternatives, then confirm again before booking."
-          : "Apologize: that window was just taken and nothing else is open. Offer a callback from the office with create_callback_request.",
+          ? "Apologize: that window was just taken. Next: offer these alternatives; when they pick one, confirm it in one sentence and call book_appointment with the new slot_id (same details)."
+          : "Apologize: that window was just taken and nothing else is open. Next: offer a callback from the office with create_callback_request.",
       };
     }
     case "slot_wrong_area":
@@ -403,7 +449,7 @@ async function rejected(
         ok: false,
         errorCode: "slot_wrong_area",
         message: "That window is for a different borough than the service address.",
-        say: "Get availability again for the caller's ZIP code and offer those windows.",
+        say: "Next: call get_availability for the service address's ZIP and offer those windows.",
         data: { reason: "slot_wrong_area" },
       };
     case "residential_only":
@@ -411,7 +457,7 @@ async function rejected(
         ok: false,
         errorCode: "residential_only",
         message: "That address is a commercial property.",
-        say: "Explain Summit Air only services homes.",
+        say: "Explain Summit Air only services homes. Next: thank them and end the call.",
       };
     case "coverage_check":
       return coverageCheckOutcome(err.county ? (BOROUGH[err.county as County] ?? err.county) : null);
@@ -420,7 +466,7 @@ async function rejected(
         ok: false,
         errorCode: "out_of_area",
         message: "That address is outside the service area.",
-        say: `Confirm the address. If it's right, explain we only serve homes in ${BUSINESS.facts.serviceArea}.`,
+        say: `Confirm the address. If it's right, explain we only serve homes in ${BUSINESS.facts.serviceArea}. Next: ask if there's anything else.`,
       };
     case "missing_name": {
       const missing = [!args.first_name && "first_name", !args.last_name && "last_name"].filter((f): f is string => Boolean(f));
@@ -428,7 +474,7 @@ async function rejected(
         ok: false,
         errorCode: "invalid_arguments",
         message: `Missing: ${missing.join(", ")}`,
-        say: `This is a new customer, so ask for their ${missing.map((f) => f.replace("_", " ")).join(" and ")}.`,
+        say: `This is a new customer. Next: ask for their ${missing.map((f) => f.replace("_", " ")).join(" and ")}, then call book_appointment again with the same details.`,
         data: { invalid_fields: missing.map((field) => ({ field, problem: "required for a new customer" })) },
       };
     }
@@ -437,7 +483,7 @@ async function rejected(
         ok: false,
         errorCode: err.code,
         message: `Booking failed: ${err.code.replace(/_/g, " ")}`,
-        say: "Something didn't match. Get availability again, or look the caller up again, before retrying.",
+        say: "Something didn't match. Next: call get_availability again for the service address's ZIP, or look the caller up again, before retrying once.",
         data: { reason: err.code },
       };
   }

@@ -3,7 +3,7 @@
   "async": false,
   "function": {
     "name": "get_availability",
-    "description": "Find more arrival windows after triage, e.g. 'anything later?', 'mornings only', 'do you have Saturday?'. Returns up to 3 offered_slots with spoken labels.",
+    "description": "Find more arrival windows after triage, e.g. 'anything later?', 'mornings only', 'do you have Saturday?', 'can you come on the 28th?'. Returns up to 3 offered_slots with spoken labels, a scheduling_note when the requested day can't be offered (weekdays_only, beyond_booking_horizon, date_passed), and a say field with the next step.",
     "parameters": {
       "type": "object",
       "properties": {
@@ -40,6 +40,10 @@
             "sunday"
           ],
           "description": "Day-of-week preference."
+        },
+        "preferred_date": {
+          "type": "string",
+          "description": "A specific date the caller asked for, YYYY-MM-DD (e.g. 'the 28th', 'next month'). The result says honestly if it's a weekend, past the two-week booking window, or already passed."
         },
         "after": {
           "type": "string",

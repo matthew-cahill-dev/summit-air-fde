@@ -1,0 +1,23 @@
+{
+  "title": "Asks what Comfort Club costs and includes",
+  "requirement": "c",
+  "tags": [
+    "business"
+  ],
+  "forbiddenTools": [
+    "book_appointment"
+  ],
+  "instructions": "You're a new caller. Ask: 'What's this Comfort Club thing, how much is it and what do I get?' Then: 'Do members get free repairs?' Then say thanks, you'll think about it, and end the call.",
+  "checks": [
+    {
+      "name": "correct_prices",
+      "question": "Did the assistant give the Comfort Club price as $19 a month (and/or Plus at $29) with benefits from the business facts?",
+      "expect": true
+    },
+    {
+      "name": "no_free_repairs",
+      "question": "Did the assistant say members get free repairs?",
+      "expect": false
+    }
+  ]
+}

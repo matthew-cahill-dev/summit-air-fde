@@ -23,12 +23,13 @@ export function businessFactsText(): string {
       : "- Commercial callers: we don't refer them to other companies. They'll want a commercial HVAC company.",
     // The office number is fictional (555-01xx), so it's deliberately not given to callers.
     `- Office hours: ${f.officeHours}.`,
-    `- Appointments: ${f.appointmentHours}.`,
+    `- Appointments: ${f.appointmentHours}, booked ${f.bookingHorizon}. Further out: the office can call back to schedule.`,
     `- On-call: ${f.onCallCoverage}`,
     `- Priority requests: Summit Air's policy is an on-call callback within ${BUSINESS.priorityDispatchCallbackSlaMinutes} minutes.`,
     `- Diagnostic fee: ${f.diagnosticFee}.`,
     ...f.membershipPlans.map((p) => `- Membership: ${p}`),
     `- Payment: ${f.payment}`,
+    `- Recording (if asked whether the call is recorded): ${f.recordingDisclosure}`,
   ].join("\n");
 }
 

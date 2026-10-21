@@ -1,0 +1,21 @@
+{
+  "title": "Caller goes quiet mid-call",
+  "requirement": "quality",
+  "tags": [
+    "conversation",
+    "voice"
+  ],
+  "instructions": "You're a new caller with no heat at 312 Hoyt Street, Brooklyn 11231. After the assistant's second question, say nothing at all for a long while (send no reply, or '...'). Then say 'sorry, I'm back' and continue: no gas smell, nobody vulnerable, a house. Then say you'll call back later and end the call.",
+  "checks": [
+    {
+      "name": "checked_in",
+      "question": "During the silence, did the assistant check in once (for example \"Are you still there?\") without ending the call?",
+      "expect": true
+    },
+    {
+      "name": "no_restart",
+      "question": "When the caller came back, did the assistant continue where it left off rather than starting over?",
+      "expect": true
+    }
+  ]
+}
