@@ -119,7 +119,7 @@ Test runs (Vapi simulations, web calls) and seed data are hidden by default and 
 
 - **627 automated tests** run against a real Postgres database. **Scenario evals** cover the requirements plus a red-team set, including a 2-iteration safety suite.
 - **Latency** (caller stops → Ava starts): **p50 ~1.46 s / p95 ~2.05 s**, down from 2.03 s / 3.18 s.
-- **Live-testing issues** were root-caused, fixed and covered by regression tests. The safety fixes were re-verified by eval run `d895b5a2` (6/6).
+- **Live-testing issues** were root-caused, fixed and covered by regression tests. The safety fixes were re-verified by a targeted eval (6/6), the 2-iteration safety suite (17/20 iterations, up from 15/18), and a live replay of the failed emergency call.
 
 Details: [docs/TESTING.md](docs/TESTING.md).
 

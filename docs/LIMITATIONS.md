@@ -63,6 +63,7 @@ What Ava and the operations console don't do yet, and the business assumptions S
 3. **Field-service integration** (ServiceTitan) behind the existing repository interfaces.
 4. **Staff authentication and roles** for the console, with per-user audit.
 5. **SMS or pager alerting** for safety stops and emergencies, alongside the board.
+6. **A live transcript watcher.** Subscribe to Vapi's real-time transcript events and run the safety matcher on each caller turn, creating the safety record mid-call. The office would be alerted during the call without depending on any tool call (closing the "script spoken, triage skipped" gap seen in run `dde50f9c`).
 
 ## Owner to confirm
 
