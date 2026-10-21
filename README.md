@@ -12,7 +12,7 @@ Ava answers Summit Air's phone line, any hour of the day. She finds out what's w
 | **The office sees everything** | One console: the dispatch board, every call with its transcript and actions, and appointments |
 
 <a id="for-revin-reviewers"></a>
-## For reviewers: a 5-minute tour
+## For reviewers
 
 1. **Call (347) 719-8328** and talk to Ava like a customer would: unscripted, interrupting, changing your mind.
 2. **Watch it land** in the [operations console](https://summit-air-fde.replit.app) (password shared separately). The call appears on **Calls** within seconds.
