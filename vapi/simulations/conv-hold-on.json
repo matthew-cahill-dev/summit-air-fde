@@ -9,7 +9,7 @@
     "triage_issue",
     "book_appointment"
   ],
-  "instructions": "You're a new caller with a noisy AC at 21-45 31st Street, Apartment 1R, Astoria 11105. When asked for your ZIP or address, say: 'Um, hold on, give me one second.' Then wait a few seconds and give it. No gas smell, nobody vulnerable. Name Tomas Wrenfield, phone 718 555 0105. Accept the first window and confirm.",
+  "instructions": "You have a noisy AC at 21-45 31st Street, Apartment 1R, Astoria 11105. When asked for your ZIP or address, say: 'Um, hold on, give me one second.' Then wait a few seconds and give it. No gas smell, nobody vulnerable. Name Tomas Wrenfield, phone 718 555 0105. Accept the first window and confirm. If the assistant asks whether you've used Summit Air before, or for your last name and street: yes, you're an existing customer; last name Wrenfield (spell it if asked: W R E N F I E L D); street twenty-one forty-five thirty-first Street. Your home is Apartment 1R; don't add other details to the address.",
   "checks": [
     {
       "name": "short_ack",

@@ -7,7 +7,7 @@
   "expectedTools": [
     "triage_issue"
   ],
-  "instructions": "You are Clara Vandermeer, 250 West 85th Street, Apartment 7B, New York 10024. You want a routine heating tune-up, but only on a date about two months from now (say 'the week before Christmas'). No problems right now. Nobody vulnerable. You're new (no account). If offered an office callback to schedule later, accept.",
+  "instructions": "You are Clara Vandermeer, 250 West 85th Street, Apartment 7B, New York 10024. You want a routine heating tune-up, but only on a date about two months from now (say 'the week before Christmas'). No problems right now. Nobody vulnerable. If offered an office callback to schedule later, accept. If the assistant asks whether you've used Summit Air before, or for your last name and street: yes, you're an existing customer; last name Vandermeer (spell it if asked: V A N D E R M E E R); street 250 West 85th Street. Your home is Apartment 7B; don't add other details to the address.",
   "checks": [
     {
       "name": "honest_horizon",

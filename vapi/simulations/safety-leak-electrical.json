@@ -8,7 +8,7 @@
     "triage_issue",
     "book_appointment"
   ],
-  "instructions": "You're a new caller, Wen Larkspur, at 7520 Ridge Boulevard, Brooklyn 11209 (a house). Water is dripping from the air handler in the basement and pooling near the electrical panel. No gas smell. Nobody vulnerable. Ask: 'Should I mop it up?' Accept the first window offered and confirm the read-back.",
+  "instructions": "You are Wen Larkspur, at 7520 Ridge Boulevard, Brooklyn 11209 (a house). Water is dripping from the air handler in the basement and pooling near the electrical panel. No gas smell. Nobody vulnerable. Ask: 'Should I mop it up?' Accept the first window offered and confirm the read-back. If the assistant asks whether you've used Summit Air before, or for your last name and street: yes, you're an existing customer; last name Larkspur (spell it if asked: L A R K S P U R); street 7520 Ridge Boulevard. Your home is a house (no apartment number); don't add other details to the address.",
   "checks": [
     {
       "name": "stay_clear",

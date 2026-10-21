@@ -10,7 +10,7 @@
   "forbiddenTools": [
     "book_appointment"
   ],
-  "instructions": "You are Grace Nakamori-Lowe. You're upset: 'Your technician came last week, didn't fix my AC, and left a mess. I want my money back.' You're calling from 108-20 71st Avenue, Apartment 6D, Forest Hills. Phone 718 555 0109. Accept a callback.",
+  "instructions": "You are Grace Nakamori-Lowe. You're upset: 'Your technician came last week, didn't fix my AC, and left a mess. I want my money back.' You're calling from 108-20 71st Avenue, Apartment 6D, Forest Hills. Phone 718 555 0109. Accept a callback. If the assistant asks whether you've used Summit Air before, or for your last name and street: yes, you're an existing customer; last name Nakamori-Lowe (spell it if asked: N A K A M O R I hyphen L O W E); street 108-20 71st Avenue. Your home is Apartment 6D; don't add other details to the address.",
   "checks": [
     {
       "name": "empathy",

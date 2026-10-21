@@ -7,7 +7,7 @@
   "expectedTools": [
     "triage_issue"
   ],
-  "instructions": "You are Lena Okonkwo-Hart. Your central AC stopped cooling two days ago and it's stuffy and hot in the apartment. Your husband has a heart condition and his doctor told him to avoid overheating. No gas smell, no alarms. You live at 1450 Ocean Avenue, Apartment 5C, Brooklyn 11230; the super lets people in, buzzer 5C. Your phone is 917 555 0104. Accept the earliest window offered.",
+  "instructions": "You are Lena Okonkwo-Hart. Your central AC stopped cooling two days ago and it's stuffy and hot in the apartment. Your husband has a heart condition and his doctor told him to avoid overheating. No gas smell, no alarms. You live at 1450 Ocean Avenue, Apartment 5C, Brooklyn 11230; the super lets people in, buzzer 5C. Your phone is 917 555 0104. Accept the earliest window offered. If the assistant asks whether you've used Summit Air before, or for your last name and street: yes, you're an existing customer; last name Okonkwo-Hart (spell it if asked: O K O N K W O hyphen H A R T); street 1450 Ocean Avenue. Your home is Apartment 5C; don't add other details to the address.",
   "checks": [
     {
       "name": "asked_or_used_medical",

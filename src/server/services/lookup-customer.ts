@@ -55,6 +55,13 @@ export function verifiedPayload(context: FoundContext): Record<string, unknown> 
 export const NEW_CALLER_NEXT =
   "Next: get the service address (the ZIP only if they haven't said it), confirm home or business only if it's unclear, ask once whether anyone at home is elderly, a baby, pregnant or has a medical condition, then call triage_issue. No technician questions yet.";
 
+/**
+ * Requirement (c) without caller ID (or from another phone): ask, don't wait to be told. Smoke run
+ * 50e283bc: a Comfort Club Plus member on chat (no caller ID) was booked as new because nobody asked.
+ */
+export const ASK_IF_CUSTOMER =
+  "Next: unless they've already said, ask once, simply, whether they've used Summit Air before or are a Comfort Club member. If yes, ask for their last name and the street, then call lookup_customer with last_name and street_address.";
+
 const VERIFIED_SAY =
   "Verified. You may greet them by first name and use these account details. ZIP, borough and home type are on file; don't ask for them. Ask for the unit only if one is on file and they didn't say it. " +
   "Next: if you don't know yet whether anyone at home is elderly, a baby, pregnant or has a medical condition, ask once; then call triage_issue immediately (customer_id, the ZIP from addresses, property_type residential). No technician questions yet.";
@@ -125,7 +132,7 @@ export const lookupCustomerTool = defineTool({
       return {
         ok: true,
         data: { found: false, verified: false, caller_id_unavailable: true },
-        say: `Caller ID isn't available. If they say they're an existing customer, ask for their last name and street and call lookup_customer with last_name and street_address. Otherwise: ${NEW_CALLER_NEXT}`,
+        say: `Caller ID isn't available. ${ASK_IF_CUSTOMER} Otherwise: ${NEW_CALLER_NEXT}`,
       };
     }
     const phoneE164 = normalizePhoneE164(raw);
@@ -147,7 +154,7 @@ export const lookupCustomerTool = defineTool({
       return {
         ok: true,
         data: { found: false, verified: false },
-        say: `No account for this number. If they say they're an existing customer, ask for their last name and street and call lookup_customer with last_name and street_address. Otherwise treat them as new: ${NEW_CALLER_NEXT}`,
+        say: `No account for this number. ${ASK_IF_CUSTOMER} Otherwise treat them as new: ${NEW_CALLER_NEXT}`,
       };
     }
     if (!args.street_address) {

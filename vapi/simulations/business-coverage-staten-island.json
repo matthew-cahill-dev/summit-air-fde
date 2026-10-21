@@ -15,7 +15,7 @@
   "requiredPhrases": [
     "\"Let me have our office confirm whether we can cover that address.\""
   ],
-  "instructions": "You are Marcus Thistlewood, 88 Rockrose Avenue, Staten Island 10314 (a house). Your furnace is making a loud banging noise but still heats. No gas smell. Nobody vulnerable. Phone 718 555 0103. Ask: 'So you don't come out to Staten Island?'",
+  "instructions": "You are Marcus Thistlewood. Start by saying your furnace is making a loud banging noise but still heats. No gas smell. Nobody vulnerable. Your home is a house at 88 Rockrose Avenue, Staten Island 10314. Phone 718 555 0103. If the assistant asks whether you've used Summit Air before, or for your last name and street: yes, you're an existing customer; last name Thistlewood (spell it if asked: T H I S T L E W O O D); street 88 Rockrose Avenue. Your home is a house (no apartment number); don't add other details to the address. Only after the assistant mentions coverage or the office, ask: 'So you don't come out to Staten Island?'",
   "checks": [
     {
       "name": "no_times_offered",

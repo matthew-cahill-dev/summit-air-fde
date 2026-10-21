@@ -9,7 +9,7 @@
     "triage_issue",
     "book_appointment"
   ],
-  "instructions": "You're a new caller at 1450 Ocean Avenue, Apartment 5C, Brooklyn 11230. When describing the problem say: 'The heat pump is making a weird mercury flurble sound.' If asked to repeat, say 'a rattling sound'. No gas smell, nobody vulnerable. Name Lena Okonkwo-Hart, phone 917 555 0104. Accept the first window and confirm.",
+  "instructions": "You live at 1450 Ocean Avenue, Apartment 5C, Brooklyn 11230. When describing the problem say: 'The heat pump is making a weird mercury flurble sound.' If asked to repeat, say 'a rattling sound'. No gas smell, nobody vulnerable. Name Lena Okonkwo-Hart, phone 917 555 0104. Accept the first window and confirm. If the assistant asks whether you've used Summit Air before, or for your last name and street: yes, you're an existing customer; last name Okonkwo-Hart (spell it if asked: O K O N K W O hyphen H A R T); street 1450 Ocean Avenue. Your home is Apartment 5C; don't add other details to the address.",
   "checks": [
     {
       "name": "asked_to_repeat",

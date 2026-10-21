@@ -102,7 +102,7 @@ export function parseScenarioFile(id: string, raw: unknown): ScenarioFile {
     requiredPhrases,
     checks: checks.map((c) => ({ name: c.name as string, question: (c.question as string).trim(), expect: c.expect as boolean })),
   };
-  const all = allChecks(parsed).map((c) => c.name);
+  const all = [...toolCheckNames(parsed), ...allChecks(parsed).map((c) => c.name)];
   const dup = all.find((n, i) => all.indexOf(n) !== i);
   if (dup) throw new Error(`vapi/simulations/${id}.json: check "${dup}" clashes with a generated check`);
   return parsed;
@@ -119,23 +119,41 @@ export function scenarioTags(id: string, requirement: string, explicit: string[]
 }
 
 /**
- * The pass criteria as judge checks: the tool order, each forbidden tool, each required phrase,
- * then the hand-written checks. Every one must hold for the scenario to pass.
+ * Tool criteria, checked in code from the run's transcript (tool_calls messages), never by the
+ * LLM judge: tool_order (expectedTools as a subsequence) and never_<tool> for each forbidden tool.
+ */
+export function toolCheckNames(s: ScenarioFile): string[] {
+  return [...(s.expectedTools.length ? ["tool_order"] : []), ...s.forbiddenTools.map((t) => `never_${t.toLowerCase()}`.slice(0, 40))];
+}
+
+/** Tool names the assistant called, in order, from Vapi's message list (role "tool_calls"). */
+export function toolCallsFrom(messages: unknown): string[] {
+  if (!Array.isArray(messages)) return [];
+  return messages.flatMap((m: { role?: string; toolCalls?: Array<{ function?: { name?: string } }> }) =>
+    m?.role === "tool_calls" && Array.isArray(m.toolCalls) ? m.toolCalls.map((t) => t?.function?.name ?? "?") : [],
+  );
+}
+
+/** Failed tool criteria for one transcript, e.g. "tool_order (wanted triage_issue → …; called: check_service_area → …)". */
+export function failedToolChecks(s: ScenarioFile, calls: string[]): string[] {
+  const failed: string[] = [];
+  if (s.expectedTools.length) {
+    let i = 0;
+    for (const c of calls) if (c === s.expectedTools[i]) i++;
+    if (i < s.expectedTools.length) {
+      failed.push(`tool_order (wanted ${s.expectedTools.join(" → ")}; called: ${calls.length ? calls.join(" → ") : "no tools"})`);
+    }
+  }
+  for (const t of s.forbiddenTools) if (calls.includes(t)) failed.push(`never_${t.toLowerCase()}`.slice(0, 40) + ` (called ${t})`);
+  return failed;
+}
+
+/**
+ * The judge's checks: each required phrase, then the hand-written checks. Tool criteria are
+ * checked in code (failedToolChecks). Every one must hold for the scenario to pass.
  */
 export function allChecks(s: ScenarioFile): ScenarioCheck[] {
   const generated: ScenarioCheck[] = [];
-  if (s.expectedTools.length) {
-    generated.push({
-      name: "tool_order",
-      question:
-        `Look at the assistant's tool calls. Did it call ${s.expectedTools.join(", then ")}, in that order? ` +
-        "Other tool calls in between are fine, and a tool may be called more than once.",
-      expect: true,
-    });
-  }
-  for (const t of s.forbiddenTools) {
-    generated.push({ name: `never_${t.toLowerCase()}`.slice(0, 40), question: `Did the assistant call the ${t} tool at any point?`, expect: false });
-  }
   s.requiredPhrases.forEach((p, i) => {
     generated.push({
       name: `says_${i + 1}`,
@@ -209,7 +227,8 @@ export const PERSONALITY_PROMPT = [
   "You're cooperative and polite but realistic: you talk like a normal person on the phone, in short natural answers (one or two sentences), with the occasional 'um' or 'yeah'.",
   "You answer what you're asked and don't volunteer details before they're asked for, unless your scenario says to.",
   "Your scenario instructions decide who you are, your details, what you want and how you behave. Follow them exactly. When they tell you to be difficult, confused, upset or to test the assistant, do that; otherwise stay cooperative.",
-  "Never contradict your scenario. If you're asked something it doesn't cover, give a short plausible answer or say you're not sure.",
+  "You are the caller, never the company: open by saying why you're calling, as your scenario describes. Questions your scenario scripts for later come up later, when they fit.",
+  "Never contradict your scenario, and never invent identifying details: no names, addresses, apartment numbers, ZIP codes or phone numbers beyond what it gives you (a home with no apartment number is a house). If you're asked something it doesn't cover, say you're not sure or give a short, plausible non-identifying answer.",
   "Say phone numbers, house numbers and ZIP codes the way people do on the phone.",
   "When your goal is met or the assistant says goodbye, thank them briefly and end the call.",
 ].join(" ");
@@ -246,6 +265,8 @@ export type RunItem = {
   scenarioId?: string;
   status: string;
   failureReason?: string;
+  /** The simulated conversation; its tool_calls messages feed the tool criteria. */
+  metadata?: { call?: { messages?: unknown } };
   results?: { passed?: boolean; evaluations?: Array<{ name?: string; passed?: boolean; extractedValue?: unknown; expectedValue?: unknown; error?: string }> };
 };
 
@@ -266,17 +287,21 @@ export function summarizeRun(scenarios: Array<{ file: ScenarioFile; scenarioId: 
     const mine = items.filter((i) => i.scenarioId === scenarioId);
     if (mine.length === 0) return { title: file.title, passed: null, status: "missing", failedChecks: [], note: "No run item for this scenario" };
     const finished = mine.every((i) => i.status === "passed" || i.status === "failed");
-    const failedChecks = mine.flatMap((i) =>
-      (i.results?.evaluations ?? [])
+    // An item passes when the judge's checks passed AND the tool criteria hold on its transcript.
+    const toolFailures = (i: RunItem) => (i.status === "passed" || i.status === "failed" ? failedToolChecks(file, toolCallsFrom(i.metadata?.call?.messages)) : []);
+    const itemPassed = (i: RunItem) => i.status === "passed" && toolFailures(i).length === 0;
+    const failedChecks = mine.flatMap((i) => [
+      ...toolFailures(i),
+      ...(i.results?.evaluations ?? [])
         .filter((e) => e.passed === false)
         .map((e) => `${e.name ?? "?"} (got ${JSON.stringify(e.extractedValue)}, wanted ${JSON.stringify(e.expectedValue)})${e.error ? `: ${e.error}` : ""}`),
-    );
+    ]);
     const statuses = [...new Set(mine.map((i) => i.status))];
     const notes = [...new Set(mine.map((i) => i.failureReason).filter((r): r is string => Boolean(r)))];
     return {
       title: file.title,
-      passed: finished ? mine.every((i) => i.status === "passed") : null,
-      status: mine.length > 1 ? `${mine.filter((i) => i.status === "passed").length}/${mine.length} passed` : statuses[0],
+      passed: finished ? mine.every(itemPassed) : null,
+      status: mine.length > 1 ? `${mine.filter(itemPassed).length}/${mine.length} passed` : finished ? (mine.every(itemPassed) ? "passed" : "failed") : statuses[0],
       failedChecks: [...new Set(failedChecks)],
       note: notes.length ? notes.join("; ") : null,
     };

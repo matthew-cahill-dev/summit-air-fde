@@ -3,8 +3,10 @@
 //   --confirm    upsert the scenarios in Vapi, run them against VAPI_ASSISTANT_ID, print pass/fail
 //   --voice      voice transport (vapi.websocket) instead of chat (vapi.webchat); ~10x the cost
 //   --setup-personality  create/update only the tester personality and print its id (no scenarios, no run)
-//   --personality <id>   tester personality; default VAPI_EVAL_PERSONALITY_ID, else the one named
-//                        "summit-air: NYC caller" (created on first --confirm if missing)
+//   --personality <id>   use another tester personality as is; default: ours (VAPI_EVAL_PERSONALITY_ID,
+//                        else by name "summit-air: NYC caller"), updated from evals.ts on every run
+//   Tool criteria (expectedTools order, forbiddenTools) are checked here from each item's transcript,
+//   not by Vapi's judge; the judge answers the phrase and behavior checks.
 //   --only       a subset by file id or tag, e.g. --only safety or --only privacy,e-gas-smell
 //                (tags: safety, privacy, business, conversation, voice, smoke, req-a … req-f, unexpected, quality)
 //
@@ -22,6 +24,7 @@ import {
   PERSONALITY_NAME,
   scenarioName,
   selectScenarios,
+  toolCheckNames,
   summarizeRun,
   type RunItem,
   type ScenarioFile,
@@ -64,10 +67,10 @@ function vapiClient(): { request: Request } {
 
 const list = <T>(body: T[] | { results: T[] }) => (Array.isArray(body) ? body : body.results);
 
-/** Create or update the tester personality by name (vapi-sync/evals.ts); returns its id. */
-async function upsertPersonality(request: Request): Promise<string> {
+/** Create or update the tester personality (by id if given, else by name; vapi-sync/evals.ts); returns its id. */
+async function upsertPersonality(request: Request, knownId?: string): Promise<string> {
   const all = list(await request<JsonObject[] | { results: JsonObject[] }>("GET", "/eval/simulation/personality?limit=100"));
-  const match = all.find((p) => p.name === PERSONALITY_NAME);
+  const match = all.find((p) => (knownId ? p.id === knownId : p.name === PERSONALITY_NAME));
   const saved = match
     ? await request<JsonObject>("PATCH", `/eval/simulation/personality/${match.id}`, buildPersonalityDto())
     : await request<JsonObject>("POST", "/eval/simulation/personality", buildPersonalityDto());
@@ -89,7 +92,7 @@ async function main() {
 
   if (args.includes("--setup-personality")) {
     const { request } = vapiClient();
-    const id = await upsertPersonality(request);
+    const id = await upsertPersonality(request, process.env.VAPI_EVAL_PERSONALITY_ID?.trim());
     console.log(`\nPersonality "${PERSONALITY_NAME}": ${id}\nAdd to .env (local only): VAPI_EVAL_PERSONALITY_ID=${id}`);
     return;
   }
@@ -99,7 +102,7 @@ async function main() {
   const cost = estimateCostUsd(scenarios.length, transport, iterations);
   console.log(`Estimated Vapi cost: about $${cost.toFixed(2)} for ${scenarios.length} scenario(s) × ${iterations} iteration(s) on ${transport} (an estimate: Vapi doesn't publish simulation pricing).\n`);
   for (const s of scenarios) {
-    console.log(`  [${s.tags.join(" ")}] ${s.id}: ${s.title} (${allChecks(s).length} checks; ${passCriteria(s)})`);
+    console.log(`  [${s.tags.join(" ")}] ${s.id}: ${s.title} (${allChecks(s).length + toolCheckNames(s).length} checks; ${passCriteria(s)})`);
   }
   const voiceOnly = scenarios.filter((s) => s.tags.includes("voice"));
   if (voiceOnly.length && transport !== "vapi.websocket") {
@@ -129,7 +132,8 @@ async function main() {
 
   // 2. Personality: --personality, else VAPI_EVAL_PERSONALITY_ID, else ours by name (created if missing).
   // (Vapi's built-ins come back with the org's id, so "orgId null" never matched them.)
-  const personalityId = flag(args, "--personality") ?? process.env.VAPI_EVAL_PERSONALITY_ID?.trim() ?? (await upsertPersonality(request));
+  // Ours is PATCHed on every run, so a change to its prompt in evals.ts always takes effect.
+  const personalityId = flag(args, "--personality") ?? (await upsertPersonality(request, process.env.VAPI_EVAL_PERSONALITY_ID?.trim()));
   console.log(`personality: ${personalityId}`);
 
   // 3. Run.

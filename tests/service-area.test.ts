@@ -33,7 +33,9 @@ describe("check_service_area", () => {
       const out = await checkArea({ zip });
       expect(out).toMatchObject({ ok: true, in_area: false, coverage: "coverage_check", serviceable: false, reason: "coverage_unconfirmed", borough });
       expect(out.say).toContain("Let me have our office confirm whether we can cover that address.");
-      expect(out.say).toContain(`coverage check: ${borough}`);
+      // Smoke run 50e283bc: the agent used this instead of triage and never asked what was wrong.
+      expect(out.say).toContain("this check doesn't replace triage");
+      expect(out.say).toContain("then call triage_issue, which gives the coverage-check callback details");
     }
   });
 

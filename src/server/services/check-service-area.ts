@@ -37,7 +37,9 @@ export function evaluateServiceArea(
     return {
       ok: true,
       data: { ...base, serviceable: false, reason: "coverage_unconfirmed", borough: cov.borough },
-      say: `Don't book or offer times. Say: "Let me have our office confirm whether we can cover that address." Next: call create_callback_request with reason other and details starting "coverage check: ${cov.borough}". Don't give a reason or say we don't serve it.`,
+      say:
+        `Don't book or offer times. Say: "Let me have our office confirm whether we can cover that address." Don't give a reason or say we don't serve it. ` +
+        "Next: this check doesn't replace triage. If you haven't yet, ask the safety question, call lookup_customer and ask what's going on; then call triage_issue, which gives the coverage-check callback details for create_callback_request.",
     };
   }
   if (!inArea) {
@@ -50,7 +52,7 @@ export function evaluateServiceArea(
   return {
     ok: true,
     data: { ...base, serviceable: true },
-    say: `This address is in our ${county} County service area. Next: continue with triage_issue.`,
+    say: `This address is in our ${county} County service area. Next: if you haven't yet, ask the safety question, call lookup_customer and ask what's going on; then call triage_issue.`,
   };
 }
 

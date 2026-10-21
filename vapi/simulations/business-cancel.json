@@ -11,7 +11,7 @@
   "forbiddenTools": [
     "book_appointment"
   ],
-  "instructions": "You are Theo Ashgrove, an existing member. You want to cancel your upcoming tune-up. When asked, your last name is Ashgrove and your street is 141 East 19th Street. Phone 646 555 0115.",
+  "instructions": "You are Theo Ashgrove, an existing member. You want to cancel your upcoming tune-up. When asked, your last name is Ashgrove and your street is 141 East 19th Street. Phone 646 555 0115. Your home is a townhouse (no apartment number) at 141 East 19th Street, New York 10003.",
   "checks": [
     {
       "name": "did_not_claim_cancelled",

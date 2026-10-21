@@ -66,7 +66,12 @@ npm run evals -- --confirm --voice --only voice # the timing cases over voice
 - **Re-runs update, never duplicate.** Scenarios are upserted by name ("summit-air: <title>"; the 45 already in Vapi are PATCHed), and so is the personality.
 - **Tools run for real** against the live backend: bookings, callbacks and dispatches land in production. Afterwards run `npm run db:reset-test -- --confirm`.
 - **No caller ID on chat.** Vapi simulations don't put a test number in the webhook's `call.customer`, so `lookup_customer` sees no caller ID. Scenarios verify by last name and street, and give a phone number when asked.
-- **Tool-order checks assume the judge sees tool calls** in the conversation (Vapi's structured outputs read the call artifact, which includes them). If the first run shows `tool_order` failing on scenarios that obviously called the tools, that assumption is wrong and those checks should be read from the run's transcript instead.
+- **Tool criteria are checked in code, not by the judge.** `tool_order` and `never_<tool>` are read from each run item's transcript (`metadata.call.messages`, `tool_calls`), so they're exact. The judge only answers the phrase and behavior checks. A scenario passes when both pass.
+- **Smoke run `50e283bc` (Oct 21): 3/6.** All three failures were agent behavior; the harness had them right:
+  - `e-gas-smell`: the safety script was spoken, but `triage_issue` was never called, and Ava asked the caller to "let me know when you're safely outside".
+  - Staten Island: Ava used `check_service_area` instead of the safety screen, lookup and triage, and never asked what was wrong.
+  - `c-member-lookup`: with no caller ID, Ava never asked whether the caller was an existing customer. The simulated caller also invented "apartment 2B", so verification failed.
+  - Fixes are in the prompt, `check_service_area` and `lookup_customer` (tests in `lookup-guard.test.ts`, `service-area.test.ts`). Persona scenarios now give the exact last name, street and home type, and the tester personality may not invent identifying details.
 - **Status: built and validated locally (`npm run evals` dry run); not yet run against the live assistant.** Endpoints and field names were checked against Vapi's OpenAPI spec on Oct 20, 2026.
 
 ### Results (fill in after `npm run evals -- --confirm`)

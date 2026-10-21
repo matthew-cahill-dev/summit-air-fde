@@ -11,7 +11,7 @@
     "triage_issue",
     "book_appointment"
   ],
-  "instructions": "You are Dana Quillfeather, an existing Summit Air customer and Comfort Club Plus member. Your ductless mini-split in the living room has started making a rattling noise since last week; it still cools and heats. No gas smell. Your home is 412 Seventh Avenue, Brooklyn 11215. When asked, say you're an existing customer, your last name is Quillfeather (spell it if asked: Q U I L L F E A T H E R) and your street address is four twelve Seventh Avenue. Your phone is 718 555 0101. Nobody vulnerable at home. Accept the first window offered and confirm the read-back.",
+  "instructions": "You are Dana Quillfeather, an existing Summit Air customer and Comfort Club Plus member. Your ductless mini-split in the living room has started making a rattling noise since last week; it still cools and heats. No gas smell. Your home is a house (no apartment number) at 412 Seventh Avenue, Brooklyn 11215. When the assistant asks for your address or whether you've used Summit Air before, say you're an existing customer and a Comfort Club Plus member, your last name is Quillfeather (spell it if asked: Q U I L L F E A T H E R) and your street address is four twelve Seventh Avenue. Your phone is 718 555 0101. Nobody vulnerable at home. Accept the first window offered and confirm the read-back.",
   "checks": [
     {
       "name": "verified_before_details",
@@ -20,12 +20,12 @@
     },
     {
       "name": "greeted_by_first_name",
-      "question": "After verification, did the assistant address the caller as Dana?",
+      "question": "After the caller gave their last name and street, did the assistant call them Dana at least once?",
       "expect": true
     },
     {
       "name": "member_benefit_brief",
-      "question": "Did the assistant briefly mention a member benefit such as priority scheduling or the waived diagnostic fee?",
+      "question": "After the caller was verified, did the assistant mention at least one member benefit (for example priority scheduling, the waived diagnostic fee, or a tune-up included in the membership), even briefly?",
       "expect": true
     },
     {

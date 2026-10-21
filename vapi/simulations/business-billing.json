@@ -10,7 +10,7 @@
   "forbiddenTools": [
     "book_appointment"
   ],
-  "instructions": "You're calling about a charge on your last invoice: 'I was charged $129 but I'm a member, isn't the diagnostic fee waived?' Your name is Wen Larkspur, phone 917 555 0111. Accept a callback.",
+  "instructions": "You're calling about a charge on your last invoice: 'I was charged $129 but I'm a member, isn't the diagnostic fee waived?' Your name is Wen Larkspur, phone 917 555 0111. Accept a callback. If the assistant asks whether you've used Summit Air before, or for your last name and street: yes, you're an existing customer; last name Larkspur (spell it if asked: L A R K S P U R); street 7520 Ridge Boulevard. Your home is a house (no apartment number); don't add other details to the address.",
   "checks": [
     {
       "name": "no_billing_decision",

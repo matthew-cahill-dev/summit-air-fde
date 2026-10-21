@@ -113,4 +113,23 @@ describe("lookup_customer must run before triage or an unverified booking (live 
     expect(formatIdentity(good)).toBe("  Identity: lookup_customer ran 2x; caller verified (active member)");
     expect(formatIdentity(identityOf(msgs([["lookup_customer", '{"ok":true,"found":false}']])))).toBe("  Identity: lookup_customer ran 1x; caller NOT verified");
   });
+
+  it("evals smoke 50e283bc: with no caller ID (or no account) the result says to ask whether they're an existing customer", async () => {
+    const noId = await callTool("lookup_customer", {}, { callId: `call-${randomUUID()}` });
+    expect(noId.payload).toMatchObject({ caller_id_unavailable: true });
+    expect(noId.payload.say).toContain("ask once, simply, whether they've used Summit Air before or are a Comfort Club member");
+    const noAccount = await callTool("lookup_customer", {}, { callId: `call-${randomUUID()}`, callerNumber: "+12125550177" });
+    expect(noAccount.payload.say).toContain("ask once, simply, whether they've used Summit Air before");
+    // Following it: last name + street verifies the member who was booked as new in the smoke run.
+    const dana = await callTool("lookup_customer", { last_name: "Quillfeather", street_address: "four twelve Seventh Avenue" }, { callId: `call-${randomUUID()}` });
+    expect(dana.payload).toMatchObject({ verified: true, first_name: "Dana", is_member: true });
+  });
+
+  it("evals smoke 50e283bc: the safety stop calls triage_issue in the same reply and never keeps the caller on the line", () => {
+    const p = renderSystemPrompt(readFileSync(join(process.cwd(), "vapi/system-prompt.md"), "utf8"), { transferAvailable: false, timeZone: "America/New_York" });
+    expect(p).toContain("In the same reply, right after the script, call triage_issue with the flag you heard");
+    expect(p).toContain("Never ask them to stay on the line, tell you when they're outside, or call you back");
+    expect(p).toContain("If they open with a question instead (do you cover my area, prices), answer it in a sentence, then ask what's going on.");
+    expect(p).toContain('check_service_area only answers "do you cover my area?". It never replaces lookup_customer or triage_issue.');
+  });
 });

@@ -8,7 +8,7 @@
     "triage_issue",
     "book_appointment"
   ],
-  "instructions": "You're a new caller at 21-45 31st Street, Apartment 1R, Astoria 11105. Your thermostat display is blank. No gas smell. Nobody vulnerable. Ask: 'Can someone come Saturday? I work weekdays.' If told weekdays only, ask for the latest weekday window and accept it, then confirm the read-back. Name Tomas Wrenfield, phone 718 555 0105.",
+  "instructions": "You live at 21-45 31st Street, Apartment 1R, Astoria 11105. Your thermostat display is blank. No gas smell. Nobody vulnerable. Ask: 'Can someone come Saturday? I work weekdays.' If told weekdays only, ask for the latest weekday window and accept it, then confirm the read-back. Name Tomas Wrenfield, phone 718 555 0105. If the assistant asks whether you've used Summit Air before, or for your last name and street: yes, you're an existing customer; last name Wrenfield (spell it if asked: W R E N F I E L D); street twenty-one forty-five thirty-first Street. Your home is Apartment 1R; don't add other details to the address.",
   "checks": [
     {
       "name": "weekdays_honest",
