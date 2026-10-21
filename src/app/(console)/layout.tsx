@@ -3,14 +3,21 @@ import { LogOutIcon } from "lucide-react";
 import { BrandLockup } from "@/components/console/brand";
 import { ConsoleHeader } from "@/components/console/header";
 import { ConsoleNav, ConsoleNavLinks } from "@/components/console/nav";
-import { SeedToggle } from "@/components/console/seed-toggle";
+import { SeedToggle, TestRunsToggle } from "@/components/console/seed-toggle";
+import { Toaster } from "@/components/console/toaster";
 import { ThemeMenu } from "@/components/console/theme";
 import { Button } from "@/components/ui/button";
-import { loadNavCounts, readHideSeed } from "@/server/console/data";
+import { loadNavCounts, readHideSeed, readShowTests } from "@/server/console/data";
 import { logoutAction } from "./actions";
 
-async function SeedPreference() {
-  return <SeedToggle hidden={await readHideSeed()} />;
+async function ScopePreferences() {
+  const [hidden, shown] = await Promise.all([readHideSeed(), readShowTests()]);
+  return (
+    <div className="flex items-center gap-4">
+      <SeedToggle hidden={hidden} />
+      <TestRunsToggle shown={shown} />
+    </div>
+  );
 }
 
 async function NavWithCounts() {
@@ -39,13 +46,14 @@ export default function ConsoleLayout({ children }: LayoutProps<"/">) {
       <div className="flex min-w-0 flex-1 flex-col">
         <ConsoleHeader
           seedToggle={
-            <Suspense fallback={<SeedToggle hidden />}>
-              <SeedPreference />
+            <Suspense fallback={<div className="h-5 w-48" />}>
+              <ScopePreferences />
             </Suspense>
           }
         />
         <main className="console-main mx-auto w-full max-w-[1500px] flex-1 space-y-6 px-6 py-7 lg:px-8">{children}</main>
       </div>
+      <Toaster />
     </div>
   );
 }

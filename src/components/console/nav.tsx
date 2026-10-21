@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { CalendarDaysIcon, GaugeIcon, PhoneIcon, SirenIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
-import type { NavCounts } from "@/server/repositories";
+type NavCounts = { openBoard: number; urgentOpen: number; callsToday: number };
 
 export const NAV_ITEMS = [
   { href: "/dispatch", label: "Dispatch", icon: SirenIcon },
@@ -29,7 +29,7 @@ export function ConsoleNav({ counts }: { counts?: NavCounts | null }) {
 export function ConsoleNavLinks({ pathname, counts }: { pathname: string | null; counts?: NavCounts | null }) {
   const badge: Partial<Record<string, { n: number; hot: boolean; label: string }>> = counts
     ? {
-        "/dispatch": { n: counts.openBoard, hot: counts.overdueOrSafety > 0, label: `${counts.openBoard} open` },
+        "/dispatch": { n: counts.openBoard, hot: counts.urgentOpen > 0, label: `${counts.openBoard} open${counts.urgentOpen ? `, ${counts.urgentOpen} need attention now` : ""}` },
         "/calls": { n: counts.callsToday, hot: false, label: `${counts.callsToday} today` },
       }
     : {};

@@ -87,6 +87,8 @@ export interface ToolInvocationRepository {
     latencyMs: number;
     /** The handler's repository time, for the console's call timeline. */
     dbMs?: number;
+    /** From a simulation, web call or chat, not a real phone call. */
+    isSimulation?: boolean;
   }): Promise<StoredInvocation>;
   /** Failed identity checks so far on this call (results with verification_failed: true). */
   countFailedVerifications(vapiCallId: string): Promise<number>;
@@ -111,6 +113,8 @@ export type EndOfCallReport = {
   summary: string | null;
   transcript: string | null;
   rawReport: unknown;
+  /** Not a real phone call (see isSimulationMessage). */
+  isSimulation?: boolean;
 };
 
 export interface CallRepository {
@@ -147,10 +151,14 @@ export interface DispatchRepository {
   findOpenForCall(vapiCallId: string, urgency: Urgency): Promise<{ id: string } | null>;
   /** Any safety-stop or emergency dispatch on this call, in any status (post-call reconciliation). */
   findSafetyOrEmergencyForCall(vapiCallId: string): Promise<{ id: string } | null>;
-  /** open → acknowledged. Null when the request isn't open (already acknowledged, resolved or missing). */
-  acknowledge(id: string, at: Date): Promise<{ id: string; status: DispatchStatus } | null>;
-  /** open or acknowledged → resolved. Null when already resolved or missing. */
-  resolve(id: string, at: Date): Promise<{ id: string; status: DispatchStatus } | null>;
+  /** open → acknowledged ("Called back"). Null when the request isn't open (already called back, resolved or missing). */
+  acknowledge(id: string, at: Date, by?: string | null): Promise<{ id: string; status: DispatchStatus } | null>;
+  /** Undo: acknowledged → open. */
+  unacknowledge(id: string): Promise<{ id: string; status: DispatchStatus } | null>;
+  /** open or acknowledged → resolved, with an outcome. Null when already resolved or missing. */
+  resolve(id: string, at: Date, detail?: ResolutionDetail): Promise<{ id: string; status: DispatchStatus } | null>;
+  /** Undo: resolved → back to called back (if it was) or open. */
+  unresolve(id: string): Promise<{ id: string; status: DispatchStatus } | null>;
 }
 
 export type CallbackInput = {
@@ -172,9 +180,17 @@ export interface CallbackRepository {
     input: CallbackInput & { vapiCallId: string },
     merge: (existing: { reason: string | null; callerName: string | null; callerPhone: string | null; context: Record<string, unknown> }) => Omit<CallbackInput, "vapiCallId">,
   ): Promise<{ id: string; updated: boolean }>;
-  /** open → done. Null when already done or missing. */
-  markDone(id: string, at: Date): Promise<{ id: string; status: CallbackStatus } | null>;
+  /** open → done ("Resolved"), with an outcome. Null when already done or missing. */
+  markDone(id: string, at: Date, detail?: ResolutionDetail): Promise<{ id: string; status: CallbackStatus } | null>;
+  /** Undo: done → open (keeps "called back" if it was). */
+  reopen(id: string): Promise<{ id: string; status: CallbackStatus } | null>;
+  /** "Called back": stops the callback SLA. Null when not open or already called back. */
+  markCalledBack(id: string, at: Date, by?: string | null): Promise<{ id: string; status: CallbackStatus } | null>;
+  /** Undo of called back. */
+  unmarkCalledBack(id: string): Promise<{ id: string; status: CallbackStatus } | null>;
 }
+
+export type ResolutionDetail = { resolution: string; note?: string | null; by?: string | null };
 
 export type BookingAddress = {
   id: string;
@@ -222,6 +238,12 @@ export interface BookingTx {
   /** Rewrites an appointment in place (new window and details), confirmed. Used to move or revive one. */
   replaceAppointment(id: string, input: AppointmentInput): Promise<void>;
   cancelAppointment(id: string): Promise<void>;
+  /** Locks one appointment row for a console change (status, cancel, reschedule). */
+  lockAppointment(id: string): Promise<LockedAppointment | null>;
+  /** Console lifecycle fields; only the keys given change. */
+  setAppointmentLifecycle(id: string, patch: AppointmentLifecyclePatch): Promise<void>;
+  /** Removes an appointment row (only used to undo a console reschedule within seconds). */
+  deleteAppointment(id: string): Promise<void>;
   /** Atomic: UPDATE ... SET booked = booked + 1 WHERE booked < capacity (minus reserved) RETURNING. */
   claimSeat(slotId: string, rules: ClaimRules): Promise<boolean>;
   insertAppointment(input: AppointmentInput): Promise<{ id: string }>;
@@ -238,7 +260,27 @@ export type AppointmentInput = {
   intake: Record<string, unknown>;
   technicianNotes: string;
   vapiCallId: string | null;
+  /** Console reschedule: the appointment this one replaces. */
+  rescheduledFrom?: string | null;
+  isDemoSeed?: boolean;
 };
+
+export type LockedAppointment = AppointmentInput & {
+  id: string;
+  status: "confirmed" | "cancelled";
+  completion: string | null;
+  isDemoSeed: boolean;
+  rescheduledFrom: string | null;
+};
+
+export type AppointmentLifecyclePatch = Partial<{
+  status: "confirmed" | "cancelled";
+  completion: "completed" | "no_show" | null;
+  completedAt: Date | null;
+  completionNote: string | null;
+  cancelledAt: Date | null;
+  statusBy: string | null;
+}>;
 
 export interface SchedulingRepository {
   /** Slots in a county starting within [from, to] that still have a free seat, earliest first. */
@@ -272,6 +314,9 @@ export type Repositories = {
 
 export type JsonObject = Record<string, unknown>;
 
+/** What the console shows: seed data and test traffic (simulations, web calls) are opt-in. */
+export type Scope = { includeSeed: boolean; includeTests?: boolean };
+
 export type BoardDispatchRow = {
   id: string;
   urgency: Urgency;
@@ -287,6 +332,11 @@ export type BoardDispatchRow = {
   customerPhone: string | null;
   createdAt: Date;
   acknowledgedAt: Date | null;
+  acknowledgedBy: string | null;
+  resolvedAt: Date | null;
+  resolution: string | null;
+  resolutionNote: string | null;
+  resolvedBy: string | null;
   vapiCallId: string | null;
   isDemoSeed: boolean;
 };
@@ -298,12 +348,21 @@ export type BoardCallbackRow = {
   callerName: string | null;
   callerPhone: string | null;
   createdAt: Date;
+  status: CallbackStatus;
+  calledBackAt: Date | null;
+  calledBackBy: string | null;
+  resolvedAt: Date | null;
+  resolution: string | null;
+  resolutionNote: string | null;
+  resolvedBy: string | null;
   vapiCallId: string | null;
   isDemoSeed: boolean;
   /** From the latest successful triage_issue on the same call, if any. */
   triageUrgency: Urgency | null;
   triageReasons: string[];
   triageArgs: JsonObject | null;
+  /** The caller's next scheduled appointment (by verified account or phone), for reschedule/cancel callbacks. */
+  appointmentId: string | null;
 };
 
 /** One call: an end-of-call report, tool activity, or both. */
@@ -320,6 +379,8 @@ export type CallActivityRow = {
   firstActivityAt: Date | null;
   lastActivityAt: Date | null;
   isDemoSeed: boolean;
+  /** A simulation, web call or chat, not a real phone call. */
+  isSimulation?: boolean;
 };
 
 export type CallDetailRow = CallActivityRow & {
@@ -363,6 +424,13 @@ export type CallDispatchRow = {
   callerName: string | null;
   callerPhone: string | null;
   intake: JsonObject | null;
+  createdAt?: Date;
+  acknowledgedAt?: Date | null;
+  acknowledgedBy?: string | null;
+  resolvedAt?: Date | null;
+  resolution?: string | null;
+  resolutionNote?: string | null;
+  resolvedBy?: string | null;
 };
 
 export type CallCallbackRow = {
@@ -373,6 +441,13 @@ export type CallCallbackRow = {
   callerName: string | null;
   callerPhone: string | null;
   context: JsonObject | null;
+  createdAt?: Date;
+  calledBackAt?: Date | null;
+  calledBackBy?: string | null;
+  resolvedAt?: Date | null;
+  resolution?: string | null;
+  resolutionNote?: string | null;
+  resolvedBy?: string | null;
 };
 
 export type CallRecords = {
@@ -382,11 +457,17 @@ export type CallRecords = {
   callbacks: CallCallbackRow[];
 };
 
-export type UpcomingAppointmentRow = {
+/** The console's appointment lifecycle, derived from status + completion (no enum change). */
+export type AppointmentStage = "scheduled" | "completed" | "cancelled" | "no_show";
+
+export type AppointmentRow = {
   id: string;
+  stage: AppointmentStage;
+  slotId: string;
   startsAt: Date;
   endsAt: Date;
   county: string;
+  customerId: string;
   customerName: string;
   customerPhone: string;
   isMember: boolean;
@@ -403,23 +484,21 @@ export type UpcomingAppointmentRow = {
   arrivalPreference: string | null;
   vapiCallId: string | null;
   isDemoSeed: boolean;
+  createdAt: Date;
+  completedAt: Date | null;
+  completionNote: string | null;
+  cancelledAt: Date | null;
+  statusBy: string | null;
+  rescheduledFrom: string | null;
+  /** The appointment that replaced this one, when it was rescheduled. */
+  rescheduledTo: string | null;
 };
 
-export type OverviewStats = {
-  calls: number;
-  bookings: number;
-  priorityRequests: number;
-  openCallbacks: number;
-  openDispatches: number;
-  toolCalls: number;
-  toolErrors: number;
-  avgToolMs: number | null;
-  p95ToolMs: number | null;
-  /** Median of today's per-call median response times, and the 95th percentile of their p95s. */
-  medianResponseMs: number | null;
-  p95ResponseMs: number | null;
-  responseCalls: number;
-};
+/** @deprecated kept for older call sites; same as AppointmentRow. */
+export type UpcomingAppointmentRow = AppointmentRow;
+
+/** One tool call, for system health (real errors vs guardrail refusals, latency). */
+export type ToolHealthRow = { toolName: string; ok: boolean; errorCode: string | null; latencyMs: number; createdAt: Date };
 
 export type ActivityKind =
   | "call_ended"
@@ -428,6 +507,7 @@ export type ActivityKind =
   | "dispatch_acknowledged"
   | "dispatch_resolved"
   | "callback_created"
+  | "callback_called_back"
   | "callback_done";
 
 export type ActivityRow = {
@@ -442,38 +522,26 @@ export type ActivityRow = {
 };
 
 export interface ConsoleRepository {
-  /** Open and acknowledged dispatch requests, and open callbacks. Unsorted. */
-  board(opts: { includeSeed: boolean }): Promise<{ dispatches: BoardDispatchRow[]; callbacks: BoardCallbackRow[] }>;
-  /** Most recent calls first, by start time (or first tool call while a call is in progress). */
-  recentCalls(opts: { includeSeed: boolean; limit: number }): Promise<CallActivityRow[]>;
+  /** Open and called-back dispatches and callbacks; plus those resolved since `resolvedSince`. Unsorted. */
+  board(opts: Scope & { resolvedSince?: Date }): Promise<{ dispatches: BoardDispatchRow[]; callbacks: BoardCallbackRow[] }>;
+  /** Most recent calls first, by call time (start, else first tool call, else end); optionally only since `since`. */
+  recentCalls(opts: Scope & { limit: number; since?: Date }): Promise<CallActivityRow[]>;
   call(vapiCallId: string): Promise<CallDetailRow | null>;
   /** Cheap existence check (two index lookups) for the proxy's 404 on unknown call IDs. */
   callExists(vapiCallId: string): Promise<boolean>;
   /** Tool invocations (oldest first) and the records the calls created. */
   callRecords(vapiCallIds: string[]): Promise<CallRecords>;
-  /** Confirmed appointments whose window hasn't ended before `from`, earliest first. */
-  upcomingAppointments(opts: { includeSeed: boolean; from: Date; limit: number }): Promise<UpcomingAppointmentRow[]>;
-  /** Counts for [from, to); open counts are current regardless of the range. */
-  overviewStats(opts: { includeSeed: boolean; from: Date; to: Date }): Promise<OverviewStats>;
-  recentActivity(opts: { includeSeed: boolean; limit: number }): Promise<ActivityRow[]>;
-  /** Sidebar badges: open board items and calls since `from`. */
-  navCounts(opts: { includeSeed: boolean; from: Date }): Promise<NavCounts>;
+  /**
+   * Appointments: by default scheduled ones whose window hasn't ended before `from`; `closedSince`
+   * adds completed / cancelled / no-show changed since then; `bookedSince` returns only those booked
+   * since then (original bookings, not reschedules); `ids` returns exactly those.
+   */
+  appointments(opts: Scope & { from?: Date; closedSince?: Date; bookedSince?: Date; ids?: string[]; limit: number }): Promise<AppointmentRow[]>;
+  /** Tool calls since `from` (real traffic unless includeTests). */
+  toolHealthRows(opts: Scope & { from: Date }): Promise<ToolHealthRow[]>;
+  recentActivity(opts: Scope & { limit: number }): Promise<ActivityRow[]>;
   /** Caller and Ava lines with timestamps, from the stored end-of-call report (empty before it arrives). */
   callMessages(vapiCallId: string): Promise<TranscriptMessage[]>;
-  /** Per local day (oldest first) for the last `days` days up to `to`: the overview sparklines. */
-  dailySeries(opts: { includeSeed: boolean; to: Date; days: number; tz: string }): Promise<DailyPoint[]>;
 }
 
-export type NavCounts = { openBoard: number; overdueOrSafety: number; callsToday: number };
-
 export type TranscriptMessage = { role: "caller" | "ava"; text: string; at: Date };
-
-export type DailyPoint = {
-  /** "2026-10-21" in the console's time zone. */
-  day: string;
-  calls: number;
-  bookings: number;
-  priorityRequests: number;
-  medianResponseMs: number | null;
-  p95ToolMs: number | null;
-};

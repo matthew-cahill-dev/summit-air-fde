@@ -76,6 +76,7 @@ export function createToolInvocationRepository(db: Db): ToolInvocationRepository
         result: input.result,
         latencyMs: input.latencyMs,
         dbMs: input.dbMs ?? null,
+        isSimulation: input.isSimulation ?? false,
       };
       const [written] = await db
         .insert(toolInvocations)

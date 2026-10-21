@@ -187,6 +187,14 @@ describe("property type is visible (call header, board cards, technician notes)"
   it("an untriaged callback shows no property", () => {
     const row: BoardCallbackRow = {
       id: "x",
+      status: "open",
+      calledBackAt: null,
+      calledBackBy: null,
+      resolvedAt: null,
+      resolution: null,
+      resolutionNote: null,
+      resolvedBy: null,
+      appointmentId: null,
       reason: "human_requested",
       context: { details: "Wants a person" },
       callerName: null,

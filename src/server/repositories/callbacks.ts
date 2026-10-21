@@ -1,4 +1,4 @@
-import { and, asc, eq, sql } from "drizzle-orm";
+import { and, asc, eq, isNotNull, isNull, sql } from "drizzle-orm";
 import type { Db } from "@/server/db/client";
 import { callbackRequests } from "@/server/db/schema";
 import type { CallbackRepository } from "./types";
@@ -38,11 +38,38 @@ export function createCallbackRepository(db: Db): CallbackRepository {
       });
     },
 
-    async markDone(id, at) {
+    async markDone(id, at, detail) {
       const [row] = await db
         .update(callbackRequests)
-        .set({ status: "done", completedAt: at })
+        .set({ status: "done", completedAt: at, resolution: detail?.resolution ?? null, resolutionNote: detail?.note ?? null, resolvedBy: detail?.by ?? null })
         .where(and(eq(callbackRequests.id, id), eq(callbackRequests.status, "open")))
+        .returning({ id: callbackRequests.id, status: callbackRequests.status });
+      return row ?? null;
+    },
+
+    async reopen(id) {
+      const [row] = await db
+        .update(callbackRequests)
+        .set({ status: "open", completedAt: null, resolution: null, resolutionNote: null, resolvedBy: null })
+        .where(and(eq(callbackRequests.id, id), eq(callbackRequests.status, "done")))
+        .returning({ id: callbackRequests.id, status: callbackRequests.status });
+      return row ?? null;
+    },
+
+    async markCalledBack(id, at, by) {
+      const [row] = await db
+        .update(callbackRequests)
+        .set({ calledBackAt: at, calledBackBy: by ?? null })
+        .where(and(eq(callbackRequests.id, id), eq(callbackRequests.status, "open"), isNull(callbackRequests.calledBackAt)))
+        .returning({ id: callbackRequests.id, status: callbackRequests.status });
+      return row ?? null;
+    },
+
+    async unmarkCalledBack(id) {
+      const [row] = await db
+        .update(callbackRequests)
+        .set({ calledBackAt: null, calledBackBy: null })
+        .where(and(eq(callbackRequests.id, id), eq(callbackRequests.status, "open"), isNotNull(callbackRequests.calledBackAt)))
         .returning({ id: callbackRequests.id, status: callbackRequests.status });
       return row ?? null;
     },

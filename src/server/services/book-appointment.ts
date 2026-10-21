@@ -5,7 +5,7 @@ import { optionalArg } from "@/server/lib/optional-arg";
 import { normalizePhoneE164 } from "@/server/lib/phone";
 import { spokenWindow } from "@/server/lib/time";
 import type { BookingAddress, CustomerRow } from "@/server/repositories";
-import { earliestBookableStart } from "@/server/scheduling/availability";
+import { seatClaimRules } from "@/server/scheduling/availability";
 import { buildTechnicianNotes, type OnSiteContact } from "@/server/scheduling/technician-notes";
 import { propertyKind } from "@/server/triage/property";
 import { VULNERABLE_OCCUPANTS } from "@/server/triage/rules";
@@ -369,12 +369,7 @@ export const bookAppointmentTool = defineTool({
           return { appointmentId: existing.id, already: true, moved: false, detailsUpdated: changed, slot, address, customer, isMember };
         }
 
-        const claimed = await tx.claimSeat(slot.id, {
-          isMember,
-          earliestStart: earliestBookableStart(ctx.now, cfg),
-          memberPriorityUntil: new Date(ctx.now.getTime() + cfg.memberPriorityWindowHours * 3_600_000),
-          memberReservedSeats: cfg.memberReservedSeatsPerSlot,
-        });
+        const claimed = await tx.claimSeat(slot.id, seatClaimRules(ctx.now, isMember, cfg));
         if (!claimed) throw new BookingRejected("slot_taken", slot.county); // the call's booking (if any) stands
 
         const intake = callAppt ? mergeIntake(callAppt.intake, newIntake) : newIntake;

@@ -14,7 +14,8 @@ const mmss = (ms: number) => {
 export function slaCountdown(createdAtMs: number, slaMinutes: number, nowMs: number, acknowledgedAtMs: number | null = null): SlaState {
   const dueAt = createdAtMs + slaMinutes * 60_000;
   const used = Math.min(1, Math.max(0, (nowMs - createdAtMs) / (slaMinutes * 60_000)));
-  if (acknowledgedAtMs !== null) return { label: `Acknowledged ${mmss(nowMs - acknowledgedAtMs)} ago`, overdue: false, used };
+  // "Called back" stops the customer-facing SLA clock.
+  if (acknowledgedAtMs !== null) return { label: `Called back ${mmss(nowMs - acknowledgedAtMs)} ago`, overdue: false, used };
   if (nowMs <= dueAt) return { label: `Callback due in ${mmss(dueAt - nowMs)}`, overdue: false, used };
   return { label: `Overdue ${mmss(nowMs - dueAt)}`, overdue: true, used: 1 };
 }

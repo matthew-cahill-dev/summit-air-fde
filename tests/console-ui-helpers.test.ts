@@ -102,7 +102,7 @@ describe("dispatch board", () => {
     expect(slaCountdown(created, 15, created + 3 * 60_000 + 18_000)).toMatchObject({ label: "Callback due in 11:42", overdue: false });
     expect(slaCountdown(created, 15, created + 18 * 60_000 + 10_000)).toMatchObject({ label: "Overdue 3:10", overdue: true, used: 1 });
     expect(slaCountdown(created, 120, created + 4 * 3_600_000).label).toBe("Overdue 2:00:00");
-    expect(slaCountdown(created, 15, created + 5 * 60_000, created + 2 * 60_000).label).toBe("Acknowledged 3:00 ago");
+    expect(slaCountdown(created, 15, created + 5 * 60_000, created + 2 * 60_000).label).toBe("Called back 3:00 ago");
   });
 });
 

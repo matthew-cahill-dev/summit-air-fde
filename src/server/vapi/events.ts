@@ -1,6 +1,6 @@
 import type { EndOfCallReport } from "@/server/repositories";
 import { responseLatency } from "@/vapi-sync/call-report";
-import { getMessage } from "./envelope";
+import { getMessage, isSimulationMessage } from "./envelope";
 
 type Obj = Record<string, unknown>;
 const isObj = (v: unknown): v is Obj => typeof v === "object" && v !== null && !Array.isArray(v);
@@ -40,5 +40,6 @@ export function parseEndOfCallReport(body: unknown): EndOfCallReport | null {
     summary: str(analysis.summary) ?? str(m.summary),
     transcript: str(artifact.transcript) ?? str(m.transcript),
     rawReport: m,
+    isSimulation: isSimulationMessage(m),
   };
 }

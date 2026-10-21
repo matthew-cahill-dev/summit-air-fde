@@ -172,7 +172,7 @@ describe("post-call safety reconciliation", () => {
   });
 
   it("the board card and call detail know it was auto-detected", () => {
-    const item = dispatchItem({ id: "d", urgency: "safety_stop", reasons: [], status: "open", callerName: null, callerPhone: null, address: null, intake: { auto_detected: true }, customerName: null, customerPhone: null, createdAt: new Date(), acknowledgedAt: null, vapiCallId: "c", isDemoSeed: false } as BoardDispatchRow, new Date());
+    const item = dispatchItem({ id: "d", urgency: "safety_stop", reasons: [], status: "open", callerName: null, callerPhone: null, address: null, intake: { auto_detected: true }, customerName: null, customerPhone: null, createdAt: new Date(), acknowledgedAt: null, acknowledgedBy: null, resolvedAt: null, resolution: null, resolutionNote: null, resolvedBy: null, vapiCallId: "c", isDemoSeed: false } satisfies BoardDispatchRow, new Date());
     expect(item.autoDetected).toBe(true);
   });
 });

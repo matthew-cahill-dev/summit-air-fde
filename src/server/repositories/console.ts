@@ -1,10 +1,13 @@
 // Read-only queries for the operations console. Raw SQL where joins, laterals or
 // percentiles are clearer than the query builder; every value is a bound parameter.
+// Every list honors one Scope: seed data and test traffic (simulations, web calls, chats)
+// are hidden unless asked for, so evals never mix into real numbers.
 import { sql, type SQL } from "drizzle-orm";
-import { BUSINESS } from "@/config/business";
 import type { Db } from "@/server/db/client";
 import type {
   ActivityRow,
+  AppointmentRow,
+  AppointmentStage,
   BoardCallbackRow,
   BoardDispatchRow,
   CallActivityRow,
@@ -15,9 +18,9 @@ import type {
   ConsoleRepository,
   InvocationRow,
   JsonObject,
-  OverviewStats,
+  Scope,
+  ToolHealthRow,
   TranscriptMessage,
-  UpcomingAppointmentRow,
   Urgency,
 } from "./types";
 
@@ -34,6 +37,22 @@ const strArray = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x i
 
 const fullName = (first: string, last: string) => sql`nullif(trim(concat_ws(' ', ${sql.raw(first)}, ${sql.raw(last)})), '')`;
 
+/**
+ * A record belongs to test traffic when it has no call id (a simulated chat or a dashboard tool
+ * test) or its call was a simulation (the tool rows or the end-of-call report say so).
+ */
+const testCall = (col: SQL) =>
+  sql`(${col} is null
+       or exists (select 1 from tool_invocations tx where tx.vapi_call_id = ${col} and tx.is_simulation)
+       or exists (select 1 from calls cx where cx.vapi_call_id = ${col} and cx.is_simulation))`;
+
+/** Seed rows follow includeSeed; everything else hides test traffic unless includeTests. */
+export const visible = (alias: string, scope: Scope) => {
+  const a = sql.raw(alias);
+  return sql`((${scope.includeSeed} or not ${a}.is_demo_seed)
+              and (${scope.includeTests ?? false} or ${a}.is_demo_seed or not ${testCall(sql`${a}.vapi_call_id`)}))`;
+};
+
 function mapCallActivity(r: Row): CallActivityRow {
   return {
     vapiCallId: String(r.vapi_call_id),
@@ -46,15 +65,18 @@ function mapCallActivity(r: Row): CallActivityRow {
     firstActivityAt: dateOrNull(r.first_at),
     lastActivityAt: dateOrNull(r.last_at),
     isDemoSeed: Boolean(r.is_demo_seed),
+    isSimulation: Boolean(r.is_simulation),
     responseP50Ms: numOrNull(r.response_p50_ms),
   };
 }
 
 // Calls are the union of end-of-call reports and tool activity: a call that's still
-// in progress (or whose report never arrived) only has tool_invocations rows.
+// in progress (or whose report never arrived) only has tool_invocations rows. A call's
+// time is when it started, else its first tool call, else when it ended (metrics.ts).
 const callActivity = (where: SQL) => sql`
   with inv as (
-    select vapi_call_id, min(created_at) as first_at, max(created_at) as last_at, bool_or(is_demo_seed) as seed
+    select vapi_call_id, min(created_at) as first_at, max(created_at) as last_at,
+           bool_or(is_demo_seed) as seed, bool_or(is_simulation) as sim
       from tool_invocations
      where vapi_call_id is not null
      group by vapi_call_id
@@ -64,34 +86,45 @@ const callActivity = (where: SQL) => sql`
            c.response_p50_ms, c.response_p95_ms, c.response_turns,
            (c.id is not null) as has_report,
            inv.first_at, inv.last_at,
-           coalesce(c.is_demo_seed, inv.seed, false) as is_demo_seed
+           coalesce(c.is_demo_seed, inv.seed, false) as is_demo_seed,
+           (coalesce(c.is_simulation, false) or coalesce(inv.sim, false)) as is_simulation,
+           coalesce(c.started_at, inv.first_at, c.ended_at) as call_at
       from calls c
       full outer join inv on inv.vapi_call_id = c.vapi_call_id
   )
   select * from merged ${where}`;
 
+const callScope = (scope: Scope) =>
+  sql`(${scope.includeSeed} or not is_demo_seed) and (${scope.includeTests ?? false} or is_demo_seed or not is_simulation)`;
+
+const STAGE_SQL = sql`case when a.status = 'cancelled' then 'cancelled' when a.completion = 'completed' then 'completed'
+                          when a.completion = 'no_show' then 'no_show' else 'scheduled' end`;
+
 export function createConsoleRepository(db: Db): ConsoleRepository {
   return {
-    async board({ includeSeed }) {
+    async board(scope) {
+      const since = scope.resolvedSince ?? null;
       const [dispatchRows, callbackRows] = await Promise.all([
         rows(
           db,
           sql`
           select d.id, d.urgency, d.reasons, d.status, d.caller_name, d.caller_phone, d.address, d.intake,
-                 d.created_at, d.acknowledged_at, d.vapi_call_id, d.is_demo_seed,
+                 d.created_at, d.acknowledged_at, d.acknowledged_by, d.resolved_at, d.resolution, d.resolution_note,
+                 d.resolved_by, d.vapi_call_id, d.is_demo_seed,
                  ${fullName("c.first_name", "c.last_name")} as customer_name, c.phone_e164 as customer_phone
             from dispatch_requests d
             left join customers c on c.id = d.customer_id
-           where d.status in ('open', 'acknowledged')
-             and (${includeSeed} or not d.is_demo_seed)
+           where (d.status in ('open', 'acknowledged') or (${since}::timestamptz is not null and d.status = 'resolved' and d.resolved_at >= ${since}))
+             and ${visible("d", scope)}
            limit 500`,
         ),
         rows(
           db,
           sql`
           select cb.id, cb.reason, cb.context, cb.caller_name, cb.caller_phone, cb.created_at, cb.vapi_call_id,
-                 cb.is_demo_seed, t.result ->> 'urgency' as triage_urgency, t.result -> 'reasons' as triage_reasons,
-                 t.args as triage_args
+                 cb.status, cb.called_back_at, cb.called_back_by, cb.completed_at, cb.resolution, cb.resolution_note,
+                 cb.resolved_by, cb.is_demo_seed, t.result ->> 'urgency' as triage_urgency,
+                 t.result -> 'reasons' as triage_reasons, t.args as triage_args, ap.id as appointment_id
             from callback_requests cb
             left join lateral (
               select ti.result, ti.args
@@ -100,8 +133,22 @@ export function createConsoleRepository(db: Db): ConsoleRepository {
                order by ti.created_at desc
                limit 1
             ) t on true
-           where cb.status = 'open'
-             and (${includeSeed} or not cb.is_demo_seed)
+            left join lateral (
+              -- The caller's next scheduled visit: by the account a lookup verified on this call, else by phone.
+              select a.id
+                from appointments a
+                join customers c on c.id = a.customer_id
+                join appointment_slots s on s.id = a.slot_id
+               where a.status = 'confirmed' and a.completion is null and s.ends_at > now()
+                 and (c.phone_e164 = cb.caller_phone
+                      or c.id::text in (select li.result ->> 'customer_id' from tool_invocations li
+                                         where li.vapi_call_id = cb.vapi_call_id and li.tool_name = 'lookup_customer'
+                                           and li.result ->> 'verified' = 'true'))
+               order by s.starts_at asc
+               limit 1
+            ) ap on true
+           where (cb.status = 'open' or (${since}::timestamptz is not null and cb.status = 'done' and cb.completed_at >= ${since}))
+             and ${visible("cb", scope)}
            limit 500`,
         ),
       ]);
@@ -119,6 +166,11 @@ export function createConsoleRepository(db: Db): ConsoleRepository {
         customerPhone: strOrNull(r.customer_phone),
         createdAt: dateOrNull(r.created_at)!,
         acknowledgedAt: dateOrNull(r.acknowledged_at),
+        acknowledgedBy: strOrNull(r.acknowledged_by),
+        resolvedAt: dateOrNull(r.resolved_at),
+        resolution: strOrNull(r.resolution),
+        resolutionNote: strOrNull(r.resolution_note),
+        resolvedBy: strOrNull(r.resolved_by),
         vapiCallId: strOrNull(r.vapi_call_id),
         isDemoSeed: Boolean(r.is_demo_seed),
       }));
@@ -129,22 +181,32 @@ export function createConsoleRepository(db: Db): ConsoleRepository {
         callerName: strOrNull(r.caller_name),
         callerPhone: strOrNull(r.caller_phone),
         createdAt: dateOrNull(r.created_at)!,
+        status: r.status as BoardCallbackRow["status"],
+        calledBackAt: dateOrNull(r.called_back_at),
+        calledBackBy: strOrNull(r.called_back_by),
+        resolvedAt: dateOrNull(r.completed_at),
+        resolution: strOrNull(r.resolution),
+        resolutionNote: strOrNull(r.resolution_note),
+        resolvedBy: strOrNull(r.resolved_by),
         vapiCallId: strOrNull(r.vapi_call_id),
         isDemoSeed: Boolean(r.is_demo_seed),
         triageUrgency: (strOrNull(r.triage_urgency) as Urgency | null) ?? null,
         triageReasons: strArray(r.triage_reasons),
         triageArgs: objOrNull(r.triage_args),
+        appointmentId: strOrNull(r.appointment_id),
       }));
       return { dispatches, callbacks };
     },
 
-    async recentCalls({ includeSeed, limit }) {
+    async recentCalls(opts) {
+      const since = opts.since ?? null;
       const result = await rows(
         db,
         callActivity(sql`
-          where (${includeSeed} or not is_demo_seed)
-          order by coalesce(started_at, first_at, ended_at) desc nulls last
-          limit ${limit}`),
+          where ${callScope(opts)}
+            and (${since}::timestamptz is null or call_at >= ${since})
+          order by call_at desc nulls last
+          limit ${opts.limit}`),
       );
       return result.map(mapCallActivity);
     },
@@ -195,12 +257,14 @@ export function createConsoleRepository(db: Db): ConsoleRepository {
         ),
         rows(
           db,
-          sql`select id, vapi_call_id, urgency, reasons, status, caller_name, caller_phone, intake
+          sql`select id, vapi_call_id, urgency, reasons, status, caller_name, caller_phone, intake, created_at,
+                     acknowledged_at, acknowledged_by, resolved_at, resolution, resolution_note, resolved_by
                 from dispatch_requests where vapi_call_id in ${ids} order by created_at asc`,
         ),
         rows(
           db,
-          sql`select id, vapi_call_id, reason, status, caller_name, caller_phone, context
+          sql`select id, vapi_call_id, reason, status, caller_name, caller_phone, context, created_at,
+                     called_back_at, called_back_by, completed_at, resolution, resolution_note, resolved_by
                 from callback_requests where vapi_call_id in ${ids} order by created_at asc`,
         ),
       ]);
@@ -241,6 +305,13 @@ export function createConsoleRepository(db: Db): ConsoleRepository {
             callerName: strOrNull(r.caller_name),
             callerPhone: strOrNull(r.caller_phone),
             intake: objOrNull(r.intake),
+            createdAt: dateOrNull(r.created_at) ?? undefined,
+            acknowledgedAt: dateOrNull(r.acknowledged_at),
+            acknowledgedBy: strOrNull(r.acknowledged_by),
+            resolvedAt: dateOrNull(r.resolved_at),
+            resolution: strOrNull(r.resolution),
+            resolutionNote: strOrNull(r.resolution_note),
+            resolvedBy: strOrNull(r.resolved_by),
           }),
         ),
         callbacks: cbs.map(
@@ -252,38 +323,64 @@ export function createConsoleRepository(db: Db): ConsoleRepository {
             callerName: strOrNull(r.caller_name),
             callerPhone: strOrNull(r.caller_phone),
             context: objOrNull(r.context),
+            createdAt: dateOrNull(r.created_at) ?? undefined,
+            calledBackAt: dateOrNull(r.called_back_at),
+            calledBackBy: strOrNull(r.called_back_by),
+            resolvedAt: dateOrNull(r.completed_at),
+            resolution: strOrNull(r.resolution),
+            resolutionNote: strOrNull(r.resolution_note),
+            resolvedBy: strOrNull(r.resolved_by),
           }),
         ),
       };
       return records;
     },
 
-    async upcomingAppointments({ includeSeed, from, limit }) {
+    async appointments(opts) {
+      const from = opts.from ?? null;
+      const closedSince = opts.closedSince ?? null;
+      const bookedSince = opts.bookedSince ?? null;
+      const ids = opts.ids && opts.ids.length ? opts.ids : null;
+      const which = ids
+        ? sql`a.id in (${sql.join(
+            ids.map((id) => sql`${id}::uuid`),
+            sql`, `,
+          )})`
+        : bookedSince
+          ? sql`a.created_at >= ${bookedSince} and a.rescheduled_from is null and a.status = 'confirmed'`
+          : sql`((a.status = 'confirmed' and a.completion is null and (${from}::timestamptz is null or s.ends_at > ${from}))
+                 or (${closedSince}::timestamptz is not null
+                     and coalesce(a.completed_at, a.cancelled_at, a.created_at) >= ${closedSince}
+                     and (a.status = 'cancelled' or a.completion is not null)))`;
       const result = await rows(
         db,
         sql`
-        select a.id, s.starts_at, s.ends_at, s.county,
+        select a.id, ${STAGE_SQL} as stage, a.slot_id, s.starts_at, s.ends_at, s.county, a.customer_id,
                ${fullName("c.first_name", "c.last_name")} as customer_name, c.phone_e164,
                exists (select 1 from memberships m where m.customer_id = c.id and m.status = 'active') as is_member,
                ad.line1, ad.unit, ad.city, ad.zip, ad.access_notes,
                a.service_type, a.urgency, a.issue_summary, a.technician_notes, a.vapi_call_id, a.is_demo_seed,
-               a.intake->>'arrival_preference' as arrival_preference
+               a.intake->>'arrival_preference' as arrival_preference, a.created_at, a.completed_at, a.completion_note,
+               a.cancelled_at, a.status_by, a.rescheduled_from,
+               (select n.id from appointments n where n.rescheduled_from = a.id order by n.created_at desc limit 1) as rescheduled_to
           from appointments a
           join appointment_slots s on s.id = a.slot_id
           join customers c on c.id = a.customer_id
           join service_addresses ad on ad.id = a.address_id
-         where a.status = 'confirmed'
-           and s.ends_at > ${from}
-           and (${includeSeed} or not a.is_demo_seed)
+         where ${which}
+           and (${ids !== null} or ${visible("a", opts)})
          order by s.starts_at asc, c.last_name asc
-         limit ${limit}`,
+         limit ${opts.limit}`,
       );
       return result.map(
-        (r): UpcomingAppointmentRow => ({
+        (r): AppointmentRow => ({
           id: String(r.id),
+          stage: String(r.stage) as AppointmentStage,
+          slotId: String(r.slot_id),
           startsAt: dateOrNull(r.starts_at)!,
           endsAt: dateOrNull(r.ends_at)!,
           county: String(r.county),
+          customerId: String(r.customer_id),
           customerName: strOrNull(r.customer_name) ?? "",
           customerPhone: String(r.phone_e164),
           isMember: Boolean(r.is_member),
@@ -292,99 +389,42 @@ export function createConsoleRepository(db: Db): ConsoleRepository {
           city: String(r.city),
           zip: String(r.zip),
           accessNotes: strOrNull(r.access_notes),
-          serviceType: r.service_type as UpcomingAppointmentRow["serviceType"],
+          serviceType: r.service_type as AppointmentRow["serviceType"],
           urgency: r.urgency as Urgency,
           issueSummary: strOrNull(r.issue_summary),
           technicianNotes: strOrNull(r.technician_notes),
           arrivalPreference: strOrNull(r.arrival_preference),
           vapiCallId: strOrNull(r.vapi_call_id),
           isDemoSeed: Boolean(r.is_demo_seed),
+          createdAt: dateOrNull(r.created_at)!,
+          completedAt: dateOrNull(r.completed_at),
+          completionNote: strOrNull(r.completion_note),
+          cancelledAt: dateOrNull(r.cancelled_at),
+          statusBy: strOrNull(r.status_by),
+          rescheduledFrom: strOrNull(r.rescheduled_from),
+          rescheduledTo: strOrNull(r.rescheduled_to),
         }),
       );
     },
 
-    async overviewStats({ includeSeed, from, to }) {
-      const [r] = await rows(
+    async toolHealthRows(opts) {
+      const result = await rows(
         db,
-        sql`
-        select
-          (select count(*) from (
-             select vapi_call_id from calls
-              where coalesce(started_at, ended_at) >= ${from} and coalesce(started_at, ended_at) < ${to}
-                and (${includeSeed} or not is_demo_seed)
-             union
-             select vapi_call_id from tool_invocations
-              where vapi_call_id is not null and created_at >= ${from} and created_at < ${to}
-                and (${includeSeed} or not is_demo_seed)
-           ) x) as calls,
-          (select count(*) from appointments
-            where status = 'confirmed' and created_at >= ${from} and created_at < ${to}
-              and (${includeSeed} or not is_demo_seed)) as bookings,
-          (select count(*) from dispatch_requests
-            where created_at >= ${from} and created_at < ${to}
-              and (${includeSeed} or not is_demo_seed)) as priority_requests,
-          (select count(*) from callback_requests
-            where status = 'open' and (${includeSeed} or not is_demo_seed)) as open_callbacks,
-          (select count(*) from dispatch_requests
-            where status in ('open', 'acknowledged') and (${includeSeed} or not is_demo_seed)) as open_dispatches,
-          t.tool_calls, t.tool_errors, t.avg_ms, t.p95_ms,
-          rt.median_ms as median_response_ms, rt.p95_ms as p95_response_ms, rt.n as response_calls
-        from (
-          select percentile_cont(0.5) within group (order by response_p50_ms) as median_ms,
-                 percentile_cont(0.95) within group (order by response_p95_ms) as p95_ms,
-                 count(response_p50_ms) as n
-            from calls
-           where response_p50_ms is not null
-             and coalesce(started_at, ended_at) >= ${from} and coalesce(started_at, ended_at) < ${to}
-             and (${includeSeed} or not is_demo_seed)
-        ) rt, (
-          select count(*) as tool_calls,
-                 count(*) filter (where not ok) as tool_errors,
-                 avg(latency_ms) as avg_ms,
-                 percentile_cont(0.95) within group (order by latency_ms) as p95_ms
-            from tool_invocations
-           where created_at >= ${from} and created_at < ${to}
-             and (${includeSeed} or not is_demo_seed)
-        ) t`,
+        sql`select tool_name, ok, result ->> 'error_code' as error_code, latency_ms, created_at
+              from tool_invocations ti
+             where ti.created_at >= ${opts.from}
+               and (${opts.includeSeed} or not ti.is_demo_seed)
+               and (${opts.includeTests ?? false} or ti.is_demo_seed or (not ti.is_simulation and ti.vapi_call_id is not null))`,
       );
-      const stats: OverviewStats = {
-        calls: num(r.calls),
-        bookings: num(r.bookings),
-        priorityRequests: num(r.priority_requests),
-        openCallbacks: num(r.open_callbacks),
-        openDispatches: num(r.open_dispatches),
-        toolCalls: num(r.tool_calls),
-        toolErrors: num(r.tool_errors),
-        avgToolMs: r.avg_ms === null ? null : Math.round(num(r.avg_ms)),
-        p95ToolMs: r.p95_ms === null ? null : Math.round(num(r.p95_ms)),
-        medianResponseMs: r.median_response_ms === null ? null : Math.round(num(r.median_response_ms)),
-        p95ResponseMs: r.p95_response_ms === null ? null : Math.round(num(r.p95_response_ms)),
-        responseCalls: num(r.response_calls),
-      };
-      return stats;
-    },
-
-    async navCounts({ includeSeed, from }) {
-      const slaDispatch = BUSINESS.priorityDispatchCallbackSlaMinutes;
-      const slaCallback = BUSINESS.callbackRequestSlaMinutes;
-      const [r] = await rows(
-        db,
-        sql`
-        select
-          (select count(*) from dispatch_requests where status in ('open', 'acknowledged') and (${includeSeed} or not is_demo_seed))
-          + (select count(*) from callback_requests where status = 'open' and (${includeSeed} or not is_demo_seed)) as open_board,
-          (select count(*) from dispatch_requests
-            where status = 'open' and (${includeSeed} or not is_demo_seed)
-              and (urgency = 'safety_stop' or created_at < now() - make_interval(mins => ${slaDispatch})))
-          + (select count(*) from callback_requests
-            where status = 'open' and (${includeSeed} or not is_demo_seed) and created_at < now() - make_interval(mins => ${slaCallback})) as hot,
-          (select count(*) from (
-             select vapi_call_id from calls where coalesce(started_at, ended_at) >= ${from} and (${includeSeed} or not is_demo_seed)
-             union
-             select vapi_call_id from tool_invocations where vapi_call_id is not null and created_at >= ${from} and (${includeSeed} or not is_demo_seed)
-           ) x) as calls_today`,
+      return result.map(
+        (r): ToolHealthRow => ({
+          toolName: String(r.tool_name),
+          ok: Boolean(r.ok),
+          errorCode: strOrNull(r.error_code),
+          latencyMs: num(r.latency_ms),
+          createdAt: dateOrNull(r.created_at)!,
+        }),
       );
-      return { openBoard: num(r?.open_board), overdueOrSafety: num(r?.hot), callsToday: num(r?.calls_today) };
     },
 
     async callMessages(vapiCallId) {
@@ -405,46 +445,8 @@ export function createConsoleRepository(db: Db): ConsoleRepository {
       return out;
     },
 
-    async dailySeries({ includeSeed, to, days, tz }) {
-      const result = await rows(
-        db,
-        sql`
-        with d as (
-          select generate_series(
-            (date_trunc('day', ${to}::timestamptz at time zone ${tz}) - make_interval(days => ${days - 1}))::date,
-            (date_trunc('day', ${to}::timestamptz at time zone ${tz}))::date,
-            interval '1 day')::date as day
-        ), c as (
-          select (coalesce(started_at, ended_at) at time zone ${tz})::date as day, count(*) as calls,
-                 percentile_cont(0.5) within group (order by response_p50_ms) as median_ms
-            from calls where coalesce(started_at, ended_at) is not null and (${includeSeed} or not is_demo_seed) group by 1
-        ), a as (
-          select (created_at at time zone ${tz})::date as day, count(*) as n
-            from appointments where status = 'confirmed' and (${includeSeed} or not is_demo_seed) group by 1
-        ), p as (
-          select (created_at at time zone ${tz})::date as day, count(*) as n
-            from dispatch_requests where (${includeSeed} or not is_demo_seed) group by 1
-        ), t as (
-          select (created_at at time zone ${tz})::date as day, percentile_cont(0.95) within group (order by latency_ms) as p95
-            from tool_invocations where (${includeSeed} or not is_demo_seed) group by 1
-        )
-        select to_char(d.day, 'YYYY-MM-DD') as day, coalesce(c.calls, 0) as calls, coalesce(a.n, 0) as bookings,
-               coalesce(p.n, 0) as priority, c.median_ms, t.p95
-          from d left join c using (day) left join a using (day) left join p using (day) left join t using (day)
-         order by d.day`,
-      );
-      return result.map((r) => ({
-        day: String(r.day),
-        calls: num(r.calls),
-        bookings: num(r.bookings),
-        priorityRequests: num(r.priority),
-        medianResponseMs: r.median_ms === null ? null : Math.round(num(r.median_ms)),
-        p95ToolMs: r.p95 === null ? null : Math.round(num(r.p95)),
-      }));
-    },
-
-    async recentActivity({ includeSeed, limit }) {
-      const seed = (alias: string) => sql`(${includeSeed} or not ${sql.raw(alias)}.is_demo_seed)`;
+    async recentActivity(opts) {
+      const v = (alias: string) => visible(alias, opts);
       const who = fullName("c.first_name", "c.last_name");
       const result = await rows(
         db,
@@ -452,36 +454,42 @@ export function createConsoleRepository(db: Db): ConsoleRepository {
         select * from (
           select ca.ended_at as at, 'call_ended' as kind, ca.id::text as ref_id, ca.vapi_call_id,
                  ca.caller_phone as who, ca.ended_reason as detail, null::text as urgency, ca.is_demo_seed
-            from calls ca where ca.ended_at is not null and ${seed("ca")}
+            from calls ca
+           where ca.ended_at is not null and (${opts.includeSeed} or not ca.is_demo_seed)
+             and (${opts.includeTests ?? false} or ca.is_demo_seed or not ${testCall(sql`ca.vapi_call_id`)})
           union all
           select a.created_at, 'booked', a.id::text, a.vapi_call_id, ${who}, a.issue_summary, a.urgency::text, a.is_demo_seed
             from appointments a join customers c on c.id = a.customer_id
-           where a.status = 'confirmed' and ${seed("a")}
+           where a.status = 'confirmed' and a.rescheduled_from is null and ${v("a")}
           union all
           select d.created_at, 'dispatch_created', d.id::text, d.vapi_call_id,
                  coalesce(d.caller_name, ${who}, d.caller_phone), d.reasons[1], d.urgency::text, d.is_demo_seed
-            from dispatch_requests d left join customers c on c.id = d.customer_id where ${seed("d")}
+            from dispatch_requests d left join customers c on c.id = d.customer_id where ${v("d")}
           union all
           select d.acknowledged_at, 'dispatch_acknowledged', d.id::text, d.vapi_call_id,
-                 coalesce(d.caller_name, ${who}, d.caller_phone), null, d.urgency::text, d.is_demo_seed
+                 coalesce(d.caller_name, ${who}, d.caller_phone), d.acknowledged_by, d.urgency::text, d.is_demo_seed
             from dispatch_requests d left join customers c on c.id = d.customer_id
-           where d.acknowledged_at is not null and ${seed("d")}
+           where d.acknowledged_at is not null and ${v("d")}
           union all
           select d.resolved_at, 'dispatch_resolved', d.id::text, d.vapi_call_id,
-                 coalesce(d.caller_name, ${who}, d.caller_phone), null, d.urgency::text, d.is_demo_seed
+                 coalesce(d.caller_name, ${who}, d.caller_phone), d.resolution, d.urgency::text, d.is_demo_seed
             from dispatch_requests d left join customers c on c.id = d.customer_id
-           where d.resolved_at is not null and ${seed("d")}
+           where d.resolved_at is not null and ${v("d")}
           union all
           select cb.created_at, 'callback_created', cb.id::text, cb.vapi_call_id,
                  coalesce(cb.caller_name, cb.caller_phone), cb.reason, null, cb.is_demo_seed
-            from callback_requests cb where ${seed("cb")}
+            from callback_requests cb where ${v("cb")}
+          union all
+          select cb.called_back_at, 'callback_called_back', cb.id::text, cb.vapi_call_id,
+                 coalesce(cb.caller_name, cb.caller_phone), cb.called_back_by, null, cb.is_demo_seed
+            from callback_requests cb where cb.called_back_at is not null and ${v("cb")}
           union all
           select cb.completed_at, 'callback_done', cb.id::text, cb.vapi_call_id,
-                 coalesce(cb.caller_name, cb.caller_phone), cb.reason, null, cb.is_demo_seed
-            from callback_requests cb where cb.completed_at is not null and ${seed("cb")}
+                 coalesce(cb.caller_name, cb.caller_phone), coalesce(cb.resolution, cb.reason), null, cb.is_demo_seed
+            from callback_requests cb where cb.completed_at is not null and ${v("cb")}
         ) events
         order by at desc
-        limit ${limit}`,
+        limit ${opts.limit}`,
       );
       return result.map(
         (r): ActivityRow => ({

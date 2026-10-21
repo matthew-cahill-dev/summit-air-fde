@@ -62,6 +62,19 @@ export function earliestBookableStart(now: Date, config: SchedulingConfig): Date
   return new Date(now.getTime() + config.bookingLeadTimeMinutes * 60_000);
 }
 
+/**
+ * The rules for an atomic seat claim (BookingTx.claimSeat): lead time, and the member-held seat
+ * inside the priority window. One definition for booking on a call and rescheduling in the console.
+ */
+export function seatClaimRules(now: Date, isMember: boolean, config: SchedulingConfig = DEFAULT_SCHEDULING_CONFIG) {
+  return {
+    isMember,
+    earliestStart: earliestBookableStart(now, config),
+    memberPriorityUntil: new Date(now.getTime() + config.memberPriorityWindowHours * 3_600_000),
+    memberReservedSeats: config.memberReservedSeatsPerSlot,
+  };
+}
+
 export function selectSlots(
   candidates: SlotCandidate[],
   opts: SelectOptions,

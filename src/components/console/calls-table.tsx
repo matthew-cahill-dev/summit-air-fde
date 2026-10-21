@@ -9,13 +9,14 @@ import { cn } from "@/lib/utils";
 import { DEFAULT_FILTER, filterCalls, type CallFilter, type CallRowLite } from "@/server/console/call-filters";
 import { OUTCOME_LABEL, type CallOutcome } from "@/server/console/outcome";
 import type { Urgency } from "@/server/repositories";
-import { LiveDot, OutcomeBadge, SeedTag, UrgencyBadge } from "./badges";
+import { LiveDot, OutcomeBadge, SeedTag, TestTag, UrgencyBadge } from "./badges";
 import { FreshRow, FreshScope } from "./live";
 import { EmptyIllustration } from "./page";
 import { OUTCOME_TONE, TONE_FILL } from "./tone";
 
 export type CallRowView = CallRowLite & {
   isDemoSeed: boolean;
+  isSimulation: boolean;
   timeLabel: string;
   phoneLabel: string | null;
   durationLabel: string | null;
@@ -47,8 +48,8 @@ function Chip({ active, onClick, children, dot }: { active: boolean; onClick: ()
   );
 }
 
-export function CallsTable({ rows, now, todayStart }: { rows: CallRowView[]; now: number; todayStart: number }) {
-  const [filter, setFilter] = useState<CallFilter>(DEFAULT_FILTER);
+export function CallsTable({ rows, now, todayStart, initial }: { rows: CallRowView[]; now: number; todayStart: number; initial?: Partial<CallFilter> }) {
+  const [filter, setFilter] = useState<CallFilter>({ ...DEFAULT_FILTER, ...initial });
   const shown = useMemo(() => filterCalls(rows, filter, now, todayStart), [rows, filter, now, todayStart]);
   const set = (patch: Partial<CallFilter>) => setFilter((f) => ({ ...f, ...patch }));
   const filtered = filter.outcome !== "all" || filter.urgency !== "all" || filter.range !== "all" || filter.q !== "";
@@ -142,6 +143,7 @@ export function CallsTable({ rows, now, todayStart }: { rows: CallRowView[]; now
                         <div className="flex items-center gap-2">
                           <span className="font-medium">{c.callerName ?? c.phoneLabel ?? "Unknown caller"}</span>
                           <SeedTag show={c.isDemoSeed} />
+                          <TestTag show={c.isSimulation} />
                         </div>
                         {c.callerName && c.phoneLabel && <div className="tabular text-xs text-muted-foreground">{c.phoneLabel}</div>}
                       </TableCell>

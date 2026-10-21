@@ -121,6 +121,8 @@ export type CallSummary = {
   outcome: CallOutcome;
   status: CallStatus;
   isDemoSeed: boolean;
+  /** A Vapi simulation or web/test call, not a real phone call. */
+  isSimulation: boolean;
   toolCount: number;
   toolErrors: number;
 };
@@ -199,6 +201,7 @@ export function summarizeCall(call: CallActivityRow, records: CallRecords, now: 
     outcome: deriveOutcome(evidence),
     status: deriveCallStatus(call, evidence.invocations.length, now),
     isDemoSeed: call.isDemoSeed,
+    isSimulation: call.isSimulation ?? false,
     toolCount: evidence.invocations.length,
     toolErrors: evidence.invocations.filter((i) => !i.ok).length,
   };

@@ -5,7 +5,14 @@ import { Suspense, type ReactNode } from "react";
 import {
   ArrowLeftIcon,
   ArrowRightLeftIcon,
+  ArrowUpRightIcon,
   CalendarCheckIcon,
+  CalendarClockIcon,
+  CalendarXIcon,
+  CheckCheckIcon,
+  ListChecksIcon,
+  PhoneForwardedIcon,
+  UserXIcon,
   ClipboardListIcon,
   MapPinnedIcon,
   PhoneCallIcon,
@@ -18,16 +25,16 @@ import {
   WrenchIcon,
   type LucideIcon,
 } from "lucide-react";
-import { AutoDetectedBadge, LiveBadge, OutcomeBadge, PropertyBadge, SeedTag, UrgencyBadge } from "@/components/console/badges";
+import { AutoDetectedBadge, LiveBadge, OutcomeBadge, PropertyBadge, SeedTag, TestTag, UrgencyBadge } from "@/components/console/badges";
 import { FastPoll } from "@/components/console/live";
 import { PhoneLink } from "@/components/console/page";
-import { OUTCOME_TONE, TONE_CHIP, TONE_FILL } from "@/components/console/tone";
+import { OUTCOME_TONE, TONE_CHIP, TONE_FILL, type Tone } from "@/components/console/tone";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { loadCall, loadCallMessages } from "@/server/console/data";
-import { formatClock, formatDuration, formatPhone, formatSeconds, formatTimestamp } from "@/server/console/format";
+import { callbackReasonLabel, formatClock, formatDuration, formatPhone, formatSeconds, formatTimestamp, formatWindow } from "@/server/console/format";
 import { buildSteps, interleave, parseTranscript, type CallStep, type StepIcon } from "@/server/console/steps";
-import type { TranscriptMessage } from "@/server/repositories";
+import type { AppointmentRow, CallRecords, TranscriptMessage } from "@/server/repositories";
 
 export const metadata: Metadata = { title: "Call" };
 
@@ -83,7 +90,7 @@ async function CallDetail({ params }: { params: PageProps<"/calls/[id]">["params
   }
   const data = await loadCall(vapiCallId);
   if (!data) notFound();
-  const { call, records, summary, now, tz } = data;
+  const { call, records, appointments, summary, now, tz } = data;
   const messages = await loadCallMessages(vapiCallId);
   const steps = buildSteps(records.invocations);
   const live = summary.status === "in_progress";
@@ -108,6 +115,7 @@ async function CallDetail({ params }: { params: PageProps<"/calls/[id]">["params
               {autoDetected.length > 0 && <AutoDetectedBadge />}
               <PropertyBadge property={summary.property} />
               <SeedTag show={summary.isDemoSeed} />
+              <TestTag show={summary.isSimulation} />
             </div>
             <h1 className="pt-1 text-2xl font-semibold tracking-tight text-balance">{summary.callerName ?? phone ?? "Unknown caller"}</h1>
             <p className="text-sm text-muted-foreground text-pretty">{summary.issue ?? "Issue not captured yet"}</p>
@@ -145,13 +153,16 @@ async function CallDetail({ params }: { params: PageProps<"/calls/[id]">["params
       ))}
 
       <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1.45fr)_minmax(0,1fr)]">
-        <Panel title="What happened" icon={ClipboardListIcon} aside={`${steps.length} step${steps.length === 1 ? "" : "s"}`}>
-          {steps.length === 0 ? (
-            <p className="text-sm text-muted-foreground">{live ? "Waiting for Ava's first step…" : "The assistant made no tool calls on this call."}</p>
-          ) : (
-            <StepTimeline steps={steps} start={startedAt ?? steps[0].at} live={live} />
-          )}
-        </Panel>
+        <div className="space-y-6">
+          <Panel title="What happened" icon={ClipboardListIcon} aside={`${steps.length} step${steps.length === 1 ? "" : "s"}`}>
+            {steps.length === 0 ? (
+              <p className="text-sm text-muted-foreground">{live ? "Waiting for Ava's first step…" : "The assistant made no tool calls on this call."}</p>
+            ) : (
+              <StepTimeline steps={steps} start={startedAt ?? steps[0].at} live={live} />
+            )}
+          </Panel>
+          <FollowUp records={records} appointments={appointments} tz={tz} />
+        </div>
 
         <div className="space-y-6">
           <section className="rounded-2xl bg-brand-soft p-5 ring-1 ring-brand/20">
@@ -185,6 +196,106 @@ async function CallDetail({ params }: { params: PageProps<"/calls/[id]">["params
         <Conversation messages={messages} steps={steps} transcript={call.transcript} live={live} tz={tz} />
       </Panel>
     </div>
+  );
+}
+
+type FollowUpEvent = { key: string; title: string; detail: string | null; tone: Tone; icon: LucideIcon };
+
+const joinDetail = (...parts: Array<string | null | undefined | false>) => parts.filter(Boolean).join(" · ") || null;
+
+/** What the office did after the call: called back, resolved with an outcome, appointment changes. */
+function FollowUp({ records, appointments, tz }: { records: CallRecords; appointments: AppointmentRow[]; tz: string }) {
+  const calledBack = (at: Date, by: string | null | undefined): FollowUpEvent => ({
+    key: "called",
+    title: `Called back ${formatClock(at, tz)}`,
+    detail: joinDetail(by && `by ${by}`),
+    tone: "routine",
+    icon: PhoneForwardedIcon,
+  });
+  const resolved = (at: Date, resolution?: string | null, note?: string | null, by?: string | null): FollowUpEvent => ({
+    key: "resolved",
+    title: `Resolved ${formatClock(at, tz)}${resolution ? ` · ${resolution}` : ""}`,
+    detail: joinDetail(note && `“${note}”`, by && `by ${by}`),
+    tone: "booked",
+    icon: CheckCheckIcon,
+  });
+  const boardTab = (resolvedAt?: Date | null, calledAt?: Date | null) => (resolvedAt ? "tab=resolved&range=7d" : calledAt ? "tab=called_back" : "tab=open");
+
+  const items: Array<{ key: string; label: string; href: string; hrefLabel: string; events: FollowUpEvent[] }> = [];
+  for (const d of records.dispatches) {
+    const events: FollowUpEvent[] = [];
+    if (d.acknowledgedAt) events.push(calledBack(d.acknowledgedAt, d.acknowledgedBy));
+    if (d.resolvedAt) events.push(resolved(d.resolvedAt, d.resolution, d.resolutionNote, d.resolvedBy));
+    items.push({ key: d.id, label: d.urgency === "safety_stop" ? "Safety stop" : "Priority request", href: `/dispatch?${boardTab(d.resolvedAt, d.acknowledgedAt)}`, hrefLabel: "Dispatch board", events });
+  }
+  for (const c of records.callbacks) {
+    const events: FollowUpEvent[] = [];
+    if (c.calledBackAt) events.push(calledBack(c.calledBackAt, c.calledBackBy));
+    if (c.resolvedAt) events.push(resolved(c.resolvedAt, c.resolution, c.resolutionNote, c.resolvedBy));
+    items.push({ key: c.id, label: `Callback · ${callbackReasonLabel(c.reason)}`, href: `/dispatch?kind=callbacks&${boardTab(c.resolvedAt, c.calledBackAt)}`, hrefLabel: "Dispatch board", events });
+  }
+  for (const a of appointments) {
+    const events: FollowUpEvent[] = [];
+    if (a.completedAt) {
+      const noShow = a.stage === "no_show";
+      events.push({
+        key: "closed",
+        title: `${noShow ? "No-show" : "Completed"} ${formatClock(a.completedAt, tz)}`,
+        detail: joinDetail(a.completionNote && `“${a.completionNote}”`, a.statusBy && `by ${a.statusBy}`),
+        tone: noShow ? "urgent" : "booked",
+        icon: noShow ? UserXIcon : CheckCheckIcon,
+      });
+    }
+    if (a.cancelledAt)
+      events.push({
+        key: "cancelled",
+        title: `${a.rescheduledTo ? "Rescheduled" : "Cancelled"} ${formatClock(a.cancelledAt, tz)}`,
+        detail: joinDetail(a.rescheduledTo ? "Moved to a new window; the old seat was freed" : "The window's seat was freed", a.statusBy && `by ${a.statusBy}`),
+        tone: "neutral",
+        icon: a.rescheduledTo ? CalendarClockIcon : CalendarXIcon,
+      });
+    const target = a.rescheduledTo ?? a.id;
+    items.push({
+      key: a.id,
+      label: `Appointment · ${formatWindow(a.startsAt, a.endsAt, tz)}`,
+      href: `/appointments?focus=${target}${a.stage === "scheduled" || a.rescheduledTo ? "" : "&view=closed"}`,
+      hrefLabel: a.rescheduledTo ? "Open new appointment" : "Open appointment",
+      events,
+    });
+  }
+  if (items.length === 0) return null;
+  return (
+    <Panel title="Follow-up" icon={ListChecksIcon} aside="What the office did after the call">
+      <ul className="space-y-4">
+        {items.map((it) => (
+          <li key={it.key} className="space-y-2">
+            <div className="flex flex-wrap items-baseline justify-between gap-2">
+              <p className="text-sm font-medium">{it.label}</p>
+              <Link href={it.href} className="inline-flex items-center gap-1 text-xs font-medium text-brand-ink hover:underline">
+                {it.hrefLabel} <ArrowUpRightIcon className="size-3" aria-hidden />
+              </Link>
+            </div>
+            {it.events.length === 0 ? (
+              <p className="text-xs text-muted-foreground">Waiting on the office.</p>
+            ) : (
+              <ol className="space-y-1.5">
+                {it.events.map((e) => (
+                  <li key={e.key} className="flex items-start gap-2.5 text-sm">
+                    <span className={cn("mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-lg", TONE_CHIP[e.tone])}>
+                      <e.icon className="size-3.5" aria-hidden />
+                    </span>
+                    <span className="min-w-0 text-pretty">
+                      <span className="font-medium">{e.title}</span>
+                      {e.detail && <span className="text-muted-foreground"> · {e.detail}</span>}
+                    </span>
+                  </li>
+                ))}
+              </ol>
+            )}
+          </li>
+        ))}
+      </ul>
+    </Panel>
   );
 }
 

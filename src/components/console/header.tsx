@@ -3,6 +3,7 @@
 import { Suspense, type ReactNode } from "react";
 import { usePathname } from "next/navigation";
 import { LiveRefresh } from "./live";
+import { OperatorName } from "./operator";
 import { titleForPath } from "./nav";
 import { PresentationToggle, ThemeToggle } from "./theme";
 
@@ -19,6 +20,7 @@ export function ConsoleHeader({ seedToggle }: { seedToggle: ReactNode }) {
         <span aria-hidden className="h-5 w-px bg-border" />
         <div className="present-hide">{seedToggle}</div>
         <span aria-hidden className="present-hide h-5 w-px bg-border" />
+        <OperatorName />
         <PresentationToggle />
         <ThemeToggle />
       </div>

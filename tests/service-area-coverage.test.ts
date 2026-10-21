@@ -205,6 +205,14 @@ describe("dashboard: 'Coverage check' is its own outcome", () => {
   it("board card: 'Confirm coverage · <borough>'", () => {
     const row: BoardCallbackRow = {
       id: "x",
+      status: "open",
+      calledBackAt: null,
+      calledBackBy: null,
+      resolvedAt: null,
+      resolution: null,
+      resolutionNote: null,
+      resolvedBy: null,
+      appointmentId: null,
       reason: "other",
       context: { details: "coverage check: Staten Island", kind: "coverage_check", borough: "Staten Island" },
       callerName: "Bea",

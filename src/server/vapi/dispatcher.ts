@@ -96,7 +96,7 @@ const INTERNAL_ERROR: ToolOutcome = {
   say: "Apologize once for the trouble. Next: call create_callback_request with reason backend_failure and a short summary; never guess what this tool would have said.",
 };
 
-type CallInfo = { callId: string | null; callerPhone: string | null };
+type CallInfo = { callId: string | null; callerPhone: string | null; isSimulation?: boolean };
 
 /**
  * Wrap every repository method so its elapsed time is added to `clock.dbMs`. This splits
@@ -216,6 +216,7 @@ async function invokeOne(
       result: payload,
       latencyMs,
       dbMs: Math.round(clock.dbMs),
+      isSimulation: ctx.isSimulation,
     });
     // A concurrent duplicate may have won the insert; answer consistently with it.
     payload = saved.result;
@@ -253,7 +254,7 @@ export async function handleToolCalls(body: unknown, deps: DispatchDeps): Promis
   if (parsed.droppedWithoutId > 0) {
     logEvent("vapi_tools_dropped_calls", { callId: parsed.callId, count: parsed.droppedWithoutId });
   }
-  const ctx = { callId: parsed.callId, callerPhone: parsed.callerPhone };
+  const ctx = { callId: parsed.callId, callerPhone: parsed.callerPhone, isSimulation: parsed.isSimulation };
   const results = await Promise.all(parsed.toolCalls.map((call) => invokeOne(call, ctx, deps)));
   return { results };
 }

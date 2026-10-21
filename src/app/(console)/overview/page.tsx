@@ -1,11 +1,14 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Suspense } from "react";
+import { Suspense, type ReactNode } from "react";
 import {
+  ArrowRightIcon,
   CalendarCheckIcon,
   CheckCheckIcon,
+  CircleCheckBigIcon,
   HandIcon,
   PhoneCallIcon,
+  PhoneForwardedIcon,
   PhoneIncomingIcon,
   SirenIcon,
   type LucideIcon,
@@ -13,21 +16,24 @@ import {
 import { SeedTag, UrgencyBadge } from "@/components/console/badges";
 import { FreshItem, FreshScope } from "@/components/console/live";
 import { EmptyIllustration, PageHeader } from "@/components/console/page";
-import { OUTCOME_TONE, TONE_CHIP, TONE_FILL, TONE_TEXT, type Tone } from "@/components/console/tone";
+import { SlaClock } from "@/components/console/sla-clock";
+import { OUTCOME_TONE, TONE_CHIP, TONE_FILL, URGENCY_TONE, type Tone } from "@/components/console/tone";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
-import { dayDelta, outcomeBreakdown, sparkPath, type Delta } from "@/server/console/charts";
+import type { BoardItem } from "@/server/console/board";
+import { outcomeBreakdown } from "@/server/console/charts";
 import { loadOverview } from "@/server/console/data";
 import { callbackReasonLabel, formatPhone, formatSeconds, formatTimestamp } from "@/server/console/format";
+import type { ToolHealth, TodayMetrics } from "@/server/console/metrics";
 import { OUTCOME_LABEL, type CallOutcome } from "@/server/console/outcome";
-import type { ActivityKind, ActivityRow, DailyPoint, OverviewStats } from "@/server/repositories";
+import type { ActivityKind, ActivityRow } from "@/server/repositories";
 
 export const metadata: Metadata = { title: "Overview" };
 
 export default function OverviewPage() {
   return (
     <>
-      <PageHeader title="Overview" description="Today so far (America/New_York), and the latest activity." />
+      <PageHeader title="Overview" description="What needs a person now, then today so far (America/New_York). Every number links to the records behind it." />
       <Suspense fallback={<OverviewSkeleton />}>
         <Overview />
       </Suspense>
@@ -38,31 +44,38 @@ export default function OverviewPage() {
 function OverviewSkeleton() {
   return (
     <div className="space-y-6" aria-busy="true" aria-label="Loading">
-      <div className="grid grid-cols-3 gap-3 xl:grid-cols-6">
-        {Array.from({ length: 6 }, (_, i) => (
-          <Skeleton key={i} className="h-24 rounded-xl" />
+      <Skeleton className="h-32 rounded-2xl" />
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
+        {Array.from({ length: 5 }, (_, i) => (
+          <Skeleton key={i} className="h-24 rounded-2xl" />
         ))}
       </div>
-      <Skeleton className="h-96 rounded-xl" />
+      <Skeleton className="h-72 rounded-2xl" />
     </div>
   );
 }
 
 async function Overview() {
-  const { stats, activity, series, outcomes, now, tz } = await loadOverview();
+  const { metrics, attention, byHour, health, outcomes, activity, now, tz } = await loadOverview();
   return (
     <div className="space-y-6">
-      <Kpis stats={stats} series={series} />
-      <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)]">
+      <NeedsAttention items={attention} now={now} tz={tz} />
+      <Today m={metrics} />
+      <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
+        <CallsByHour counts={byHour} hourNow={Number(new Intl.DateTimeFormat("en-US", { hour: "numeric", hourCycle: "h23", timeZone: tz }).format(now))} />
         <OutcomeMix outcomes={outcomes} />
-        <section className="shadow-card rounded-2xl bg-card ring-1 ring-foreground/8">
+      </div>
+      <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.4fr)]">
+        <CallerExperience m={metrics} />
+        <SystemHealth h={health} />
+        <section className="shadow-card rounded-2xl bg-card ring-1 ring-foreground/8 xl:row-span-2">
           <h2 className="border-b px-5 py-3.5 text-sm font-semibold">Recent activity</h2>
           <div className="p-3">
             {activity.length === 0 ? (
               <EmptyIllustration kind="inbox" title="No activity yet" description="Bookings, priority requests and callbacks will appear here." />
             ) : (
               <FreshScope scope="activity" ids={activity.map(activityKey)}>
-                <ol className="max-h-[34rem] overflow-y-auto">
+                <ol className="max-h-[30rem] overflow-y-auto">
                   {activity.map((a) => (
                     <FreshItem key={activityKey(a)} id={activityKey(a)} className="rounded-lg">
                       <ActivityLine row={a} now={now} tz={tz} />
@@ -78,82 +91,199 @@ async function Overview() {
   );
 }
 
-function Sparkline({ values, tone = "routine" }: { values: Array<number | null>; tone?: Tone }) {
-  const d = sparkPath(values, 96, 28);
-  if (!d) return <div className="h-7 w-24" aria-hidden />;
+// --- Needs attention now ------------------------------------------------------------------
+
+function NeedsAttention({ items, now, tz }: { items: BoardItem[]; now: Date; tz: string }) {
   return (
-    <svg viewBox="0 0 96 28" className={cn("h-7 w-24 overflow-visible", TONE_TEXT[tone])} aria-hidden>
-      <path d={d} fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
+    <section className={cn("shadow-card rounded-2xl ring-1", items.length ? "bg-safety-soft/40 ring-safety/30" : "bg-card ring-foreground/8")} aria-labelledby="attention">
+      <h2 id="attention" className="flex items-center justify-between gap-3 px-5 pt-3.5 pb-2 text-sm font-semibold">
+        <span className="flex items-center gap-2" title="Safety stops and emergencies nobody has called back yet, plus anything past its callback SLA">
+          Needs attention now
+          {items.length > 0 && <span className="tabular rounded-full bg-safety px-2 text-xs leading-5 text-white">{items.length}</span>}
+        </span>
+        <Link href="/dispatch" className="inline-flex items-center gap-1 text-xs font-medium text-brand-ink hover:underline">
+          Dispatch board <ArrowRightIcon className="size-3" aria-hidden />
+        </Link>
+      </h2>
+      {items.length === 0 ? (
+        <p className="flex items-center gap-2 px-5 pb-4 text-sm text-muted-foreground">
+          <CircleCheckBigIcon className="size-4 text-success-ink" aria-hidden />
+          <span>
+            <span className="font-medium text-foreground">All clear.</span> No safety stops or emergencies waiting, and nothing past its callback SLA.
+          </span>
+        </p>
+      ) : (
+        <ul className="grid gap-2 px-3 pb-3 md:grid-cols-2 2xl:grid-cols-3">
+          {items.map((i) => (
+            <li key={`${i.kind}:${i.id}`}>
+              <Link
+                href={`/dispatch?kind=${i.urgency === "safety_stop" ? "safety" : i.kind === "dispatch" ? "priority" : i.coverageCheck ? "coverage" : "callbacks"}`}
+                className="grid grid-cols-[minmax(0,1fr)_8.5rem] items-center gap-3 rounded-xl bg-card px-3.5 py-3 ring-1 ring-foreground/8 transition-colors hover:bg-muted/50"
+              >
+                <span className="min-w-0 space-y-1">
+                  <span className="flex flex-wrap items-center gap-1.5">
+                    {i.urgency ? <UrgencyBadge urgency={i.urgency} /> : <span className={cn("rounded-md px-1.5 text-xs font-medium", TONE_CHIP.callback)}>Callback</span>}
+                    <span className="truncate text-sm font-medium">{i.title}</span>
+                  </span>
+                  <span className="block truncate text-xs text-muted-foreground">
+                    {[i.callerName, formatPhone(i.callerPhone), formatTimestamp(i.createdAt, tz, now)].filter(Boolean).join(" · ")}
+                  </span>
+                </span>
+                <SlaClock createdAt={i.createdAt.toISOString()} slaMinutes={i.slaMinutes} acknowledgedAt={null} serverNow={now.toISOString()} />
+              </Link>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
   );
 }
 
-function DeltaLine({ delta, betterWhen = "up" }: { delta: Delta; betterWhen?: "up" | "down" | "none" }) {
-  if (!delta) return <span className="text-muted-foreground">No data yesterday</span>;
-  const good = betterWhen === "none" || delta.direction === "flat" ? null : delta.direction === betterWhen;
-  return (
-    <span className={cn("tabular", good === true ? "text-success-ink" : good === false ? "text-safety-ink" : "text-muted-foreground")}>
-      {delta.direction === "up" ? "▲ " : delta.direction === "down" ? "▼ " : ""}
-      {delta.text}
-    </span>
-  );
+// --- Today --------------------------------------------------------------------------------
+
+/** A number, or "—" with a reason when the data can't exist yet. */
+function Value({ v, missing, children }: { v: number | null; missing: string; children?: ReactNode }) {
+  if (v === null)
+    return (
+      <span className="cursor-help text-muted-foreground/60" title={missing}>
+        —<span className="sr-only">{missing}</span>
+      </span>
+    );
+  return <>{children ?? v}</>;
 }
 
-function Kpis({ stats, series }: { stats: OverviewStats; series: DailyPoint[] }) {
-  const y = series.at(-2) ?? null;
-  const pick = (k: keyof Omit<DailyPoint, "day">) => series.map((p) => p[k]);
-  const tiles: Array<{ label: string; value: string; note: string; spark: Array<number | null>; tone: Tone; delta: Delta; better: "up" | "down" | "none" }> = [
-    { label: "Calls today", value: String(stats.calls), note: `${stats.toolCalls} tool calls`, spark: pick("calls"), tone: "routine", delta: dayDelta(stats.calls, y?.calls ?? null), better: "none" },
-    { label: "Bookings", value: String(stats.bookings), note: "Confirmed today", spark: pick("bookings"), tone: "booked", delta: dayDelta(stats.bookings, y?.bookings ?? null), better: "up" },
+function Today({ m }: { m: TodayMetrics }) {
+  const tiles: Array<{ label: string; value: ReactNode; note: string; href?: string; help: string; tone: Tone }> = [
+    {
+      label: "Calls answered",
+      value: m.calls,
+      note: "Real calls since midnight",
+      href: "/calls?range=today",
+      help: "Every call with an end-of-call report or tool activity today. Test runs and seed data are excluded unless turned on.",
+      tone: "routine",
+    },
+    {
+      label: "Bookings",
+      value: m.bookings,
+      note: "Booked today, any visit day",
+      href: "/appointments?view=booked_today",
+      help: "Appointments booked today (reschedules don't count twice)",
+      tone: "booked",
+    },
     {
       label: "Priority requests",
-      value: String(stats.priorityRequests),
-      note: `${stats.openDispatches} still open`,
-      spark: pick("priorityRequests"),
+      value: m.priorityRequests,
+      note: m.safetyStops ? `+ ${m.safetyStops} safety stop${m.safetyStops === 1 ? "" : "s"}` : "No safety stops today",
+      href: "/dispatch?kind=priority",
+      help: "Emergencies logged for the on-call technician today",
       tone: "emergency",
-      delta: dayDelta(stats.priorityRequests, y?.priorityRequests ?? null),
-      better: "none",
-    },
-    { label: "Open callbacks", value: String(stats.openCallbacks), note: "Waiting on the office", spark: [], tone: "callback", delta: null, better: "down" },
-    {
-      label: "Median response",
-      value: formatSeconds(stats.medianResponseMs),
-      note: stats.responseCalls ? `p95 ${formatSeconds(stats.p95ResponseMs)} · ${stats.responseCalls} call${stats.responseCalls === 1 ? "" : "s"}` : "Caller stops → Ava starts",
-      spark: pick("medianResponseMs"),
-      tone: "routine",
-      delta: dayDelta(stats.medianResponseMs, y?.medianResponseMs ?? null, "percent"),
-      better: "down",
     },
     {
-      label: "p95 tool latency",
-      value: stats.p95ToolMs === null ? "-" : `${stats.p95ToolMs} ms`,
-      note: stats.toolErrors ? `${stats.toolErrors} failed today` : "No failures today",
-      spark: pick("p95ToolMs"),
-      tone: "routine",
-      delta: dayDelta(stats.p95ToolMs, y?.p95ToolMs ?? null, "percent"),
-      better: "down",
+      label: "Callbacks pending",
+      value: m.callbacksPending,
+      note: `${m.callbacksRequested} requested today`,
+      href: "/dispatch?kind=callbacks",
+      help: "Office callbacks not resolved yet (new or called back), from any day",
+      tone: "callback",
+    },
+    {
+      label: "Handled without staff",
+      value: (
+        <Value v={m.handledWithoutStaffPct} missing="No call has finished with a known outcome today">
+          {m.handledWithoutStaffPct}%
+        </Value>
+      ),
+      note: "Booked or closed by Ava alone",
+      help: "Of today's finished calls, the share that needed no office follow-up: booked, or explained and closed as not serviceable",
+      tone: "booked",
     },
   ];
   return (
-    <dl className="grid grid-cols-2 gap-3 md:grid-cols-3 2xl:grid-cols-6">
-      {tiles.map((t) => (
-        <div key={t.label} className="shadow-card space-y-2 rounded-2xl bg-card p-4 ring-1 ring-foreground/8">
-          <dt className="text-xs font-medium text-muted-foreground">{t.label}</dt>
-          <dd className="flex items-end justify-between gap-2">
-            <span className="tabular text-3xl font-semibold tracking-tight">{t.value}</span>
-            {t.spark.length > 0 && <Sparkline values={t.spark} tone={t.tone} />}
-          </dd>
-          <dd className="space-y-0.5 text-xs">
-            <p className="text-muted-foreground">{t.note}</p>
-            {t.spark.length > 0 && (
-              <p className="present-hide">
-                <DeltaLine delta={t.delta} betterWhen={t.better} />
-              </p>
-            )}
-          </dd>
-        </div>
-      ))}
-    </dl>
+    <section aria-labelledby="today" className="space-y-3">
+      <h2 id="today" className="text-sm font-semibold">
+        Today
+      </h2>
+      <dl className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
+        {tiles.map((t) => {
+          const body = (
+            <>
+              <dt className="flex items-center gap-2 text-xs font-medium text-muted-foreground group-hover:text-foreground">
+                <span className={cn("size-1.5 rounded-full", TONE_FILL[t.tone])} aria-hidden />
+                {t.label}
+                {t.href && <ArrowRightIcon className="ml-auto size-3 opacity-0 transition-opacity group-hover:opacity-100" aria-hidden />}
+              </dt>
+              <dd className="tabular text-3xl font-semibold tracking-tight">{t.value}</dd>
+              <dd className="text-xs text-muted-foreground">{t.note}</dd>
+            </>
+          );
+          const cls = "shadow-card group block space-y-1.5 rounded-2xl bg-card p-4 ring-1 ring-foreground/8";
+          return t.href ? (
+            <Link key={t.label} href={t.href} title={t.help} className={cn(cls, "transition-colors hover:bg-muted/40 hover:ring-brand/30")}>
+              {body}
+            </Link>
+          ) : (
+            <div key={t.label} title={t.help} className={cls}>
+              {body}
+            </div>
+          );
+        })}
+      </dl>
+    </section>
+  );
+}
+
+// --- Calls by hour ------------------------------------------------------------------------
+
+function CallsByHour({ counts, hourNow }: { counts: number[]; hourNow: number }) {
+  const total = counts.reduce((a, b) => a + b, 0);
+  const max = Math.max(1, ...counts);
+  const W = 480;
+  const H = 120;
+  const slot = W / 24;
+  const bar = slot - 2; // 2px surface gap between bars
+  const hourLabel = (h: number) => (h === 0 ? "12a" : h < 12 ? `${h}a` : h === 12 ? "12p" : `${h - 12}p`);
+  const busiest = counts.indexOf(Math.max(...counts));
+  return (
+    <section className="shadow-card rounded-2xl bg-card ring-1 ring-foreground/8" aria-labelledby="by-hour">
+      <h2 id="by-hour" className="flex items-baseline justify-between border-b px-5 py-3.5 text-sm font-semibold">
+        Calls by hour
+        <span className="tabular text-xs font-normal text-muted-foreground">
+          {total ? `${total} today · busiest ${hourLabel(busiest)}–${hourLabel((busiest + 1) % 24)}` : "No calls yet today"}
+        </span>
+      </h2>
+      <div className="px-5 pt-4 pb-3">
+        <svg viewBox={`0 0 ${W} ${H + 18}`} className="h-auto w-full overflow-visible" role="img" aria-label={`Calls per hour today: ${counts.map((c, h) => (c ? `${hourLabel(h)} ${c}` : null)).filter(Boolean).join(", ") || "none"}`}>
+          <line x1={0} x2={W} y1={H + 0.5} y2={H + 0.5} className="stroke-border" strokeWidth={1} />
+          {counts.map((c, h) => {
+            const bh = c ? Math.max(4, (c / max) * (H - 14)) : 0;
+            const x = h * slot + 1;
+            return (
+              <g key={h} className="group">
+                <title>{`${hourLabel(h)}–${hourLabel((h + 1) % 24)}: ${c} call${c === 1 ? "" : "s"}`}</title>
+                {/* hit target larger than the mark */}
+                <rect x={h * slot} y={0} width={slot} height={H} className="fill-transparent group-hover:fill-muted/60" />
+                {c > 0 && (
+                  <path
+                    d={`M${x},${H} V${H - bh + 4} Q${x},${H - bh} ${x + 4},${H - bh} H${x + bar - 4} Q${x + bar},${H - bh} ${x + bar},${H - bh + 4} V${H} Z`}
+                    className={cn(h === hourNow ? "fill-brand" : "fill-brand/55")}
+                  />
+                )}
+                {c > 0 && c === max && (
+                  <text x={x + bar / 2} y={H - bh - 4} textAnchor="middle" className="fill-muted-foreground text-[10px] tabular-nums">
+                    {c}
+                  </text>
+                )}
+                {h % 3 === 0 && (
+                  <text x={h * slot + slot / 2} y={H + 14} textAnchor="middle" className="fill-muted-foreground text-[10px]">
+                    {hourLabel(h)}
+                  </text>
+                )}
+              </g>
+            );
+          })}
+        </svg>
+      </div>
+    </section>
   );
 }
 
@@ -166,11 +296,11 @@ function OutcomeMix({ outcomes }: { outcomes: CallOutcome[] }) {
         <span className="tabular text-xs font-normal text-muted-foreground">{outcomes.length} calls</span>
       </h2>
       <div className="space-y-4 p-5">
-        <div className="flex h-3 w-full overflow-hidden rounded-full bg-muted" role="img" aria-label={slices.filter((s) => s.count).map((s) => `${OUTCOME_LABEL[s.outcome]} ${s.count}`).join(", ") || "No calls today"}>
+        <div className="flex h-3 w-full gap-0.5 overflow-hidden rounded-full bg-muted" role="img" aria-label={slices.filter((s) => s.count).map((s) => `${OUTCOME_LABEL[s.outcome]} ${s.count}`).join(", ") || "No calls today"}>
           {slices
             .filter((s) => s.count > 0)
             .map((s) => (
-              <div key={s.outcome} className={cn("h-full first:rounded-l-full last:rounded-r-full", TONE_FILL[OUTCOME_TONE[s.outcome]])} style={{ width: `${s.percent}%` }} />
+              <div key={s.outcome} title={`${OUTCOME_LABEL[s.outcome]}: ${s.count}`} className={cn("h-full first:rounded-l-full last:rounded-r-full", TONE_FILL[OUTCOME_TONE[s.outcome]])} style={{ width: `${s.percent}%` }} />
             ))}
         </div>
         <ul className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm">
@@ -187,26 +317,97 @@ function OutcomeMix({ outcomes }: { outcomes: CallOutcome[] }) {
   );
 }
 
+// --- Caller experience & system health ----------------------------------------------------
+
+function StatList({ title, help, rows }: { title: string; help: string; rows: Array<{ label: string; value: ReactNode; help: string; alert?: boolean }> }) {
+  return (
+    <section className="shadow-card rounded-2xl bg-card ring-1 ring-foreground/8">
+      <h2 className="border-b px-5 py-3.5 text-sm font-semibold" title={help}>
+        {title}
+      </h2>
+      <dl className="divide-y">
+        {rows.map((r) => (
+          <div key={r.label} className="flex items-baseline justify-between gap-4 px-5 py-3" title={r.help}>
+            <dt className="text-sm text-muted-foreground">{r.label}</dt>
+            <dd className={cn("tabular shrink-0 text-lg font-semibold whitespace-nowrap", r.alert && "text-safety-ink")}>{r.value}</dd>
+          </div>
+        ))}
+      </dl>
+    </section>
+  );
+}
+
+function CallerExperience({ m }: { m: TodayMetrics }) {
+  return (
+    <StatList
+      title="Caller experience"
+      help="How callers were served today"
+      rows={[
+        {
+          label: "Median response",
+          value: (
+            <Value v={m.medianResponseMs} missing="No voice call has measured a response time today">
+              {formatSeconds(m.medianResponseMs)}
+            </Value>
+          ),
+          help: `From the caller stopping to Ava starting to speak; median across ${m.respondedCalls} call${m.respondedCalls === 1 ? "" : "s"}`,
+        },
+        { label: "Callbacks requested", value: m.callbacksRequested, help: "Calls that ended with an office callback request today" },
+        { label: "Transfers to on-call", value: m.transfers, help: "Live transfers to the on-call technician today" },
+      ]}
+    />
+  );
+}
+
+function SystemHealth({ h }: { h: ToolHealth }) {
+  return (
+    <StatList
+      title="System health"
+      help="The booking backend Ava calls during conversations, today"
+      rows={[
+        {
+          label: "Tool latency",
+          value: (
+            <Value v={h.p50Ms} missing="No tool calls today">
+              {h.p50Ms} <span className="text-sm font-normal text-muted-foreground">/ {h.p95Ms} ms</span>
+            </Value>
+          ),
+          help: `Median / 95th percentile of our handler's time per tool call, over ${h.calls} tool calls today`,
+        },
+        { label: "Real errors", value: h.errors, alert: h.errors > 0, help: "Tool calls that failed for a real reason (a crash, an unknown tool). Should be zero." },
+        {
+          label: "Guardrail refusals",
+          value: h.refusals,
+          help: "Requests the backend refused on purpose and told Ava what to do next (missing details, look up first, window taken, emergency not bookable…). Working as designed, not failures.",
+        },
+      ]}
+    />
+  );
+}
+
+// --- Activity -----------------------------------------------------------------------------
+
 const activityKey = (a: ActivityRow) => `${a.kind}:${a.refId}`;
 
 const KIND: Record<ActivityKind, { icon: LucideIcon; verb: string; tone: Tone }> = {
   call_ended: { icon: PhoneIncomingIcon, verb: "Call ended", tone: "neutral" },
   booked: { icon: CalendarCheckIcon, verb: "Appointment booked", tone: "booked" },
   dispatch_created: { icon: SirenIcon, verb: "Priority request logged", tone: "emergency" },
-  dispatch_acknowledged: { icon: HandIcon, verb: "Priority request acknowledged", tone: "routine" },
+  dispatch_acknowledged: { icon: HandIcon, verb: "Priority request called back", tone: "routine" },
   dispatch_resolved: { icon: CheckCheckIcon, verb: "Priority request resolved", tone: "booked" },
   callback_created: { icon: PhoneCallIcon, verb: "Callback requested", tone: "callback" },
-  callback_done: { icon: CheckCheckIcon, verb: "Callback done", tone: "booked" },
+  callback_called_back: { icon: PhoneForwardedIcon, verb: "Customer called back", tone: "routine" },
+  callback_done: { icon: CheckCheckIcon, verb: "Callback resolved", tone: "booked" },
 };
 
 function ActivityLine({ row, now, tz }: { row: ActivityRow; now: Date; tz: string }) {
   const { icon: Icon, verb, tone: kindTone } = KIND[row.kind];
-  const tone: Tone = row.kind === "dispatch_created" && row.urgency === "safety_stop" ? "safety" : kindTone;
+  const tone: Tone = row.kind === "dispatch_created" && row.urgency ? URGENCY_TONE[row.urgency] : kindTone;
   const who = row.who?.startsWith("+") ? formatPhone(row.who) : row.who;
   const detail =
     row.kind === "call_ended"
       ? row.detail?.replace(/-/g, " ")
-      : row.kind.startsWith("callback")
+      : row.kind === "callback_created"
         ? callbackReasonLabel(row.detail)
         : row.detail;
   const content = (

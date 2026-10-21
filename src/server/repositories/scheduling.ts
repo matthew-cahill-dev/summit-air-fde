@@ -127,6 +127,37 @@ function bookingTx(tx: Tx): BookingTx {
       await tx.update(appointments).set({ status: "cancelled" }).where(eq(appointments.id, id));
     },
 
+    async lockAppointment(id) {
+      const [row] = await tx.select().from(appointments).where(eq(appointments.id, id)).limit(1).for("update");
+      if (!row) return null;
+      return {
+        id: row.id,
+        slotId: row.slotId,
+        customerId: row.customerId,
+        addressId: row.addressId,
+        serviceType: row.serviceType,
+        urgency: row.urgency,
+        issueSummary: row.issueSummary ?? "",
+        symptoms: Array.isArray(row.symptoms) ? (row.symptoms as string[]) : [],
+        intake: (row.intake ?? {}) as Record<string, unknown>,
+        technicianNotes: row.technicianNotes ?? "",
+        vapiCallId: row.vapiCallId,
+        status: row.status,
+        completion: row.completion,
+        isDemoSeed: row.isDemoSeed,
+        rescheduledFrom: row.rescheduledFrom,
+      };
+    },
+
+    async setAppointmentLifecycle(id, patch) {
+      if (Object.keys(patch).length === 0) return;
+      await tx.update(appointments).set(patch).where(eq(appointments.id, id));
+    },
+
+    async deleteAppointment(id) {
+      await tx.delete(appointments).where(eq(appointments.id, id));
+    },
+
     async claimSeat(slotId, rules) {
       // Single statement: concurrent claims serialize on the row lock and each
       // re-checks the WHERE clause, so capacity can never be exceeded.

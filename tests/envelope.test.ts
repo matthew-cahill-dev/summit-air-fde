@@ -11,6 +11,7 @@ describe("parseToolCallsEnvelope", () => {
     });
     expect(parseToolCallsEnvelope(body)).toEqual({
       callId: "call-1",
+      isSimulation: false,
       callerPhone: "+17185550101",
       toolCalls: [{ toolCallId: "tc-1", name: "check_service_area", args: { zip: "11215" }, argsError: undefined }],
       droppedWithoutId: 0,

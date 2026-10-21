@@ -112,6 +112,20 @@ export function SeedTag({ show = true }: { show?: boolean }) {
   );
 }
 
+/** A Vapi simulation, web call or dashboard test: shown only when "Show test runs" is on. */
+export function TestTag({ show = true }: { show?: boolean }) {
+  if (!show) return null;
+  return (
+    <Badge
+      variant="outline"
+      className="h-4 rounded-sm border-dashed px-1 text-[10px] font-semibold tracking-wide text-muted-foreground uppercase"
+      title="Test run: a Vapi simulation or web call, not a real phone call. Excluded from every count unless Show test runs is on."
+    >
+      Test
+    </Badge>
+  );
+}
+
 export function MemberBadge() {
   return <Badge className="bg-brand-soft text-brand-ink ring-1 ring-inset ring-brand/30">Member</Badge>;
 }

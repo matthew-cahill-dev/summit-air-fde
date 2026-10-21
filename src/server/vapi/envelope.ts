@@ -12,6 +12,8 @@ export type ParsedToolCall = {
 
 export type ParsedToolCalls = {
   callId: string | null;
+  /** Not a real phone call: a simulation, web call or chat. Recorded so tests never mix into real KPIs. */
+  isSimulation: boolean;
   callerPhone: string | null;
   toolCalls: ParsedToolCall[];
   /** Entries we can't answer because they have no id. */
@@ -22,6 +24,21 @@ type Obj = Record<string, unknown>;
 
 const isObj = (v: unknown): v is Obj => typeof v === "object" && v !== null && !Array.isArray(v);
 const str = (v: unknown): string | null => (typeof v === "string" && v.length > 0 ? v : null);
+
+const PHONE_CALL_TYPES = ["inboundPhoneCall", "outboundPhoneCall"];
+
+/**
+ * A Vapi simulation, web call or chat rather than a real phone call: the message carries a chat,
+ * has no call, or its call.type isn't a phone call (webCall, vapi.websocketCall). A call with no
+ * type at all counts as real, so a sparse envelope never hides a real caller.
+ */
+export function isSimulationMessage(message: Obj): boolean {
+  if (isObj(message.chat)) return true;
+  const call = isObj(message.call) ? message.call : null;
+  if (!call) return true;
+  const type = str(call.type);
+  return type !== null && !PHONE_CALL_TYPES.includes(type);
+}
 
 export function getMessage(body: unknown): Obj | null {
   return isObj(body) && isObj(body.message) ? body.message : null;
@@ -71,6 +88,7 @@ export function parseToolCallsEnvelope(body: unknown): ParsedToolCalls | null {
 
   return {
     callId: call ? str(call.id) : null,
+    isSimulation: isSimulationMessage(message),
     callerPhone: customer ? str(customer.number) : null,
     toolCalls,
     droppedWithoutId,

@@ -154,6 +154,16 @@ export const appointments = pgTable(
     vapiCallId: text("vapi_call_id"),
     createdAt: createdAt(),
     isDemoSeed: boolean("is_demo_seed").notNull().default(false),
+    // Console lifecycle (Oct 2026). Status stays confirmed/cancelled; the visit's result is a column
+    // so no enum change is needed: completion = 'completed' | 'no_show' (null = scheduled).
+    completion: text("completion"),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    completionNote: text("completion_note"),
+    cancelledAt: timestamp("cancelled_at", { withTimezone: true }),
+    /** Who last changed the status in the console (a name the operator typed). */
+    statusBy: text("status_by"),
+    /** The appointment this one replaced when it was rescheduled from the console. */
+    rescheduledFrom: uuid("rescheduled_from"),
   },
   (t) => [
     unique("appointments_customer_slot_key").on(t.customerId, t.slotId),
@@ -180,6 +190,11 @@ export const dispatchRequests = pgTable(
     acknowledgedAt: timestamp("acknowledged_at", { withTimezone: true }),
     resolvedAt: timestamp("resolved_at", { withTimezone: true }),
     isDemoSeed: boolean("is_demo_seed").notNull().default(false),
+    // Console lifecycle (Oct 2026): who called back, and how it was resolved.
+    acknowledgedBy: text("acknowledged_by"),
+    resolution: text("resolution"),
+    resolutionNote: text("resolution_note"),
+    resolvedBy: text("resolved_by"),
   },
   (t) => [
     index("dispatch_requests_status_idx").on(t.status),
@@ -200,6 +215,12 @@ export const callbackRequests = pgTable(
     createdAt: createdAt(),
     completedAt: timestamp("completed_at", { withTimezone: true }),
     isDemoSeed: boolean("is_demo_seed").notNull().default(false),
+    // Console lifecycle (Oct 2026): New → Called back → Resolved (status done).
+    calledBackAt: timestamp("called_back_at", { withTimezone: true }),
+    calledBackBy: text("called_back_by"),
+    resolution: text("resolution"),
+    resolutionNote: text("resolution_note"),
+    resolvedBy: text("resolved_by"),
   },
   (t) => [
     index("callback_requests_status_idx").on(t.status),
@@ -224,6 +245,8 @@ export const calls = pgTable("calls", {
   responseTurns: integer("response_turns"),
   isTest: boolean("is_test").notNull().default(true),
   isDemoSeed: boolean("is_demo_seed").notNull().default(false),
+  /** Not a real phone call: a Vapi simulation, web call or dashboard test (call.type isn't a phone call). */
+  isSimulation: boolean("is_simulation").notNull().default(false),
 });
 
 export const toolInvocations = pgTable(
@@ -241,6 +264,8 @@ export const toolInvocations = pgTable(
     dbMs: integer("db_ms"),
     createdAt: createdAt(),
     isDemoSeed: boolean("is_demo_seed").notNull().default(false),
+    /** From a Vapi simulation, web call or chat (the message had no phone call), not a real caller. */
+    isSimulation: boolean("is_simulation").notNull().default(false),
   },
   (t) => [
     index("tool_invocations_vapi_call_id_idx").on(t.vapiCallId),

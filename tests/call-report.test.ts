@@ -113,10 +113,18 @@ describe("dashboard latency: stored per call, shown on call detail and the Overv
     expect(await repo.call(id)).toMatchObject({ responseP50Ms: 900, responseP95Ms: 1700, responseTurns: 12 });
 
     const day = { from: new Date(now.getTime() - 60_000), to: new Date(now.getTime() + 60_000) };
-    const stats = await repo.overviewStats({ includeSeed: false, ...day });
-    expect(stats.responseCalls).toBeGreaterThanOrEqual(1);
-    expect(stats.medianResponseMs).not.toBeNull();
-    expect(stats.p95ResponseMs).not.toBeNull();
+    const rows = await repo.recentCalls({ includeSeed: false, since: day.from, limit: 500 });
+    expect(rows.find((r) => r.vapiCallId === id)?.responseP50Ms).toBe(900);
+    const { todayMetrics, callTime } = await import("@/server/console/metrics");
+    const m = todayMetrics({
+      calls: rows.map((r) => ({ at: callTime(r), outcome: "incomplete" as const, status: "ended" as const, responseP50Ms: r.responseP50Ms ?? null })),
+      board: [],
+      bookingsToday: 0,
+      toolRows: [],
+      window: day,
+    });
+    expect(m.respondedCalls).toBeGreaterThanOrEqual(1);
+    expect(m.medianResponseMs).not.toBeNull();
   });
 
   it("formatSeconds reads naturally", async () => {

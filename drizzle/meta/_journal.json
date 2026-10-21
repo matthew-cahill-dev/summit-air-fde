@@ -29,6 +29,13 @@
       "when": 1792562701926,
       "tag": "0003_call_response_latency",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1792608151668,
+      "tag": "0004_console_workflow",
+      "breakpoints": true
     }
   ]
 }

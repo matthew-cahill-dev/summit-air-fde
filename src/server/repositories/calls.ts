@@ -18,6 +18,7 @@ export function createCallRepository(db: Db): CallRepository {
         responseP50Ms: r.responseP50Ms ?? null,
         responseP95Ms: r.responseP95Ms ?? null,
         responseTurns: r.responseTurns ?? null,
+        isSimulation: r.isSimulation ?? false,
       };
       await db
         .insert(calls)
@@ -36,6 +37,7 @@ export function createCallRepository(db: Db): CallRepository {
             responseP50Ms: sql`coalesce(excluded.response_p50_ms, ${calls.responseP50Ms})`,
             responseP95Ms: sql`coalesce(excluded.response_p95_ms, ${calls.responseP95Ms})`,
             responseTurns: sql`coalesce(excluded.response_turns, ${calls.responseTurns})`,
+            isSimulation: sql`excluded.is_simulation or ${calls.isSimulation}`,
           },
         });
     },

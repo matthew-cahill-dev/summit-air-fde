@@ -1,30 +1,56 @@
 "use client";
 
 import { useOptimistic, useTransition } from "react";
-import { setHideSeedAction } from "@/app/(console)/actions";
+import { setHideSeedAction, setShowTestsAction } from "@/app/(console)/actions";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 
-export function SeedToggle({ hidden }: { hidden: boolean }) {
+function PreferenceSwitch({ id, label, title, on, save }: { id: string; label: string; title: string; on: boolean; save: (on: boolean) => Promise<void> }) {
   const [pending, startTransition] = useTransition();
-  const [optimisticHidden, setOptimisticHidden] = useOptimistic(hidden);
+  const [optimistic, setOptimistic] = useOptimistic(on);
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex items-center gap-2" title={title}>
       <Switch
-        id="show-seed"
+        id={id}
         size="sm"
-        checked={!optimisticHidden}
+        checked={optimistic}
         disabled={pending}
-        onCheckedChange={(show) =>
+        onCheckedChange={(next) =>
           startTransition(async () => {
-            setOptimisticHidden(!show);
-            await setHideSeedAction(!show);
+            setOptimistic(next);
+            await save(next);
           })
         }
       />
-      <Label htmlFor="show-seed" className="text-xs font-medium text-muted-foreground">
-        Show seed data
+      <Label htmlFor={id} className="text-xs font-medium whitespace-nowrap text-muted-foreground">
+        {label}
       </Label>
     </div>
+  );
+}
+
+/** Seed data (fictional demo customers and calls). Off by default. */
+export function SeedToggle({ hidden }: { hidden: boolean }) {
+  return (
+    <PreferenceSwitch
+      id="show-seed"
+      label="Seed data"
+      title="Show the fictional demo data from npm run db:seed"
+      on={!hidden}
+      save={(show) => setHideSeedAction(!show)}
+    />
+  );
+}
+
+/** Test runs (Vapi simulations, web calls, dashboard tool tests). Off by default; never in real KPIs. */
+export function TestRunsToggle({ shown }: { shown: boolean }) {
+  return (
+    <PreferenceSwitch
+      id="show-tests"
+      label="Test runs"
+      title="Show Vapi simulations, web calls and dashboard tests. They're never counted unless this is on."
+      on={shown}
+      save={setShowTestsAction}
+    />
   );
 }

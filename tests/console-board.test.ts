@@ -3,7 +3,7 @@ import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { BUSINESS } from "@/config/business";
 import { callbackRequests, dispatchRequests } from "@/server/db/schema";
-import { acknowledgeDispatch, completeCallback, resolveDispatch } from "@/server/console/actions";
+import { markCalledBack, resolveItem } from "@/server/console/actions";
 import { buildBoard } from "@/server/console/board";
 import { summarizeCall } from "@/server/console/outcome";
 import { createConsoleRepository } from "@/server/repositories/console";
@@ -38,40 +38,49 @@ async function newCallback() {
 const dispatchRow = async (id: string) => (await testDb().select().from(dispatchRequests).where(eq(dispatchRequests.id, id)))[0];
 
 describe("dispatch actions", () => {
-  it("acknowledge then resolve, recording when each happened; repeats are reported, not re-applied", async () => {
+  const called = (id: unknown, now?: Date, repos: Repositories = testRepos()) => markCalledBack({ kind: "dispatch", id, by: "Sam" }, { repos, now });
+  const resolve = (id: unknown, now?: Date) => resolveItem({ kind: "dispatch", id, resolution: "Technician dispatched", by: "Sam" }, { repos: testRepos(), now });
+
+  it("called back then resolved, recording when, who and the outcome; repeats are reported, not re-applied", async () => {
     const { id } = await newDispatch();
     const ackAt = new Date("2026-10-20T15:01:00Z");
     const resolvedAt = new Date("2026-10-20T15:20:00Z");
-    const deps = (now: Date) => ({ repos: testRepos(), now });
 
-    expect(await acknowledgeDispatch(id, deps(ackAt))).toEqual({ ok: true, status: "acknowledged" });
-    expect(await dispatchRow(id)).toMatchObject({ status: "acknowledged", acknowledgedAt: ackAt, resolvedAt: null });
-    expect(await acknowledgeDispatch(id, deps(resolvedAt))).toEqual({ ok: false, error: "Already acknowledged or resolved." });
+    expect(await called(id, ackAt)).toMatchObject({ ok: true, message: "Marked called back", undo: { op: "uncall", kind: "dispatch", id } });
+    expect(await dispatchRow(id)).toMatchObject({ status: "acknowledged", acknowledgedAt: ackAt, acknowledgedBy: "Sam", resolvedAt: null });
+    expect(await called(id, resolvedAt)).toEqual({ ok: false, error: "Already called back or resolved." });
 
-    expect(await resolveDispatch(id, deps(resolvedAt))).toEqual({ ok: true, status: "resolved" });
-    expect(await dispatchRow(id)).toMatchObject({ status: "resolved", acknowledgedAt: ackAt, resolvedAt });
-    expect(await resolveDispatch(id, deps(new Date()))).toEqual({ ok: false, error: "Already resolved." });
-    // Resolved can't go back to acknowledged.
-    expect(await acknowledgeDispatch(id, deps(new Date()))).toMatchObject({ ok: false });
+    expect(await resolve(id, resolvedAt)).toMatchObject({ ok: true, message: "Resolved · Technician dispatched" });
+    expect(await dispatchRow(id)).toMatchObject({ status: "resolved", acknowledgedAt: ackAt, resolvedAt, resolution: "Technician dispatched", resolvedBy: "Sam" });
+    expect(await resolve(id, new Date())).toEqual({ ok: false, error: "Already resolved." });
+    // Resolved can't go back to called back.
+    expect(await called(id, new Date())).toMatchObject({ ok: false });
     expect((await dispatchRow(id)).status).toBe("resolved");
   });
 
-  it("resolves straight from open", async () => {
+  it("resolves straight from new", async () => {
     const { id } = await newDispatch("safety_stop");
-    expect(await resolveDispatch(id, { repos: testRepos() })).toEqual({ ok: true, status: "resolved" });
+    expect(await resolve(id)).toMatchObject({ ok: true });
     expect((await dispatchRow(id)).acknowledgedAt).toBeNull();
+  });
+
+  it("resolving needs an outcome from the list", async () => {
+    const { id } = await newDispatch();
+    expect(await resolveItem({ kind: "dispatch", id, resolution: undefined }, { repos: testRepos() })).toEqual({ ok: false, error: "Pick an outcome to resolve it." });
+    expect(await resolveItem({ kind: "dispatch", id, resolution: "Made up" }, { repos: testRepos() })).toEqual({ ok: false, error: "Pick an outcome to resolve it." });
+    expect((await dispatchRow(id)).status).toBe("open");
   });
 
   it("concurrent clicks apply exactly once", async () => {
     const { id } = await newDispatch();
-    const results = await Promise.all([1, 2, 3].map(() => acknowledgeDispatch(id, { repos: testRepos() })));
+    const results = await Promise.all([1, 2, 3].map(() => called(id)));
     expect(results.filter((r) => r.ok)).toHaveLength(1);
   });
 
   it("rejects ids that aren't UUIDs or don't exist", async () => {
-    expect(await acknowledgeDispatch("'; drop table dispatch_requests; --", { repos: testRepos() })).toEqual({ ok: false, error: "Unknown request." });
-    expect(await resolveDispatch(undefined, { repos: testRepos() })).toEqual({ ok: false, error: "Unknown request." });
-    expect(await resolveDispatch(randomUUID(), { repos: testRepos() })).toEqual({ ok: false, error: "Already resolved." });
+    expect(await called("'; drop table dispatch_requests; --")).toEqual({ ok: false, error: "Unknown request." });
+    expect(await resolve(undefined)).toEqual({ ok: false, error: "Pick an outcome to resolve it." });
+    expect(await resolve(randomUUID())).toEqual({ ok: false, error: "Already resolved." });
   });
 
   it("turns a database failure into a retryable error", async () => {
@@ -79,19 +88,20 @@ describe("dispatch actions", () => {
       ...testRepos(),
       dispatch: { ...testRepos().dispatch, acknowledge: () => Promise.reject(new Error("connection terminated")) },
     } satisfies Repositories;
-    expect(await acknowledgeDispatch(randomUUID(), { repos: broken })).toEqual({ ok: false, error: "Couldn't save that. Try again." });
+    expect(await called(randomUUID(), undefined, broken)).toEqual({ ok: false, error: "Couldn't save that. Try again." });
   });
 });
 
 describe("callback actions", () => {
-  it("mark done once, with a completion time", async () => {
+  it("resolve once, with a completion time and outcome", async () => {
     const { id } = await newCallback();
     const at = new Date("2026-10-20T16:00:00Z");
-    expect(await completeCallback(id, { repos: testRepos(), now: at })).toEqual({ ok: true, status: "done" });
+    const resolve = (now?: Date) => resolveItem({ kind: "callback", id, resolution: "Customer resolved it", note: "Breaker reset" }, { repos: testRepos(), now });
+    expect(await resolve(at)).toMatchObject({ ok: true });
     const [row] = await testDb().select().from(callbackRequests).where(eq(callbackRequests.id, id));
-    expect(row).toMatchObject({ status: "done", completedAt: at });
-    expect(await completeCallback(id, { repos: testRepos() })).toEqual({ ok: false, error: "Already marked done." });
-    expect(await completeCallback("nope", { repos: testRepos() })).toEqual({ ok: false, error: "Unknown request." });
+    expect(row).toMatchObject({ status: "done", completedAt: at, resolution: "Customer resolved it", resolutionNote: "Breaker reset" });
+    expect(await resolve()).toEqual({ ok: false, error: "Already resolved." });
+    expect(await resolveItem({ kind: "callback", id: "nope", resolution: "Other" }, { repos: testRepos() })).toEqual({ ok: false, error: "Pick an outcome to resolve it." });
   });
 });
 
@@ -110,6 +120,11 @@ describe("priority board", () => {
     customerPhone: null,
     createdAt: now,
     acknowledgedAt: null,
+    acknowledgedBy: null,
+    resolvedAt: null,
+    resolution: null,
+    resolutionNote: null,
+    resolvedBy: null,
     vapiCallId: null,
     isDemoSeed: false,
     ...over,
@@ -121,11 +136,19 @@ describe("priority board", () => {
     callerName: null,
     callerPhone: null,
     createdAt: now,
+    status: "open",
+    calledBackAt: null,
+    calledBackBy: null,
+    resolvedAt: null,
+    resolution: null,
+    resolutionNote: null,
+    resolvedBy: null,
     vapiCallId: null,
     isDemoSeed: false,
     triageUrgency: null,
     triageReasons: [],
     triageArgs: null,
+    appointmentId: null,
     ...over,
   });
 
@@ -148,7 +171,7 @@ describe("priority board", () => {
     expect(board.map((i) => i.id)).toEqual(["safety", "emergency-old", "emergency-new", "urgent", "untriaged"]);
   });
 
-  it("flags overdue against the business SLAs; acknowledging stops the clock", () => {
+  it("flags overdue against the business SLAs; calling back stops the clock", () => {
     const sla = BUSINESS.priorityDispatchCallbackSlaMinutes;
     const at = (m: number) => new Date(now.getTime() - m * MIN);
     const [late, onTime, acked] = buildBoard(
@@ -198,19 +221,21 @@ describe("priority board", () => {
 describe("console repository against the seeded database", () => {
   const repo = () => createConsoleRepository(testDb());
 
-  it("board shows open + acknowledged dispatches and open callbacks; the seed toggle hides demo rows", async () => {
+  it("board shows new + called-back items, resolved ones only since `resolvedSince`; the seed toggle hides demo rows", async () => {
     const { id: openId } = await newDispatch();
     const { id: resolvedId } = await newDispatch();
-    await resolveDispatch(resolvedId, { repos: testRepos() });
+    await resolveItem({ kind: "dispatch", id: resolvedId, resolution: "Other" }, { repos: testRepos() });
+    const recent = await repo().board({ includeSeed: true, includeTests: true, resolvedSince: new Date(Date.now() - 60_000) });
+    expect(recent.dispatches.find((r) => r.id === resolvedId)).toMatchObject({ status: "resolved", resolution: "Other" });
 
-    const withSeed = await repo().board({ includeSeed: true });
+    const withSeed = await repo().board({ includeSeed: true, includeTests: true });
     const ids = withSeed.dispatches.map((r) => r.id);
     expect(ids).toContain(openId);
     expect(ids).not.toContain(resolvedId);
     expect(withSeed.dispatches.some((r) => r.isDemoSeed)).toBe(true);
     expect(withSeed.callbacks.some((r) => r.isDemoSeed && r.triageUrgency === "urgent")).toBe(true);
 
-    const withoutSeed = await repo().board({ includeSeed: false });
+    const withoutSeed = await repo().board({ includeSeed: false, includeTests: true });
     expect(withoutSeed.dispatches.some((r) => r.isDemoSeed)).toBe(false);
     expect(withoutSeed.callbacks.some((r) => r.isDemoSeed)).toBe(false);
     expect(withoutSeed.dispatches.map((r) => r.id)).toContain(openId);
@@ -242,25 +267,26 @@ describe("console repository against the seeded database", () => {
     expect(summarizeCall(row, records, new Date()).status).toBe("in_progress");
   });
 
-  it("overview counts today's activity and tool latency", async () => {
+  it("overview counts tool latency and recent activity", async () => {
     const from = new Date(Date.now() - 24 * 3600_000);
-    const stats = await repo().overviewStats({ includeSeed: true, from, to: new Date(Date.now() + 60_000) });
-    expect(stats.calls).toBeGreaterThan(0);
-    expect(stats.toolCalls).toBeGreaterThan(0);
-    expect(stats.avgToolMs).not.toBeNull();
-    expect(stats.p95ToolMs).not.toBeNull();
+    const { toolHealth } = await import("@/server/console/metrics");
+    const health = toolHealth(await repo().toolHealthRows({ includeSeed: true, includeTests: true, from }));
+    expect(health.calls).toBeGreaterThan(0);
+    expect(health.p50Ms).not.toBeNull();
+    expect(health.p95Ms).not.toBeNull();
     const activity = await repo().recentActivity({ includeSeed: true, limit: 10 });
     expect(activity.length).toBeGreaterThan(0);
     expect([...activity].sort((a, b) => b.at.getTime() - a.at.getTime())).toEqual(activity);
   });
 
   it("upcoming appointments come with member status and technician notes", async () => {
-    const rows = await repo().upcomingAppointments({ includeSeed: true, from: new Date(), limit: 50 });
+    const rows = await repo().appointments({ includeSeed: true, from: new Date(), limit: 50 });
     const seeded = rows.filter((r) => r.isDemoSeed);
     expect(seeded.length).toBeGreaterThan(0);
     expect(seeded.some((r) => r.isMember)).toBe(true);
     expect(seeded.every((r) => r.technicianNotes)).toBe(true);
     expect([...rows].sort((a, b) => a.startsAt.getTime() - b.startsAt.getTime()).map((r) => r.id)).toEqual(rows.map((r) => r.id));
-    expect((await repo().upcomingAppointments({ includeSeed: false, from: new Date(), limit: 50 })).some((r) => r.isDemoSeed)).toBe(false);
+    expect(rows.every((r) => r.stage === "scheduled")).toBe(true);
+    expect((await repo().appointments({ includeSeed: false, from: new Date(), limit: 50 })).some((r) => r.isDemoSeed)).toBe(false);
   });
 });
