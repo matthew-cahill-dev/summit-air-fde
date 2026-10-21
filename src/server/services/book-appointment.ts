@@ -14,6 +14,7 @@ import { findOfferableSlots, isActiveMember } from "./availability";
 import { intakeRecord, technicianIntakeShape } from "./intake";
 import { requireLookup } from "./lookup-guard";
 import { detectSignals, hasSignals, signalPhrases } from "@/server/triage/detect";
+import { detectMinor } from "@/server/triage/minor";
 import { zipSchema } from "./triage-issue";
 
 export const bookAppointmentSchema = z
@@ -141,6 +142,39 @@ async function emergencyOnCall(args: BookArgs, ctx: ToolContext): Promise<ToolOu
   };
 }
 
+export const MINOR_CALLER_SAY =
+  "This sounds like a child calling. Don't book, and ask the child for nothing except a callback number. Any safety instructions you gave still apply in full. " +
+  "Kindly say a grown-up needs to set up the visit. Next: ask for a good number for a parent or guardian (the number they're calling from is fine), then call create_callback_request with reason other and details starting \"Child called about\" and the problem, \"parent or guardian to call back\". " +
+  "Then tell them someone from Summit Air will call their parent or guardian back.";
+
+/**
+ * A child on the line (docs/LIMITATIONS.md, eval run 7021919d: "my mom is sleeping", "I don't
+ * know my last name", booked as "Leo"). Reads what the server can see of the caller's words: the
+ * live transcript, triage's caller_description and the booking's own text.
+ */
+async function minorCaller(args: BookArgs, ctx: ToolContext): Promise<ToolOutcome | null> {
+  const triage = ctx.callId ? await ctx.repos.toolInvocations.latestOkArgs(ctx.callId, "triage_issue") : null;
+  const text = [ctx.callerText, typeof triage?.caller_description === "string" ? triage.caller_description : null, args.issue_summary, args.access_notes]
+    .filter(Boolean)
+    .join("\n");
+  let signs = detectMinor(text, { missingLastName: false });
+  // An unverified booking with no last name is a second sign, unless the number is a known customer's.
+  if (!signs.minor && signs.weak.length && !args.customer_id && !args.last_name) {
+    const phone = normalizePhoneE164(args.phone ?? ctx.callerPhone ?? "");
+    const known = phone ? await ctx.repos.customers.findCallerContextByPhone(phone) : null;
+    if (!known) signs = detectMinor(text, { missingLastName: true });
+  }
+  if (!signs.minor) return null;
+  logEvent("booking_refused_minor", { callId: ctx.callId, strong: signs.strong, weak: signs.weak, second: signs.second });
+  return {
+    ok: false,
+    errorCode: "minor_caller",
+    message: "This sounds like a child calling: a parent or guardian sets up the visit",
+    say: MINOR_CALLER_SAY,
+    data: { signs: [...signs.strong, ...signs.weak, ...signs.second] },
+  };
+}
+
 /** Bronx / Staten Island: never booked; the office confirms coverage first. */
 function coverageCheckOutcome(borough: string | null): ToolOutcome {
   const where = borough ?? "that borough";
@@ -201,6 +235,9 @@ export const bookAppointmentTool = defineTool({
     // booking's own description shows safety or medical signs (eval run 1e753a02 booked heat stroke).
     const emergency = await emergencyOnCall(args, ctx);
     if (emergency) return emergency;
+    // Never book for a child; a parent or guardian gets a callback instead.
+    const minor = await minorCaller(args, ctx);
+    if (minor) return minor;
     // An unverified booking only after lookup_customer has checked for an account (requirement c).
     if (!args.customer_id) {
       const blocked = await requireLookup(ctx, "book_appointment");

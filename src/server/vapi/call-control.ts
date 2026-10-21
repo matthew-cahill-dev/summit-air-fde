@@ -34,6 +34,13 @@ export const DEFAULT_HANGUP_SEND_DELAY_MS = 0;
 export const MAX_SEND_AFTER_GOODBYE_MS = 1000;
 /** Retry delays for the end-call POST (4 attempts in all, the last ~1.75 s after the first). */
 export const RETRY_DELAYS_MS = [250, 500, 1000] as const;
+/**
+ * The longest the hang-up waits for the safety check (a record for an emergency call that has none,
+ * services/safety-reconcile.ts). Past this the end-call goes out anyway and the check finishes behind it.
+ */
+export const SAFETY_CHECK_BUDGET_MS = 300;
+/** How long the deferred task keeps waiting for a slow safety write after the end-call went out. */
+const SAFETY_CHECK_TAIL_MS = 10_000;
 /** Ignore anchors that are implausible (clock skew, stale redelivery). */
 const MAX_ANCHOR_SKEW_MS = 10_000;
 
@@ -103,6 +110,15 @@ async function postWithRetry(deps: CallControlDeps, url: string, body: Obj, call
   return false;
 }
 
+/** Waits for `work` at most `ms` (a real timer, cleared as soon as the work settles). Never rejects. */
+export function withinBudget(work: Promise<unknown>, ms: number): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const budget = new Promise<void>((resolve) => {
+    timer = setTimeout(resolve, ms);
+  });
+  return Promise.race([work.then(() => undefined, () => undefined), budget]).finally(() => clearTimeout(timer));
+}
+
 export type PhoneCallControlResult =
   | { handled: "hang-up"; delayMs: number; done: Promise<boolean> }
   | { handled: "forward"; done: Promise<boolean> }
@@ -111,8 +127,10 @@ export type PhoneCallControlResult =
 /**
  * Handle a phone-call-control message. The caller answers Vapi right away; the end-call or
  * transfer runs through deps.defer, after the answer. `done` settles true once Vapi accepted it.
+ * `safetyCheck` (hang-up only) must never reject: the end-call waits for it at most
+ * SAFETY_CHECK_BUDGET_MS, then goes out whatever happened.
  */
-export function handlePhoneCallControl(message: Obj, deps: CallControlDeps): PhoneCallControlResult {
+export function handlePhoneCallControl(message: Obj, deps: CallControlDeps, safetyCheck?: Promise<unknown>): PhoneCallControlResult {
   const call = isObj(message.call) ? message.call : {};
   const callId = typeof call.id === "string" ? call.id : null;
   const url = controlUrlOf(message);
@@ -135,8 +153,12 @@ export function handlePhoneCallControl(message: Obj, deps: CallControlDeps): Pho
       anchored: anchor !== null,
     });
     const done = run(async () => {
+      if (safetyCheck) await withinBudget(safetyCheck, SAFETY_CHECK_BUDGET_MS);
       if (delayMs > 0) await deps.sleep(delayMs);
-      return postWithRetry(deps, url, { type: "end-call" }, callId, "hang-up", anchor);
+      const ok = await postWithRetry(deps, url, { type: "end-call" }, callId, "hang-up", anchor);
+      // Keep a slow safety write alive past the answer (deps.defer is Next's `after` in production), within reason.
+      if (safetyCheck) await withinBudget(safetyCheck, SAFETY_CHECK_TAIL_MS);
+      return ok;
     });
     return { handled: "hang-up", delayMs, done };
   }

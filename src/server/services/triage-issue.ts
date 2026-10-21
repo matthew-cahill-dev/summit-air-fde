@@ -5,7 +5,9 @@ import { optionalArg } from "@/server/lib/optional-arg";
 import { todayInZone } from "@/server/lib/time";
 import { detectSignals, hasSignals, signalPhrases, type Signals } from "@/server/triage/detect";
 import { ISSUE_TYPES, triageRules, VULNERABLE_OCCUPANTS, type TriageDecision } from "@/server/triage/rules";
-import { defineTool, type ToolContext, type ToolOutcome } from "@/server/vapi/types";
+import { keepValid } from "@/server/lib/fail-open";
+import { normalizePhoneE164 } from "@/server/lib/phone";
+import { defineTool, type FailOpen, type ToolContext, type ToolOutcome } from "@/server/vapi/types";
 import { findOfferableSlots, isActiveMember } from "./availability";
 import { requireLookup } from "./lookup-guard";
 
@@ -17,8 +19,7 @@ export const zipSchema = z
 
 export const preferredWindowSchema = z.enum(["morning", "afternoon", "any"]);
 
-export const triageIssueSchema = z
-  .object({
+const triageShape = {
   issue_type: z.enum(ISSUE_TYPES),
   gas_smell: z.boolean(),
   co_alarm: z.boolean(),
@@ -39,11 +40,46 @@ export const triageIssueSchema = z
   zip: optionalArg(zipSchema),
   customer_id: optionalArg(z.uuid()),
   preferred_window: optionalArg(preferredWindowSchema),
-})
-  .superRefine((v, ctx) => {
-    const safety = v.gas_smell || v.co_alarm || v.burning_smell_or_smoke || v.co_symptoms === true;
-    if (!v.zip && !safety) ctx.addIssue({ code: "custom", path: ["zip"], message: "required (ask for the ZIP; never guess one)" });
-  });
+};
+
+/** Any safety or medical sign: a flag the model set, or the matcher on the caller's words. */
+export function emergencySigns(v: Record<string, unknown>): boolean {
+  return (
+    SAFETY_FLAGS.some((f) => v[f] === true) || hasSignals(detectSignals(typeof v.caller_description === "string" ? v.caller_description : ""))
+  );
+}
+
+const SAFETY_FLAGS = ["gas_smell", "co_alarm", "burning_smell_or_smoke", "co_symptoms", "medical_emergency"] as const;
+
+export const triageIssueSchema = z.object(triageShape).superRefine((v, ctx) => {
+  // An emergency or safety call never waits for a ZIP (live call 01a15feb: the caller didn't know it).
+  if (!v.zip && !emergencySigns(v)) ctx.addIssue({ code: "custom", path: ["zip"], message: "required (ask for the ZIP; never guess one)" });
+});
+
+/**
+ * Emergency and safety calls fail open (live call 01a15feb: a medical emergency was refused for a
+ * missing burning_smell_or_smoke, then for a missing ZIP). A missing safety question counts as
+ * "no, not asked"; anything invalid is dropped; issue and property type get safe defaults.
+ */
+export async function prepareTriage(raw: Record<string, unknown>): Promise<{ args: Record<string, unknown>; failOpen: FailOpen | null }> {
+  if (!emergencySigns(raw)) return { args: raw, failOpen: null };
+  const { args, dropped } = keepValid(triageShape, raw);
+  const notAsked: string[] = [];
+  for (const f of ["gas_smell", "co_alarm", "burning_smell_or_smoke"] as const) {
+    if (typeof args[f] !== "boolean") {
+      args[f] = false;
+      if (!dropped.includes(f)) notAsked.push(f);
+    }
+  }
+  if (Array.isArray(raw.vulnerable_occupants)) {
+    args.vulnerable_occupants = raw.vulnerable_occupants.filter((v) => (VULNERABLE_OCCUPANTS as readonly unknown[]).includes(v));
+  }
+  if (!(ISSUE_TYPES as readonly unknown[]).includes(args.issue_type)) args.issue_type = "other";
+  if (args.property_type !== "residential" && args.property_type !== "commercial") args.property_type = "residential";
+  if (typeof args.caller_description !== "string") args.caller_description = "";
+  if (!args.zip) notAsked.push("zip");
+  return { args, failOpen: notAsked.length || dropped.length ? { notAsked, dropped } : null };
+}
 
 type TriageArgs = z.infer<typeof triageIssueSchema>;
 
@@ -90,28 +126,60 @@ function safetyPreface(args: { medical_emergency?: boolean; water_near_electrica
 export const OFFICE_REVIEW_CALLBACK = { reason: "other", details: "multi-unit/central system, office to review" } as const;
 export const coverageCheckCallback = (borough: string) => ({ reason: "other", details: `coverage check: ${borough}` }) as const;
 
-async function recordSafetyStop(args: TriageArgs, decision: TriageDecision, ctx: ToolContext): Promise<boolean> {
+/**
+ * The safety-stop or medical-emergency record, made by triage itself so it never depends on the
+ * model calling another tool. One per call (merged). Best effort: false if the database failed.
+ */
+async function recordFromTriage(args: TriageArgs, decision: TriageDecision, ctx: ToolContext, urgency: "safety_stop" | "emergency"): Promise<string | null> {
   try {
-    if (ctx.callId && (await ctx.repos.dispatch.findOpenForCall(ctx.callId, "safety_stop"))) return true;
-    await ctx.repos.dispatch.create({
+    // A safety stop already on the call stays as it was recorded.
+    if (urgency === "safety_stop" && ctx.callId) {
+      const open = await ctx.repos.dispatch.findOpenForCall(ctx.callId, "safety_stop");
+      if (open) return open.id;
+    }
+    // The same per-call record create_priority_dispatch writes (and merges into).
+    const { id } = await ctx.repos.dispatch.ensureForCall({
       customerId: args.customer_id ?? null,
-      callerPhone: ctx.callerPhone,
+      callerPhone: normalizePhoneE164(ctx.callerPhone ?? "") ?? ctx.callerPhone,
       callerName: null,
-      address: { zip: args.zip },
-      urgency: "safety_stop",
+      address: args.zip ? { zip: args.zip } : null,
+      urgency,
       reasons: decision.reasons,
-      intake: { source: "triage_issue", flags: args },
+      intake: {
+        source: "triage_issue",
+        flags: args,
+        issue_type: args.issue_type,
+        issue_summary: args.caller_description || null,
+        vulnerable_occupants: args.vulnerable_occupants,
+        ...(ctx.failOpen ? { not_asked: ctx.failOpen.notAsked, dropped_fields: ctx.failOpen.dropped } : {}),
+      },
       vapiCallId: ctx.callId,
-    });
-    return true;
+    }, "merge");
+    return id;
   } catch (err) {
-    logEvent("safety_stop_record_failed", { callId: ctx.callId, error: err instanceof Error ? err.message : String(err) });
-    return false;
+    logEvent("triage_record_failed", { callId: ctx.callId, urgency, error: err instanceof Error ? err.message : String(err) });
+    return null;
   }
+}
+
+/** Medical emergency: 911 first, the on-call team already alerted, and nothing that stalls or ends the call. */
+export function medicalSay(o: { recorded: boolean; hasPhone: boolean; waterNearElectrical?: boolean }): string {
+  const sla = BUSINESS.priorityDispatchCallbackSlaMinutes;
+  const next = !o.recorded
+    ? `Next: ask only for the best callback number, then call create_priority_dispatch with it and the problem; that logs the priority request. Then say the on-call team will call them back within ${sla} minutes. `
+    : o.hasPhone
+      ? `The on-call team has been alerted: the priority request is already logged. Tell them in one short sentence that our on-call team will call them back at this number within ${sla} minutes, and that 911 comes first. Don't say a technician is on the way. `
+      : `The priority request is already logged, but there's no caller ID. Next: ask only for the best callback number, then call create_priority_dispatch with phone (it updates the same request), and say the on-call team will call them back within ${sla} minutes; 911 comes first. `;
+  return (
+    safetyPreface({ medical_emergency: true, water_near_electrical: o.waterNearElectrical }) +
+    next +
+    "Ask for nothing else, and don't tell them to call back later. If they offer a ZIP, address or name, call create_priority_dispatch with it (it updates the same request). Never book. Never end the call yourself unless the caller says goodbye or that they need to go."
+  );
 }
 
 export const triageIssueTool = defineTool({
   schema: triageIssueSchema,
+  prepare: (raw) => prepareTriage(raw),
   async handler(modelArgs, ctx): Promise<ToolOutcome> {
     const signals = detectSignals(modelArgs.caller_description);
     const args = applySignals(modelArgs, signals);
@@ -124,7 +192,9 @@ export const triageIssueTool = defineTool({
       if (blocked) return blocked;
     }
     const zipRow = args.zip ? await ctx.repos.serviceArea.findZip(args.zip) : null;
-    const cov = coverageOf(zipRow);
+    // A medical emergency without a ZIP isn't "out of area": the on-call team sorts the address out.
+    const zipUnknown = !args.zip && args.medical_emergency === true;
+    const cov = zipUnknown ? ({ coverage: "in_area", county: null, borough: null } as const) : coverageOf(zipRow);
     const area = {
       zip: args.zip ?? "",
       inArea: cov.coverage === "in_area",
@@ -150,6 +220,10 @@ export const triageIssueTool = defineTool({
       todayInZone(ctx.settings.timeZone, ctx.now),
     );
     if (detected.length) decision.reasons.push(`Detected in the caller's words: ${detected.join(", ")}`);
+    if (zipUnknown) decision.reasons.push("ZIP not given: confirm the address on the callback");
+    // Every medical emergency lands on the dispatch board now, whatever the model does next.
+    const medicalRecord =
+      args.medical_emergency === true && decision.nextAction !== "safety_instructions" ? await recordFromTriage(args, decision, ctx, "emergency") : null;
     const base = {
       urgency: decision.urgency,
       reasons: decision.reasons,
@@ -159,11 +233,13 @@ export const triageIssueTool = defineTool({
       in_area: area.inArea,
       coverage: cov.coverage,
       county: area.county,
+      ...(ctx.failOpen?.notAsked.length ? { not_asked: ctx.failOpen.notAsked } : {}),
+      ...(medicalRecord ? { priority_request_logged: true, dispatch_id: medicalRecord } : {}),
     };
 
     if (decision.nextAction === "safety_instructions") {
       // Safety guidance never depends on the database; the follow-up record is best effort.
-      const recorded = await recordSafetyStop(args, decision, ctx);
+      const recorded = (await recordFromTriage(args, decision, ctx, "safety_stop")) !== null;
       return {
         ok: true,
         data: { ...base, next_action: "safety_instructions", office_followup_recorded: recorded },
@@ -220,6 +296,18 @@ export const triageIssueTool = defineTool({
       };
     }
 
+    if (decision.nextAction === "priority_dispatch" && args.medical_emergency) {
+      return {
+        ok: true,
+        data: { ...base, next_action: "priority_dispatch", priority_request_logged: medicalRecord !== null },
+        say: medicalSay({
+          recorded: medicalRecord !== null,
+          hasPhone: Boolean(normalizePhoneE164(ctx.callerPhone ?? "")),
+          waterNearElectrical: args.water_near_electrical,
+        }),
+      };
+    }
+
     if (decision.nextAction === "priority_dispatch") {
       const offerTransfer = ctx.settings.transferAvailable;
       return {
@@ -227,9 +315,6 @@ export const triageIssueTool = defineTool({
         data: { ...base, next_action: "priority_dispatch", offer_transfer: offerTransfer },
         say:
           safetyPreface(args) +
-          (args.medical_emergency
-            ? "REQUIRED before any goodbye: create_priority_dispatch. Don't tell them to call back later; keep it under a minute. "
-            : "") +
           "This qualifies for priority dispatch: say it needs priority attention. Next: ask only the best callback number, who's at home, and access (buzzer, entrance), plus their name and full address if they aren't verified and you don't have them. " +
           "Then call create_priority_dispatch with these reasons and everything they've told you (verified: customer_id and address_id)." +
           (offerTransfer ? " After it succeeds, offer to connect them to the on-call team now." : ""),

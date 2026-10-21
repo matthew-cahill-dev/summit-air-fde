@@ -124,7 +124,7 @@ describe("verified callers are never asked for data on the account", () => {
     expect(row.address).toMatchObject({ line1: "37-12 82nd St", zip: "11372", access_notes: "Side door by the driveway." });
   });
 
-  it("create_priority_dispatch rejects an address_id that isn't on the account, and address_id without customer_id", async () => {
+  it("create_priority_dispatch ignores an address_id that isn't on the account (or has no customer_id) and logs the request anyway", async () => {
     const wrong = await callTool("create_priority_dispatch", {
       customer_id: PRIYA,
       address_id: "00000000-0000-4000-8001-000000000001", // Dana's
@@ -132,13 +132,13 @@ describe("verified callers are never asked for data on the account", () => {
       issue_summary: "No heat",
       reasons: ["x"],
     });
-    expect(wrong.payload).toMatchObject({ ok: false, invalid_fields: [{ field: "address_id", problem: "not on this account" }] });
+    expect(wrong.payload).toMatchObject({ ok: true, status: "open" });
 
     const orphan = await callTool("create_priority_dispatch", { address_id: PRIYA_ADDRESS, first_name: "A", issue_type: "no_heat", issue_summary: "No heat", reasons: ["x"] });
-    expect(orphan.payload).toMatchObject({ ok: false, error_code: "invalid_arguments", invalid_fields: [{ field: "customer_id" }] });
+    expect(orphan.payload).toMatchObject({ ok: true, status: "open" });
 
     const nothing = await callTool("create_priority_dispatch", { first_name: "A", issue_type: "no_heat", issue_summary: "No heat", reasons: ["x"] }, { callerNumber: "+17185550602" });
-    expect(nothing.payload).toMatchObject({ ok: false, invalid_fields: [{ field: "address" }] });
+    expect(nothing.payload).toMatchObject({ ok: true, status: "open", callback_phone: "+17185550602" });
   });
 });
 

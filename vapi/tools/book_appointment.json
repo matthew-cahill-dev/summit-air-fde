@@ -3,7 +3,7 @@
   "async": false,
   "function": {
     "name": "book_appointment",
-    "description": "Book an arrival window. ONLY call after reading back the window, address and problem and hearing the caller say yes; then set caller_confirmed to true. For a verified caller pass customer_id and address_id from lookup_customer and leave out name, phone and address (they come from the account). Otherwise pass first_name, last_name and address. Returns booked:true, or ok:false with reason slot_taken and alternatives. One appointment per call: calling it again for the same window adds the new details to that appointment's notes, and a different window moves the call's booking (the old window is released). Call it once; only again if the caller changes the window or a detail.",
+    "description": "Book an arrival window. ONLY call after reading back the window, address and problem and hearing the caller say yes; then set caller_confirmed to true. For a verified caller pass customer_id and address_id from lookup_customer and leave out name, phone and address (they come from the account). Otherwise pass first_name, last_name and address. Returns booked:true, or ok:false with reason slot_taken and alternatives. One appointment per call: calling it again for the same window adds the new details to that appointment's notes, and a different window moves the call's booking (the old window is released). Call it once; only again if the caller changes the window or a detail. Never for a child: if the caller sounds like a child, don't book; take a callback for a parent or guardian. Name, phone and address only as the caller said them or lookup_customer returned them; never guessed.",
     "parameters": {
       "type": "object",
       "properties": {
@@ -41,7 +41,7 @@
         },
         "address": {
           "type": "object",
-          "description": "Service address for new addresses.",
+          "description": "Service address for new addresses, as the caller said it. Never guessed (no ZIP filled in from the street or an example).",
           "properties": {
             "line1": {
               "type": "string",

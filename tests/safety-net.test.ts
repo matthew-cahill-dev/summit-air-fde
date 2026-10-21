@@ -79,7 +79,9 @@ describe("triage_issue escalates on the caller's words even when the model's fla
     expect(payload.detected_signals).toEqual(['medical: "she\'s kind of confused"', 'medical: "not making sense"']);
     expect(payload.reasons).toContain(`Detected in the caller's words: medical: "she's kind of confused", medical: "not making sense"`);
     expect(payload.say).toMatch(/^Medical emergency signs: if you haven't already, tell them in one calm sentence to call nine one one now/);
-    expect(payload.say).toContain("REQUIRED before any goodbye: create_priority_dispatch.");
+    // Triage logged the priority request itself; the say confirms the callback instead of demanding another tool.
+    expect(payload).toMatchObject({ priority_request_logged: true });
+    expect(payload.say).toMatch(/the priority request is already logged/i);
     expect(payload).not.toHaveProperty("offered_slots");
   });
 

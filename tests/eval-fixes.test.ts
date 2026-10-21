@@ -14,7 +14,7 @@ const callTool = (name: string, args: unknown, opts: Parameters<typeof callToolA
 const prompt = renderSystemPrompt(readFileSync(join(process.cwd(), "vapi/system-prompt.md"), "utf8"), { transferAvailable: false, timeZone: "America/New_York" });
 
 describe("medical emergency: 911, triage, then the dispatch before any goodbye (safety-heat-stroke)", () => {
-  it("triage's say requires create_priority_dispatch next and forbids 'call back later'", async () => {
+  it("triage logs the priority request itself; its say keeps 911 first and forbids 'call back later' (live call 01a15feb)", async () => {
     const { payload } = await callTool("triage_issue", {
       issue_type: "no_cooling",
       gas_smell: false,
@@ -27,14 +27,16 @@ describe("medical emergency: 911, triage, then the dispatch before any goodbye (
     });
     expect(payload).toMatchObject({ ok: true, next_action: "priority_dispatch" });
     const say = payload.say as string;
-    expect(say.indexOf("call nine one one now")).toBeLessThan(say.indexOf("REQUIRED before any goodbye: create_priority_dispatch."));
-    expect(say).toContain("Don't tell them to call back later");
+    expect(payload).toMatchObject({ priority_request_logged: true });
+    expect(say.indexOf("call nine one one now")).toBeLessThan(say.indexOf("on-call team will call them back"));
+    expect(say).toContain("don't tell them to call back later");
+    expect(say).toContain("Never end the call yourself unless the caller says goodbye or that they need to go.");
   });
 
   it("the prompt says it twice: in the medical rule and before endCall; and never guess a ZIP", () => {
-    expect(prompt).toContain("then create_priority_dispatch (best callback number, who's at home, access; keep it brief) before any goodbye.");
-    expect(prompt).toContain("Never end the call after a medical-emergency triage until create_priority_dispatch has been called, and never ask them to call you back later");
-    expect(prompt).toContain("after a priority or medical-emergency triage, create_priority_dispatch has been called.");
+    expect(prompt).toContain("triage logs the priority request for the on-call team itself, so follow its say.");
+    expect(prompt).toContain("Never ask them to call you back later, and never end the call while they're still talking to you.");
+    expect(prompt).toContain("after a priority triage the request is logged (a medical-emergency triage logs it itself; otherwise create_priority_dispatch).");
     expect(prompt).toContain("and the ZIP (ask for it; never guess one)");
   });
 });

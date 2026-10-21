@@ -5,7 +5,7 @@ import type { Repositories } from "@/server/repositories";
 import { RETRYABLE_ERROR_CODES } from "@/server/repositories/types";
 import { parseToolCallsEnvelope, type ParsedToolCall } from "./envelope";
 import type { ToolRegistry } from "./registry";
-import type { ToolOutcome, ToolSettings } from "./types";
+import type { ToolContext, ToolOutcome, ToolSettings } from "./types";
 
 export type DispatchDeps = {
   registry: ToolRegistry;
@@ -96,7 +96,7 @@ const INTERNAL_ERROR: ToolOutcome = {
   say: "Apologize once for the trouble. Next: call create_callback_request with reason backend_failure and a short summary; never guess what this tool would have said.",
 };
 
-type CallInfo = { callId: string | null; callerPhone: string | null; isSimulation?: boolean };
+type CallInfo = { callId: string | null; callerPhone: string | null; isSimulation?: boolean; callerText?: string | null };
 
 /**
  * Wrap every repository method so its elapsed time is added to `clock.dbMs`. This splits
@@ -140,15 +140,23 @@ async function runTool(call: ParsedToolCall, ctx: CallInfo, deps: DispatchDeps) 
       say: "Something went wrong reading that request. Next: call the tool once more with valid arguments; if it fails again, treat it as a tool failure.",
     } satisfies ToolOutcome;
   }
-  const parsed = def.schema.safeParse(call.args);
-  if (!parsed.success) return zodErrorOutcome(parsed.error, call.args);
+  const toolCtx: ToolContext = { ...ctx, repos: deps.repos, settings: deps.settings, now: deps.now?.() ?? new Date() };
+  let args = call.args;
+  if (def.prepare) {
+    // Fail-open repair for emergency and safety calls. If it breaks, validate what was sent.
+    try {
+      const prepared = await def.prepare(call.args, toolCtx);
+      args = prepared.args;
+      toolCtx.failOpen = prepared.failOpen;
+      if (prepared.failOpen) logEvent("tool_fail_open", { callId: ctx.callId, tool: call.name, ...prepared.failOpen });
+    } catch (err) {
+      logEvent("tool_prepare_failed", { callId: ctx.callId, tool: call.name, error: err instanceof Error ? err.message : String(err) });
+    }
+  }
+  const parsed = def.schema.safeParse(args);
+  if (!parsed.success) return zodErrorOutcome(parsed.error, args);
   try {
-    return await def.handler(parsed.data, {
-      ...ctx,
-      repos: deps.repos,
-      settings: deps.settings,
-      now: deps.now?.() ?? new Date(),
-    });
+    return await def.handler(parsed.data, toolCtx);
   } catch (err) {
     logEvent("tool_handler_error", {
       callId: ctx.callId,
@@ -254,7 +262,7 @@ export async function handleToolCalls(body: unknown, deps: DispatchDeps): Promis
   if (parsed.droppedWithoutId > 0) {
     logEvent("vapi_tools_dropped_calls", { callId: parsed.callId, count: parsed.droppedWithoutId });
   }
-  const ctx = { callId: parsed.callId, callerPhone: parsed.callerPhone, isSimulation: parsed.isSimulation };
+  const ctx = { callId: parsed.callId, callerPhone: parsed.callerPhone, isSimulation: parsed.isSimulation, callerText: parsed.callerText ?? null };
   const results = await Promise.all(parsed.toolCalls.map((call) => invokeOne(call, ctx, deps)));
   return { results };
 }

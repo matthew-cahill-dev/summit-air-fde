@@ -147,6 +147,13 @@ export type DispatchInput = {
 
 export interface DispatchRepository {
   create(input: DispatchInput): Promise<{ id: string }>;
+  /**
+   * The call's one safety-stop/emergency record, under a per-call lock so concurrent tool calls
+   * and the hang-up check never duplicate it. Missing: created from `input`. Present: "merge" adds
+   * the new details (blanks never overwrite; reasons combine; safety stop outranks emergency),
+   * "keep" leaves it as it is. Without a call id, always creates.
+   */
+  ensureForCall(input: DispatchInput, mode: "merge" | "keep"): Promise<{ id: string; created: boolean }>;
   /** An open dispatch of this urgency already recorded on this call (dedupe). */
   findOpenForCall(vapiCallId: string, urgency: Urgency): Promise<{ id: string } | null>;
   /** Any safety-stop or emergency dispatch on this call, in any status (post-call reconciliation). */

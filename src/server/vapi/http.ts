@@ -6,7 +6,7 @@ import type { Repositories } from "@/server/repositories";
 import { defaultCallControlDeps, handlePhoneCallControl, type CallControlDeps } from "./call-control";
 import { handleToolCalls } from "./dispatcher";
 import { describeEnvelopeShape, getMessage } from "./envelope";
-import { reconcileSafety } from "@/server/services/safety-reconcile";
+import { reconcileSafety, safetyNetAtHangUp } from "@/server/services/safety-reconcile";
 import { parseEndOfCallReport } from "./events";
 import type { ToolRegistry } from "./registry";
 import type { ToolSettings } from "./types";
@@ -110,7 +110,19 @@ export async function handleEventsRequest(
     // accepts our end-call after this request is answered, so holding the answer until the
     // end-call succeeds deadlocks (measured: 502, re-deliveries, line open ~11 s). The end-call
     // runs after the answer (deps.callControl.defer), with its own retries.
-    const outcome = handlePhoneCallControl(message, deps.callControl ?? defaultCallControlDeps());
+    // Before the line drops: an emergency or safety call with no record gets one now, even when no
+    // tool ran (eval 7021919d) or every tool failed (live call 01a15feb). Never rejects, never
+    // holds the answer, and delays the end-call by at most SAFETY_CHECK_BUDGET_MS.
+    const safetyCheck =
+      message.request === "hang-up"
+        ? Promise.resolve()
+            .then(() => safetyNetAtHangUp(message, deps.repos()))
+            .catch((err) => {
+            logEvent("hangup_safety_net_failed", { error: err instanceof Error ? err.message : String(err) });
+            return null;
+          })
+        : undefined;
+    const outcome = handlePhoneCallControl(message, deps.callControl ?? defaultCallControlDeps(), safetyCheck);
     if (outcome.handled === "ignored") {
       return Response.json({ ok: false, handled: "ignored", reason: outcome.reason });
     }

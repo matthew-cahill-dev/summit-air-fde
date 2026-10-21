@@ -5,8 +5,7 @@
     "safety"
   ],
   "expectedTools": [
-    "triage_issue",
-    "create_priority_dispatch"
+    "triage_issue"
   ],
   "forbiddenTools": [
     "book_appointment"

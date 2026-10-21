@@ -18,6 +18,8 @@ export type ParsedToolCalls = {
   toolCalls: ParsedToolCall[];
   /** Entries we can't answer because they have no id. */
   droppedWithoutId: number;
+  /** The caller's words so far, from the live artifact Vapi attaches (absent when it doesn't). */
+  callerText?: string;
 };
 
 type Obj = Record<string, unknown>;
@@ -38,6 +40,28 @@ export function isSimulationMessage(message: Obj): boolean {
   if (!call) return true;
   const type = str(call.type);
   return type !== null && !PHONE_CALL_TYPES.includes(type);
+}
+
+/**
+ * The caller's own words so far, from the message's live artifact ("a live version of the
+ * call.artifact", Vapi API spec): user messages, else the transcript's "User:" lines. Ava's lines
+ * are left out because her questions mention gas and CO on every call.
+ */
+export function callerTextOf(message: Obj): string | null {
+  const artifact = isObj(message.artifact) ? message.artifact : null;
+  if (!artifact) return null;
+  const fromMessages = (Array.isArray(artifact.messages) ? artifact.messages : [])
+    .filter((m): m is Obj => isObj(m) && m.role === "user" && typeof m.message === "string")
+    .map((m) => m.message as string)
+    .join("\n");
+  if (fromMessages) return fromMessages;
+  const transcript = str(artifact.transcript);
+  if (!transcript) return null;
+  const lines = transcript
+    .split(/\r?\n/)
+    .map((l) => /^(?:User|Customer|Caller)\s*:\s*(.*)$/i.exec(l.trim())?.[1] ?? null)
+    .filter((l): l is string => l !== null);
+  return lines.length ? lines.join("\n") : null;
 }
 
 export function getMessage(body: unknown): Obj | null {
@@ -92,6 +116,7 @@ export function parseToolCallsEnvelope(body: unknown): ParsedToolCalls | null {
     callerPhone: customer ? str(customer.number) : null,
     toolCalls,
     droppedWithoutId,
+    callerText: callerTextOf(message) ?? undefined,
   };
 }
 

@@ -3,13 +3,13 @@
   "async": false,
   "function": {
     "name": "create_priority_dispatch",
-    "description": "Log a priority request for the on-call team when triage says priority_dispatch. For a verified caller pass customer_id and address_id instead of name, phone and address. Returns the callback time policy. It does NOT assign or send a technician.",
+    "description": "Log the on-call team's priority request when triage says priority_dispatch, or add details to it. It never refuses an emergency: send what you have now. Only issue_summary is needed; calling it again updates the same request (never a second one). For a verified caller pass customer_id and address_id instead of name, phone and address. Never invent a name, phone, ZIP or address. Returns the callback time policy. It does NOT assign or send a technician.",
     "parameters": {
       "type": "object",
       "properties": {
         "first_name": {
           "type": "string",
-          "description": "Caller's first name. Omit when customer_id is given."
+          "description": "Caller's first name, if they said it. Omit when customer_id is given. Never guessed."
         },
         "last_name": {
           "type": "string",
@@ -17,7 +17,7 @@
         },
         "phone": {
           "type": "string",
-          "description": "Best callback number if different from caller ID."
+          "description": "Best callback number if different from caller ID, as the caller said it. Never guessed."
         },
         "customer_id": {
           "type": "string",
@@ -29,7 +29,7 @@
         },
         "address": {
           "type": "object",
-          "description": "Full service address. Omit when address_id is given.",
+          "description": "Service address as the caller said it. Omit when address_id is given or when you don't know it; any part may be left out.",
           "properties": {
             "line1": {
               "type": "string",
@@ -45,17 +45,13 @@
             },
             "zip": {
               "type": "string",
-              "description": "5-digit ZIP code of the service address, e.g. 11372."
+              "description": "5-digit ZIP code of the service address. Only what the caller said or lookup_customer returned; never guessed or taken from an example. Leave it out if unknown."
             },
             "access_notes": {
               "type": "string",
               "description": "Buzzer, doorman, entrance."
             }
-          },
-          "required": [
-            "line1",
-            "zip"
-          ]
+          }
         },
         "issue_type": {
           "type": "string",
@@ -149,13 +145,11 @@
           "items": {
             "type": "string"
           },
-          "description": "The reasons array from triage_issue, unchanged."
+          "description": "The reasons array from triage_issue, unchanged. Leave it out if you don't have it; the backend fills it in."
         }
       },
       "required": [
-        "issue_type",
-        "issue_summary",
-        "reasons"
+        "issue_summary"
       ]
     }
   },

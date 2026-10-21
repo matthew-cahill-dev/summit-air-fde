@@ -23,12 +23,25 @@ What this demo does not do, and the business assumptions the owner must confirm 
 
 **Verification and safety**
 - **Knowledge-based verification** (last name or caller ID + street address) is appropriate for scheduling. It isn't strong authentication, so nothing sensitive (payment, full history) is ever exposed.
-- **Safety triggers depend on the model recognizing them**, so there are three deterministic backstops:
+- **Safety triggers depend on the model recognizing them**, so there are deterministic backstops (principle: routine paths may fail closed; emergency and safety paths fail open):
   - A phrase matcher over the caller's words escalates triage (`caller_description`).
+  - On any emergency or safety sign, `triage_issue` and `create_priority_dispatch` never refuse for missing or invalid fields. Unasked safety questions count as "no" (recorded as not asked), and the ZIP, address and name are optional.
+  - A medical-emergency or safety-stop triage writes the dispatch record itself, one per call. `create_priority_dispatch` adds details to that same record.
   - Bookings are refused on emergency calls.
-  - A post-call scan creates an "Auto-detected" safety or priority record when the call made none.
-  - The matcher is deliberately conservative: fixed phrases with negation handling, escalate-only. It can still miss unusual wording, or rarely over-trigger (e.g. "dizzy" said about something else). An over-trigger means an extra record on the board, never a missed one.
+  - **Hang-up safety net (phone calls):** before our server sends the end-call, it scans Vapi's live transcript (caller lines only) and this call's triage results. It creates an "Auto-detected at hang-up" record if the call needs one and has none, including calls where no tool ran. It waits at most 300 ms and never blocks the hang-up.
+  - **Post-call reconciliation:** the same check from the end-of-call report, as the final backstop. It applies to **phone calls only**: chat simulations get no end-of-call report (run `7021919d`), so in chat runs a call that never calls `triage_issue` has no backstop.
+  - The matcher is deliberately conservative: fixed phrases with negation handling (before the phrase, or a closing "…, no."), escalate-only. It can still miss unusual wording, or rarely over-trigger (e.g. "dizzy" said about something else). An over-trigger means an extra record on the board, never a missed one.
+- **Still model-dependent:** the exact wording and order of what Ava says. Examples: saying "Please call nine one one now" before the gas/CO question, speaking the safety script word for word, and not ending the call early. The code guarantees the record, the refusals and the hang-up check, not the speech.
 - **Emergency policy is a callback SLA (15 minutes), not a dispatch.** Ava never says a technician is on the way.
+
+**Fixed**
+- **Child callers are no longer booked** (was a known gap from safety rerun `7021919d`, where iteration 2 of `conv-child-caller` booked a 9-year-old as "Leo").
+  - **Guard:** `book_appointment` returns `minor_caller` (`src/server/triage/minor.ts`). It reads the caller's live words, triage's `caller_description` and the booking text.
+  - **When it fires:** one strong sign (a stated age of 15 or under, a school grade, "I'm a kid", "I don't know my last name"), or a sleeping or at-work parent plus a second sign. Second signs: an unverified booking with no last name from a number that isn't a known customer, or "I don't know the ZIP / address / phone number".
+  - **What Ava does instead:** takes a callback for a parent or guardian, asks the child for nothing beyond a callback number, and keeps any safety instructions in force.
+  - **Never matches adult phrasings:** "my son is home", "my mom is elderly", "my kid", "my daughter is at school", "I'm 5 minutes away", "I'm eight months pregnant", "I'm calling for my mom's house".
+  - **Tests:** `tests/critical-safety-fix.test.ts`.
+  - **Remaining limit:** a child who gives a full name and doesn't mention age, school or a parent isn't recognized. Recognizing them depends on the model.
 
 **Testing**
 - **Transcriber latency figures in Vapi's metrics are inflated.** `transcriberLatency` is measured from Vapi's own VAD event (often the start of the caller's sentence), not from when they stopped talking, so long utterances show 2.6–4.6 s. The caller-side wait in call-report is the reliable number (ADR-11).

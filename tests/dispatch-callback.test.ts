@@ -33,11 +33,12 @@ describe("create_priority_dispatch", () => {
     expect(rows[0].intake).toMatchObject({ vulnerable_occupants: ["infant"], indoor_temp_f: 52 });
   });
 
-  it("requires reasons and a callback number", async () => {
-    const { payload } = await callTool("create_priority_dispatch", { ...dispatchArgs, reasons: [] });
-    expect(payload).toMatchObject({ ok: false, error_code: "invalid_arguments" });
+  it("fails open (live call 01a15feb): no reasons are filled in, and no callback number still logs it, then asks only for the number", async () => {
+    const { payload } = await callTool("create_priority_dispatch", { ...dispatchArgs, reasons: [] }, { callerNumber: "+17185550403" });
+    expect(payload).toMatchObject({ ok: true, status: "open" });
     const noPhone = await callTool("create_priority_dispatch", dispatchArgs);
-    expect(noPhone.payload).toMatchObject({ ok: false, invalid_fields: [{ field: "phone", problem: "required" }] });
+    expect(noPhone.payload).toMatchObject({ ok: true, status: "open", callback_phone: null });
+    expect(noPhone.payload.say).toMatch(/ask only for the best number for the on-call team to call back/);
   });
 });
 

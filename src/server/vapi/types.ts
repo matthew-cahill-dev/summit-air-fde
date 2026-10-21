@@ -19,7 +19,14 @@ export type ToolContext = {
   settings: ToolSettings;
   /** Request time; injected so tests can pin the clock. */
   now: Date;
+  /** What the caller has said so far on this call (Vapi's live artifact), when the message carries it. */
+  callerText?: string | null;
+  /** Set when `prepare` repaired the arguments of an emergency or safety call instead of refusing them. */
+  failOpen?: FailOpen | null;
 };
+
+/** Emergency and safety paths fail open: what was defaulted or dropped instead of refused. */
+export type FailOpen = { notAsked: string[]; dropped: string[] };
 
 /**
  * What a tool handler returns. Serialized into the Vapi `result` (ok) or `error` (not ok) string.
@@ -38,6 +45,11 @@ export type ToolOutcome =
 
 export type ToolDefinition<S extends z.ZodType = z.ZodType> = {
   schema: S;
+  /**
+   * Runs before schema validation. Emergency and safety calls use it to fail open: missing or
+   * invalid fields are defaulted or dropped (and reported in `failOpen`) instead of refused.
+   */
+  prepare?: (rawArgs: Record<string, unknown>, ctx: ToolContext) => Promise<{ args: Record<string, unknown>; failOpen: FailOpen | null }>;
   handler: (args: z.infer<S>, ctx: ToolContext) => Promise<ToolOutcome>;
 };
 

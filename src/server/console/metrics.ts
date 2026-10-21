@@ -52,6 +52,7 @@ export const GUARDRAIL_CODES = [
   "slot_wrong_area",
   "slot_not_found",
   "emergency_not_bookable",
+  "minor_caller",
   "coverage_check",
   "out_of_area",
   "residential_only",

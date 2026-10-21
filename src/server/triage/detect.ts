@@ -65,10 +65,16 @@ function findConfusion(text: string): string | null {
   return null;
 }
 
+// A bare "no" closing the clause right after the phrase also cancels it: "in terms of carbon
+// monoxide, no. There's nothing like that" (live call 01a15feb). Strict on purpose: "I smell gas,
+// no idea where it's from" still matches.
+const TRAILING_NO = /^\s*,?\s*(?:no|nope|none)\s*(?:[.!?;]|$)/i;
+
 function find(text: string, re: RegExp): string | null {
   const flags = re.flags.includes("g") ? re.flags : `${re.flags}g`;
   for (const m of text.matchAll(new RegExp(re.source, flags))) {
-    if (!negated(text, m.index ?? 0)) return m[0].trim();
+    const end = (m.index ?? 0) + m[0].length;
+    if (!negated(text, m.index ?? 0) && !TRAILING_NO.test(text.slice(end, end + 12))) return m[0].trim();
   }
   return null;
 }
