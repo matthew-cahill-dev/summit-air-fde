@@ -3,6 +3,7 @@
 import type { VapiApi } from "./api";
 import { diffSubset, formatChanges, type Change } from "./diff";
 import { toolName, type JsonObject } from "./render";
+import { getPath } from "./variants";
 
 export type ToolPlan = { name: string; action: "create" | "update" | "unchanged"; id: string; changes: Change[] };
 
@@ -14,6 +15,8 @@ export type SyncResult = {
   versionBefore: string | null;
   versionAfter: string | null;
   warnings: string[];
+  /** Set when a live sync created the target's assistant: add it to .env. */
+  createdAssistantId: string | null;
 };
 
 type Log = (line: string) => void;
@@ -29,7 +32,10 @@ function normalizeAssistant(a: JsonObject): JsonObject {
 
 export async function syncVapi(opts: {
   api: VapiApi;
-  assistantId: string;
+  /** null: the target's assistant doesn't exist yet; a live sync creates it (a dry run reports it). */
+  assistantId: string | null;
+  /** Dotted paths a variant deleted (null in an overlay); reported if the live assistant still has them. */
+  removedPaths?: string[];
   desiredTools: JsonObject[];
   /** Builds the full desired assistant once tool ids are known. */
   buildAssistant: (toolIds: string[]) => JsonObject;
@@ -85,9 +91,24 @@ export async function syncVapi(opts: {
   }
 
   // 2. Assistant.
-  const before = await opts.api.getAssistant(opts.assistantId);
   const desiredAssistant = normalizeAssistant(opts.buildAssistant(plans.map((p) => p.id)));
-  const assistantChanges = diffSubset(normalizeAssistant(before), desiredAssistant);
+  if (opts.assistantId === null) {
+    if (opts.dryRun) {
+      log(`+ assistant "${String(desiredAssistant.name)}" (would create; no id configured for this target)`);
+      return { dryRun: true, tools: plans, assistantChanges: [{ path: "(new assistant)", before: undefined, after: desiredAssistant.name }], assistantUpdated: false, versionBefore: null, versionAfter: null, warnings, createdAssistantId: null };
+    }
+    const created = await opts.api.createAssistant(desiredAssistant);
+    log(`+ assistant "${String(desiredAssistant.name)}" created ${String(created.id)}`);
+    return { dryRun: false, tools: plans, assistantChanges: [], assistantUpdated: true, versionBefore: null, versionAfter: version(created), warnings, createdAssistantId: String(created.id) };
+  }
+  const before = await opts.api.getAssistant(opts.assistantId);
+  const assistantChanges = [
+    ...diffSubset(normalizeAssistant(before), desiredAssistant),
+    // A deleted key only shows up if the live assistant still has it.
+    ...(opts.removedPaths ?? [])
+      .map((path) => ({ path, before: getPath(before, path), after: undefined }))
+      .filter((c) => c.before !== undefined),
+  ];
   const versionBefore = version(before);
   let versionAfter = versionBefore;
   let assistantUpdated = false;
@@ -119,5 +140,5 @@ export async function syncVapi(opts: {
     }
   }
 
-  return { dryRun: opts.dryRun, tools: plans, assistantChanges, assistantUpdated, versionBefore, versionAfter, warnings };
+  return { dryRun: opts.dryRun, tools: plans, assistantChanges, assistantUpdated, versionBefore, versionAfter, warnings, createdAssistantId: null };
 }

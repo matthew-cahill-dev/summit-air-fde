@@ -22,6 +22,13 @@
       "when": 1792551542395,
       "tag": "0002_m4_console",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1792562701926,
+      "tag": "0003_call_response_latency",
+      "breakpoints": true
     }
   ]
 }

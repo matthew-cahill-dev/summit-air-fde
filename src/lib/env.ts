@@ -69,6 +69,11 @@ const envSchema = z.object({
   ASSISTANT_REQUEST_ENABLED: booleanFlag,
   // The saved Vapi assistant that assistant-request answers with.
   VAPI_ASSISTANT_ID: optionalString,
+  // Silence (ms) after the final words before we hang up (phone-call-control). See src/server/vapi/call-control.ts.
+  HANGUP_TAIL_MS: z.preprocess(
+    (v) => (typeof v === "string" && v.trim() !== "" ? Number(v) : undefined),
+    z.number().int().min(0).max(5000).default(1500),
+  ),
 });
 
 export type Env = z.infer<typeof envSchema>;

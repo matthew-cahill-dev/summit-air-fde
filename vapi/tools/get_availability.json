@@ -59,11 +59,11 @@
   "messages": [
     {
       "type": "request-start",
-      "content": "One sec, checking the schedule."
+      "content": "Let me look."
     },
     {
       "type": "request-start",
-      "content": "Let me see what else is open."
+      "content": "One sec."
     },
     {
       "type": "request-response-delayed",

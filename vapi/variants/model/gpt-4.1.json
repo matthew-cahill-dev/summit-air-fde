@@ -1,0 +1,3 @@
+{
+  "_comments": "Default (variant a): vapi/assistant.json as written: gpt-4.1 + Deepgram Flux end-of-turn + 24h prompt cache. Baseline Oct 21: model TTFT p50 ~515 ms, p95 ~1 s. `npm run vapi:sync -- --variant gpt-4.1` (or no flag)."
+}

@@ -1,6 +1,7 @@
 import { getEnv } from "@/lib/env";
 import { getDbFor } from "@/server/db/client";
 import { createRepositories } from "@/server/repositories";
+import { defaultCallControlDeps } from "@/server/vapi/call-control";
 import { TOOL_REGISTRY } from "@/server/vapi/registry";
 import type { VapiHttpDeps } from "@/server/vapi/http";
 
@@ -16,5 +17,6 @@ export function productionVapiDeps(): VapiHttpDeps {
       transferAvailable: Boolean(env.ON_CALL_TRANSFER_NUMBER),
       demoCallerMap: env.DEMO_CALLER_PHONES,
     },
+    callControl: defaultCallControlDeps(env.HANGUP_TAIL_MS),
   };
 }

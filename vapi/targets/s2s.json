@@ -1,0 +1,35 @@
+{
+  "_comments": "SEPARATE speech-to-speech test assistant 'Summit Air – S2S'. Never the phone assistant: its id lives in VAPI_S2S_ASSISTANT_ID (the first live `npm run vapi:sync -- --target s2s` creates it and prints the line to add to .env). OpenAI Realtime gpt-realtime-2 (docs.vapi.ai/openai-realtime): audio in, audio out, no separate transcriber or TTS, so the transcriber is removed and the voice is an OpenAI voice ('marin'; others: alloy, echo, shimmer, cedar). Same 7 tools, credential, events server URL and phone-call-control padding as the main assistant. The prompt renders with S2S true (see the <<#S2S>> sections). Voice variants don't apply here (the target's voice wins).",
+  "assistantIdEnv": "VAPI_S2S_ASSISTANT_ID",
+  "promptFlags": {
+    "S2S": true
+  },
+  "overlay": {
+    "name": "Summit Air – S2S",
+    "model": {
+      "provider": "openai",
+      "model": "gpt-realtime-2",
+      "temperature": null,
+      "promptCacheRetention": null
+    },
+    "transcriber": null,
+    "voice": {
+      "provider": "openai",
+      "voiceId": "marin",
+      "version": null,
+      "speed": null,
+      "chunkPlan": null,
+      "model": null,
+      "generationConfig": null,
+      "stability": null,
+      "similarityBoost": null,
+      "style": null,
+      "useSpeakerBoost": null,
+      "optimizeStreamingLatency": null,
+      "language": null
+    },
+    "metadata": {
+      "managedBy": "summit-air-fde scripts/sync-vapi.ts (target s2s)"
+    }
+  }
+}

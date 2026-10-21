@@ -1,0 +1,8 @@
+{
+  "_comments": "Variant c: gpt-5.4-mini with reasoningEffort 'none' (no hidden reasoning tokens, so time to first token stays low). Newest small OpenAI model in Vapi's enum; newer small models are generally stronger at tool calling than gpt-4.1-mini, but Vapi doesn't publish tool-reliability or latency numbers per model, so this is a measured experiment, not a known win. temperature is removed (GPT-5 models may reject a non-default temperature). 24h prompt cache is supported (spec list).",
+  "model": {
+    "model": "gpt-5.4-mini",
+    "reasoningEffort": "none",
+    "temperature": null
+  }
+}

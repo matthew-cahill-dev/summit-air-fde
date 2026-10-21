@@ -1,0 +1,7 @@
+{
+  "_comments": "Variant b: gpt-4.1-mini. Same prompt, tools and pipeline; faster time to first token than gpt-4.1 but weaker on long instruction lists and multi-step tool use. promptCacheRetention '24h' isn't supported on 4.1-mini (spec list), so it's removed. Check tool correctness with `npm run evals -- --confirm` and the console's tool timeline before keeping it.",
+  "model": {
+    "model": "gpt-4.1-mini",
+    "promptCacheRetention": null
+  }
+}

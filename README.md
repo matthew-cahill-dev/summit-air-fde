@@ -83,6 +83,8 @@ Validated with Zod in `src/lib/env.ts`. The server exits at boot if any are inva
 | `DEMO_CALLER_PHONES` | no | `<phone>=<customer uuid>,...`: real phones that resolve to seeded demo customers. Never commit real numbers |
 | `ASSISTANT_REQUEST_ENABLED` | no | Default `false`. `/api/vapi/assistant-request` tells the prompt the caller ID is recognized (no account details) |
 | `VAPI_ASSISTANT_ID` | for assistant-request / sync | The saved Vapi assistant |
+| `HANGUP_TAIL_MS` | no | Default 1500. Silence after the final words before the app ends the call (phone-call-control tail padding; see ADR-10) |
+| `VAPI_S2S_ASSISTANT_ID` | for `--target s2s` | The separate speech-to-speech test assistant (created by the first `vapi:sync -- --target s2s`). Local `.env` only |
 | `VAPI_API_KEY`, `VAPI_CREDENTIAL_ID` | sync only | Local `.env` only, for `npm run vapi:sync`. Not needed on the server |
 | `TEST_DATABASE_URL` | no (tests) | Default `postgres://localhost:5432/summit_air_test`. The name must contain "test" |
 
@@ -97,7 +99,8 @@ Validated with Zod in `src/lib/env.ts`. The server exits at boot if any are inva
 | `db:migrate` | Apply migrations (plain Node + drizzle-orm migrator, advisory-locked) |
 | `db:seed` | Idempotent fictional demo data: 13 customers, ZIPs, 10 business days of slots, and demo call activity for the console (10 ended calls covering every outcome, board items, 4 upcoming appointments; seed calls are never shown as "In progress"). Demo activity is replaced on each run, timed relative to now |
 | `db:reset-test` | Deletes everything calls created and keeps seed data (including the demo call activity): calls, tool_invocations, appointments (seats given back to their slots), dispatch and callback requests, and non-seed customers/addresses/memberships. Prints counts. Dry run unless `-- --confirm`. Runs against `DATABASE_URL`, so on Replit it cleans production |
-| `vapi:sync` | Upsert Vapi tools by name, update + publish the assistant, print the version. `-- --dry-run` diffs only; `-- --offline` renders locally without an API key |
+| `vapi:sync` | Upsert Vapi tools by name, update + publish the assistant, print the version. `-- --dry-run` diffs only; `-- --offline` renders locally without an API key. A/B switches: `--variant <model>` (`vapi/variants/model/`), `--voice <voice>` (`vapi/variants/voice/`), `--target <name>` (`main` = the phone assistant; `s2s` = a separate speech-to-speech test assistant, `vapi/targets/`). Each run applies exactly the flags given; a plain sync returns to the defaults (`gpt-4.1`, `emma`, `main`) |
+| `call-report` | Read-only latency report from the Vapi API: `npm run call-report -- latest --last 3` or `-- <vapiCallId>`. Per turn: caller stop → Ava start, tool durations, Vapi's endpointing / transcriber / model / voice breakdown; p50/p95; ended reason, last message, recording URL. See [docs/TESTING.md](docs/TESTING.md#3-latency-measurement-npm-run-call-report) |
 | `evals` | Vapi Simulations from `vapi/simulations/*.json`. Without flags: validate, list and print an estimated cost (sends nothing). `-- --confirm` runs them against the live assistant (chat) and prints PASS/FAIL per scenario; `--voice`, `--only <ids>`, `--iterations <n>`. Costs credits and writes real rows. See [docs/TESTING.md](docs/TESTING.md) |
 
 ## Architecture
@@ -213,9 +216,9 @@ The suite takes a few seconds locally. Slot tests use fixed weekday anchors and 
 
 **Persona.** The agent is "Ava, Summit Air's virtual assistant" (prompt "How you speak"; greeting in `vapi/assistant.json`; model temperature 0.5). It says it's an AI if asked. Spoken text spells it "Ayva" (`firstMessage` and `voice.chunkPlan.formatPlan.replacements`) because live transcripts heard "Eva"; brand names that TTS mangles (Navien, Weil-McLain, Daikin, Rheem) and Gowanus are respelled the same way.
 
-**Call endings.** The model never says goodbye itself: it calls `endCall`, whose blocking `request-start` message ("Thanks for calling Summit Air. Take care, and goodbye for now.") is spoken in full, then Vapi hangs up. "goodbye for now" is also the only `endCallPhrases` entry, so even if the model said the line itself, Vapi would hang up after it finished. That phrase must never appear anywhere else. See [ARCHITECTURE.md ADR-10](docs/ARCHITECTURE.md).
+**Call endings.** The model never says goodbye itself: it calls `endCall`, whose `request-start` message ("Thanks for calling Summit Air. Take care, and goodbye for now.") is the only goodbye. Vapi then delegates the hang-up to `/api/vapi/events` (`phone-call-control`), which waits `HANGUP_TAIL_MS` (1.5 s) and ends the call through the live control URL, so the carrier can't clip the last words. The recording was complete, but the phone path was clipped. See [ARCHITECTURE.md ADR-10](docs/ARCHITECTURE.md).
 
-**Turn-taking.** LiveKit smart endpointing with the docs' "Conservative" wait curve, and a 1.5 s wait after Ava asks for an address, phone number or ZIP. See ADR-11.
+**Turn-taking and latency.** Deepgram Flux end-of-turn (`eotThreshold` 0.7, `eotTimeoutMs` 3000), `waitSeconds` 0.3, a 5-character first TTS chunk, short openers, and a 24 h prompt cache. Measure with `npm run call-report`; A/B models with `--variant` and voices with `--voice` (Cartesia Skylar or Jacqueline, ElevenLabs Bella or Sarah). See ADR-11 and [docs/TESTING.md](docs/TESTING.md). Speech-to-speech experiment: [docs/S2S_EXPERIMENT.md](docs/S2S_EXPERIMENT.md).
 
 **Background sound.** `backgroundSound` is `"off"` (Vapi's phone default is `"office"`). Set `"office"` or an audio URL in `vapi/assistant.json` to change it.
 

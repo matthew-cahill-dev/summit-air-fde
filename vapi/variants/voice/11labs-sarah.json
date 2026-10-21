@@ -1,0 +1,16 @@
+{
+  "_comments": "Sarah - Mature, Reassuring, Confident. ElevenLabs Flash v2.5 (eleven_flash_v2_5, ElevenLabs' lowest-latency model) through Vapi's built-in integration. stability 0.45 (expressive but steady), similarityBoost 0.75, style 0, speaker boost on, speed 1.0, optimizeStreamingLatency 3. WARNING: this voice ID is an ElevenLabs 'default voice', the only ElevenLabs IDs Vapi's voice library returns (verified via GET on Oct 21, 2026); ElevenLabs retires default voices on Dec 31, 2026. For production, pick a Voice Library voice (ElevenLabs suggests 'Talia - Warm Soft Guide' or 'Maisie - Friendly Casual Neighbor' as replacements; their IDs couldn't be verified here) and paste its ID. 'Ayva' respelling carries over (formatPlan runs before the provider).",
+  "voice": {
+    "provider": "11labs",
+    "voiceId": "EXAVITQu4vr4xnSDxMaL",
+    "model": "eleven_flash_v2_5",
+    "language": "en",
+    "stability": 0.45,
+    "similarityBoost": 0.75,
+    "style": 0,
+    "useSpeakerBoost": true,
+    "speed": 1.0,
+    "optimizeStreamingLatency": 3,
+    "version": null
+  }
+}

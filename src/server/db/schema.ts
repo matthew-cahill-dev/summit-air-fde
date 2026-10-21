@@ -218,6 +218,10 @@ export const calls = pgTable("calls", {
   transcript: text("transcript"),
   disposition: text("disposition"),
   rawReport: jsonb("raw_report"),
+  // Caller stops talking → assistant starts, from the report's messages (null before Oct 2026).
+  responseP50Ms: integer("response_p50_ms"),
+  responseP95Ms: integer("response_p95_ms"),
+  responseTurns: integer("response_turns"),
   isTest: boolean("is_test").notNull().default(true),
   isDemoSeed: boolean("is_demo_seed").notNull().default(false),
 });

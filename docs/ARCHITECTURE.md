@@ -145,37 +145,54 @@ Short ADRs. Each one gives the context, the decision, and what it costs.
 - **Decision.** The leave-now / call-911-from-outside script is in the system prompt and is spoken *before* any tool call. The prompt says it never depends on a tool. `triage_issue` then records a `safety_stop` follow-up as best effort, and its `say` adapts if recording failed ("Do not say the office was notified"). The agent always says Summit Air has not called 911.
 - **Tradeoff.** The model is trusted to recognize the trigger. Mitigations: the explicit safety-screen question on every call, Deepgram keyterms for "carbon monoxide", and a live scenario and eval for it (`e-gas-smell`).
 
-### ADR-10: Call endings: endCall speaks the goodbye; one end-call phrase as a backstop
+### ADR-10: Call endings: one goodbye via endCall, then a padded hang-up we control
 
-- **Context.** Live calls ended badly. The model said its own goodbye, then Vapi spoke `endCallMessage` and the line was cut off mid-word ("Take"). On another call Ava re-engaged after goodbye, and a stray transcribed "2" got a reply.
-- **Decision.** Per Vapi's hang-up docs (docs.vapi.ai/tools/hang-up, checked Oct 21, 2026):
-  - When the `endCall` tool has a `request-start` message, Vapi speaks that message instead of `endCallMessage` and then ends the call. Ours is "Thanks for calling Summit Air. Take care, and goodbye for now." with `blocking: true`, which means the tool, and so the hang-up, waits until the message is spoken.
-  - The prompt tells the model never to say goodbye itself: as soon as the caller declines "anything else?" or says bye, it calls `endCall`. It never re-engages after a goodbye and ignores stray words.
-  - Backstop: `endCallPhrases: ["goodbye for now"]`. The end-call-phrases doc is the only one that explicitly says Vapi waits for the assistant to finish speaking before hanging up. The phrase is the tail of the closing line, so any path that speaks the closing line ends the call after it.
-  - The phrase must appear nowhere else (phrases match any assistant speech). A test enforces that against the greeting, the prompt and the tool messages.
-  - Safety stops: the prompt waits for the caller to acknowledge the instructions before `endCall`.
-- **Tradeoff.**
-  - Vapi doesn't document whether `blocking` governs the endCall hang-up specifically, or whether the end-call phrase matches the tool's spoken message rather than only model text. Community threads report hang-ups racing TTS. So this needs a live listen before we trust it.
-  - The fallback, if it still clips, is to drop the tool message and have the model say the closing line itself, relying only on `endCallPhrases`.
-
-### ADR-11: Turn-taking and latency
-
-- **Context.** Ava cut in while callers paused mid-thought. `onPunctuationSeconds: 0.1` ended a turn 100 ms after any sentence break. Tools run in 58–324 ms in production, so the remaining pauses are endpointing plus model time.
+- **Context.**
+  - **Round 1 (Oct 21).** The model said its own goodbye, then Vapi's goodbye was cut off mid-word ("Take").
+  - **Round 2, live evidence.** **The recording had the full goodbye, but on the phone it was cut off at hang-up.** `npm run call-report` showed why: on every call, the `endCall` result (the hang-up) landed **0.15–0.67 s before** the goodbye audio's `endTime`. The carrier then dropped whatever audio was still in flight.
+  - So: recording complete, phone path clipped. The fix is tail padding, not wording.
 - **Decision.**
-  - **Smart endpointing:** `startSpeakingPlan.smartEndpointingPlan` = LiveKit, which Vapi recommends for English. A text model estimates the probability *x* that the caller is still talking, and `waitFunction` maps it to a wait. We use the docs' "Conservative" curve, `700 + 4000 * max(0, x-0.5)`: about 0.7 s when they're clearly done, up to 2.7 s mid-sentence.
-  - **Digits:** a `customEndpointingRule` waits 1.5 s after Ava asks for an address, phone number or ZIP, because people pause while reading digits.
-  - **Fallback values:** `transcriptionEndpointingPlan` is only used if smart endpointing is off, and is loosened to 0.5 / 1.0 / 0.8 s. `waitSeconds` is back to 0.4 (Vapi's default) because the smart wait already supplies the patience.
-  - **Interruptions:** `stopSpeakingPlan.numWords: 2`, so "uh-huh" doesn't stop Ava.
-- **Latency budget elsewhere.**
-  - The prompt now puts the per-call date line last, so ~98% of it is an identical prefix on every call that OpenAI caches automatically. Before, the date sat in the second paragraph and nothing after it could be cached.
-  - The prompt was tightened by ~6% despite new rules.
-  - The call order now gets to `triage_issue` (which returns the windows) with at most two technician questions first.
-  - Every tool has a non-blocking `request-start` filler that plays as soon as it's called.
-  - A faster model (`gpt-4.1-mini`) is documented in `assistant.json` but not switched.
+  1. **One goodbye.** The model never says goodbye itself. It calls `endCall`, whose `request-start` message is the closing line ("Thanks for calling Summit Air. Take care, and goodbye for now."). `endCallPhrases: ["goodbye for now"]` is a backstop if the model ever speaks the line itself. That phrase appears nowhere else (tested).
+  2. **Tail padding on every ending path.**
+     - The assistant requests `serverMessages: ["phone-call-control"]`, so Vapi delegates hang-up (and forwarding) to our events endpoint instead of hanging up itself (docs.vapi.ai/server-url/events, "Phone Call Control").
+     - `src/server/vapi/call-control.ts` answers immediately, waits `HANGUP_TAIL_MS` (default **1500 ms**), then POSTs `{"type":"end-call"}` to the call's `monitor.controlUrl` (live call control). It retries once on failure.
+     - 1.5 s covers the measured 0.67 s early hang-up plus ~0.8 s of silence for the carrier.
+     - Every ending (normal goodbye, safety stop after the caller acknowledges, commercial decline, non-service call, abusive caller, end-call phrase) produces the same Vapi hang-up request, so all of them get the same padding. A test composes every model variant × voice × target and asserts each delegates hang-up the same way.
+     - Delegated forwarding is handled too (`{"type":"transfer","destination":…}`), so transfers keep working when `ON_CALL_TRANSFER_NUMBER` is set.
+  3. **Why not SSML.**
+     - Vapi keeps `<break>` tags, but the current voice (Vapi Emma v2, possibly xAI-backed) uses different pause markup, and no provider documents that a *trailing* break produces real audio rather than being trimmed.
+     - The control-URL route is provider-independent, so it also survives a voice switch.
 - **Tradeoff.**
-  - The conservative curve adds roughly 0.3–0.6 s before Ava answers a short, clearly finished reply. That is the price of not interrupting.
-  - If calls feel sluggish, the faster documented curve is the spec default `20 + 500 * sqrt(x) + 2500 * x^3`.
-  - Deepgram Flux (end-of-turn detection inside the transcriber) is the other option, but Vapi doesn't document whether `keyterm` works on Flux, and our keyterms carry brand and street names.
+  - The hang-up now depends on our server. If the events endpoint is down, Vapi won't hang up, and the call lasts until the caller hangs up (they will, after the goodbye) or `maxDurationSeconds` (900).
+  - Each call ends ~1.5 s later. That is billed time, and it's silent.
+  - The combination of the two documented pieces (phone-call-control, then a control-URL end-call) isn't described as a single recipe in Vapi's docs. Verify on the first live call: `endedReason` and the phone should both show a clean, complete goodbye.
+
+### ADR-11: Turn-taking and latency, measured
+
+- **Context.** Median caller-stop → Ava-start was **2.03 s** on the "Conservative" LiveKit config (p95 3.18 s), and 1.65 s across the three latest calls (p95 3.5 s). Vapi's per-turn breakdown (`npm run call-report`) put the time here:
+  - **Endpointing:** p50 727 ms, p95 2250 ms. The floor is the waitFunction's 700 ms constant, and 1.5 s entries came from the post-question rule. Before that change it was 101 ms with cut-ins. **Confirmed** as the main regression.
+  - **Transcriber:** p50 300–500 ms, but p95 2.7–3.7 s and max 5 s on nova-3, on both configs. **Confirmed** as the tail.
+  - **Model (gpt-4.1 time to first token):** p50 ~515–600 ms, p95 ~0.8–1.0 s. **Confirmed** as a steady cost.
+  - **Voice:** p50 ~230 ms, p95 ~270 ms. **Refuted** as a meaningful cause. The `minCharacters: 30` chunk wait was small too, but it's lowered anyway.
+  - **Tool turns:** the filler starts 1.0–1.35 s after the model's tool call, and Vapi sees results 1.0–2.5 s after the call while our handler takes 58–324 ms. That is overhead outside our code (network, Replit edge, Vapi), so this round doesn't change it beyond shorter fillers.
+- **Decision.**
+  - **End of turn: Deepgram Flux** (`flux-general-en`). Flux detects end of turn from audio and text together, replacing both LiveKit endpointing and the nova-3 finalization tail. Deepgram quotes ~260 ms EOT p50.
+    - `eotThreshold: 0.7` is Deepgram's default and low-latency value. 0.5–0.6 is "aggressive" and risks cut-ins.
+    - `eotTimeoutMs: 3000` is in the docs' "fast" band.
+    - Per Vapi's docs, `smartEndpointingPlan`, `customEndpointingRules` and `transcriptionEndpointingPlan` don't apply with Flux, so they're removed. The dry run reports them while the live assistant still has them.
+    - The 1.5 s post-question wait is gone: the numbers showed only cost, and Flux's model handles mid-number pauses.
+  - **`waitSeconds: 0.3`**, the low end of Vapi's customer-service range (0.3–0.5). Try 0.2 if test calls show no cut-ins.
+  - **Speech start:** `chunkPlan.minCharacters: 5` (was 30), and the prompt opens most replies with a 1–3 word sentence ("Got it.") so audio starts on it.
+  - **Model:** `promptCacheRetention: "24h"` keeps the ~4,300-token prompt prefix cached between sparse calls; in-memory caching expires in minutes. The prompt keeps all per-call text last (98% cacheable prefix).
+  - **A/B variants** (`npm run vapi:sync -- --variant …`):
+    - `gpt-4.1` (default)
+    - `gpt-4.1-mini`
+    - `gpt-5.4-mini` with `reasoningEffort: "none"`, the newest small model, as an experiment, because Vapi publishes no tool-reliability data per model
+    - `gpt-4.1-nova3`: the previous transcriber plus LiveKit's "Normal" curve, a fallback if Flux mis-hears names or cuts in
+  - **Expected budget with the default:** ~0.3 s EOT + 0.3 s wait + ~0.4–0.5 s TTFT (cached) + ~0.23 s voice ≈ **1.1–1.3 s**. Reaching the < 1.0 s median target likely needs `gpt-4.1-mini` or `waitSeconds 0.2`. That's what the A/B is for.
+- **Tradeoff.**
+  - Flux's keyterm support is documented by Deepgram, but Vapi doesn't document forwarding `keyterm` to Flux. Check the first transcript for brand and street names, and fall back to `gpt-4.1-nova3` if they're wrong.
+  - Smaller models may follow the long prompt less reliably. Run the evals before keeping one.
 
 ## Data model (short)
 

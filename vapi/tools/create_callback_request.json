@@ -52,11 +52,11 @@
   "messages": [
     {
       "type": "request-start",
-      "content": "One moment, I'm setting up a callback."
+      "content": "One moment."
     },
     {
       "type": "request-start",
-      "content": "Let me get that callback request in."
+      "content": "Got it, one sec."
     },
     {
       "type": "request-response-delayed",

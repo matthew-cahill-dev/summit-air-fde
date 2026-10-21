@@ -1,8 +1,13 @@
-// `npm run vapi:sync -- [--dry-run | --offline]`
+// `npm run vapi:sync -- [--dry-run | --offline] [--variant <model>] [--voice <voice>] [--target <target>]`
 //   --offline  render the config locally and print it (no API key or network needed)
 //   --dry-run  read current Vapi state and print a diff; change nothing
 //   (default)  upsert tools by name, update the assistant (publishes a new version), print the version
-import { readdirSync, readFileSync } from "node:fs";
+//   --variant  model variant from vapi/variants/model/<name>.json (default gpt-4.1)
+//   --voice    voice variant from vapi/variants/voice/<name>.json (default emma)
+//   --target   main (default: VAPI_ASSISTANT_ID, the assistant on the phone number) or a file in
+//              vapi/targets/ (e.g. s2s: its own assistant id env var; created on first live sync).
+//   Each run applies exactly the flags given, so a plain sync goes back to the defaults.
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { createVapiHttpApi } from "../src/vapi-sync/api";
 import {
@@ -13,6 +18,7 @@ import {
   type SyncEnv,
 } from "../src/vapi-sync/render";
 import { syncVapi } from "../src/vapi-sync/sync";
+import { composeAssistant, DEFAULT_SELECTION, getPath, MAIN_TARGET, parseTarget, type Selection, type TargetConfig } from "../src/vapi-sync/variants";
 
 const VAPI_DIR = join(process.cwd(), "vapi");
 
@@ -26,8 +32,40 @@ function env(name: string, required: boolean): string | undefined {
   return v || undefined;
 }
 
+function overlayFile(kind: "model" | "voice", name: string): JsonObject {
+  const dir = join(VAPI_DIR, "variants", kind);
+  const path = join(dir, `${name}.json`);
+  if (!existsSync(path)) {
+    const names = readdirSync(dir).filter((f) => f.endsWith(".json")).map((f) => f.replace(/\.json$/, ""));
+    throw new Error(`Unknown ${kind === "model" ? "--variant" : "--voice"} "${name}". Available: ${names.join(", ")}`);
+  }
+  return readJson(path);
+}
+
+function targetConfig(name: string): TargetConfig {
+  if (name === "main") return MAIN_TARGET;
+  const path = join(VAPI_DIR, "targets", `${name}.json`);
+  if (!existsSync(path)) throw new Error(`Unknown --target "${name}". Available: main, ${readdirSync(join(VAPI_DIR, "targets")).map((f) => f.replace(/\.json$/, "")).join(", ")}`);
+  return parseTarget(name, readJson(path));
+}
+
+function flagValue(argv: string[], name: string): string | undefined {
+  const i = argv.indexOf(name);
+  if (i < 0) return undefined;
+  const v = argv[i + 1];
+  if (!v || v.startsWith("--")) throw new Error(`${name} needs a value`);
+  return v;
+}
+
 async function main() {
-  const args = new Set(process.argv.slice(2));
+  const argv = process.argv.slice(2);
+  const args = new Set(argv);
+  const selection: Selection = {
+    variant: flagValue(argv, "--variant") ?? DEFAULT_SELECTION.variant,
+    voice: flagValue(argv, "--voice") ?? DEFAULT_SELECTION.voice,
+    target: flagValue(argv, "--target") ?? DEFAULT_SELECTION.target,
+  };
+  const target = targetConfig(selection.target);
   const offline = args.has("--offline");
   const dryRun = offline || args.has("--dry-run");
   try {
@@ -57,9 +95,18 @@ async function main() {
   const prompt = renderSystemPrompt(readFileSync(join(VAPI_DIR, "system-prompt.md"), "utf8"), {
     transferAvailable: Boolean(syncEnv.ON_CALL_TRANSFER_NUMBER),
     timeZone: syncEnv.APP_TIMEZONE,
+    flags: target.promptFlags,
   });
   const assistantFile = readJson(join(VAPI_DIR, "assistant.json"));
-  const buildAssistant = (toolIds: string[]) => buildDesiredAssistant(assistantFile, prompt, toolIds, syncEnv);
+  // Fields assistant.json used to set and no longer does: reported if the live assistant still has them.
+  const removedFromLive = Array.isArray(assistantFile._removedFromLive) ? (assistantFile._removedFromLive as string[]) : [];
+  const composed = composeAssistant(assistantFile, {
+    variant: overlayFile("model", selection.variant),
+    voice: overlayFile("voice", selection.voice),
+    target: target.overlay,
+  });
+  const buildAssistant = (toolIds: string[]) => buildDesiredAssistant(composed.assistant, prompt, toolIds, syncEnv);
+  console.log(`Selection: --target ${selection.target} --variant ${selection.variant} --voice ${selection.voice}`);
 
   console.log(
     `Transfer tool: ${syncEnv.ON_CALL_TRANSFER_NUMBER ? "attached" : "not attached (ON_CALL_TRANSFER_NUMBER unset; prompt falls back to callbacks)"}`,
@@ -75,7 +122,8 @@ async function main() {
   }
 
   const api = createVapiHttpApi(env("VAPI_API_KEY", true)!);
-  const assistantId = env("VAPI_ASSISTANT_ID", true)!;
+  const assistantId = env(target.assistantIdEnv, selection.target === "main") ?? null;
+  if (assistantId === null) console.log(`${target.assistantIdEnv} is not set: the ${selection.target} assistant will be created on a live sync.`);
   console.log(dryRun ? "Dry run: reading Vapi state, no changes will be made.\n" : "Syncing to Vapi...\n");
   const result = await syncVapi({
     api,
@@ -83,6 +131,8 @@ async function main() {
     desiredTools,
     buildAssistant,
     dryRun,
+    // A path only counts as removed if the final (composed) config doesn't set it again.
+    removedPaths: [...new Set([...removedFromLive, ...composed.removed])].filter((p) => getPath(composed.assistant, p) === undefined),
     log: (l) => console.log(l),
     versionLabel: `sync ${new Date().toISOString().slice(0, 16).replace("T", " ")} UTC`,
   });
@@ -100,6 +150,9 @@ async function main() {
         ? `Assistant updated: version ${result.versionBefore ?? "n/a"} -> ${result.versionAfter ?? "n/a"} (live).`
         : `Assistant unchanged: version ${result.versionAfter ?? "n/a"}.`,
     );
+  }
+  if (result.createdAssistantId) {
+    console.log(`\nCreated the ${selection.target} assistant. Add this line to .env, then sync again to update it:\n${target.assistantIdEnv}=${result.createdAssistantId}`);
   }
   if (result.warnings.length) console.log(`\n${result.warnings.length} warning(s) above.`);
 }

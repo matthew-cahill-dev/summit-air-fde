@@ -15,6 +15,9 @@ export function createCallRepository(db: Db): CallRepository {
         summary: r.summary,
         transcript: r.transcript,
         rawReport: r.rawReport,
+        responseP50Ms: r.responseP50Ms ?? null,
+        responseP95Ms: r.responseP95Ms ?? null,
+        responseTurns: r.responseTurns ?? null,
       };
       await db
         .insert(calls)
@@ -30,6 +33,9 @@ export function createCallRepository(db: Db): CallRepository {
             summary: sql`coalesce(excluded.summary, ${calls.summary})`,
             transcript: sql`coalesce(excluded.transcript, ${calls.transcript})`,
             rawReport: sql`excluded.raw_report`,
+            responseP50Ms: sql`coalesce(excluded.response_p50_ms, ${calls.responseP50Ms})`,
+            responseP95Ms: sql`coalesce(excluded.response_p95_ms, ${calls.responseP95Ms})`,
+            responseTurns: sql`coalesce(excluded.response_turns, ${calls.responseTurns})`,
           },
         });
     },

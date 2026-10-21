@@ -7,6 +7,7 @@ export interface VapiApi {
   createTool(body: JsonObject): Promise<JsonObject>;
   updateTool(id: string, body: JsonObject): Promise<JsonObject>;
   getAssistant(id: string): Promise<JsonObject>;
+  createAssistant(body: JsonObject): Promise<JsonObject>;
   updateAssistant(id: string, body: JsonObject): Promise<JsonObject>;
   /** Names a published version (Vapi assistant versioning). Best effort. */
   labelAssistantVersion(id: string, version: string, body: { versionName: string; versionDescription?: string }): Promise<void>;
@@ -53,6 +54,7 @@ export function createVapiHttpApi(apiKey: string, baseUrl = "https://api.vapi.ai
     createTool: (body) => request("POST", "/tool", body),
     updateTool: (id, body) => request("PATCH", `/tool/${encodeURIComponent(id)}`, body),
     getAssistant: (id) => request("GET", `/assistant/${encodeURIComponent(id)}`),
+    createAssistant: (body) => request("POST", "/assistant", body),
     updateAssistant: (id, body) => request("PATCH", `/assistant/${encodeURIComponent(id)}`, body),
     async labelAssistantVersion(id, version, body) {
       await request("PATCH", `/assistant/${encodeURIComponent(id)}/versions/${encodeURIComponent(version)}`, body);

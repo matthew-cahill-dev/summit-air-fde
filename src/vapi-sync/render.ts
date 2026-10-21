@@ -34,13 +34,16 @@ export function businessFactsText(): string {
 
 /** Mustache-style sections: <<#TRANSFER>>kept if on<</TRANSFER>>, <<^TRANSFER>>kept if off<</TRANSFER>>. */
 function renderSections(text: string, flags: Record<string, boolean>): string {
-  return text.replace(/<<([#^])([A-Z_]+)>>([\s\S]*?)<<\/\2>>/g, (_m, kind: string, name: string, body: string) => {
+  return text.replace(/<<([#^])([A-Z][A-Z0-9_]*)>>([\s\S]*?)<<\/\2>>/g, (_m, kind: string, name: string, body: string) => {
     if (!(name in flags)) throw new Error(`Unknown prompt section <<${kind}${name}>>`);
     return (kind === "#") === flags[name] ? body : "";
   });
 }
 
-export function renderSystemPrompt(template: string, opts: { transferAvailable: boolean; timeZone: string }): string {
+export function renderSystemPrompt(
+  template: string,
+  opts: { transferAvailable: boolean; timeZone: string; flags?: Record<string, boolean> },
+): string {
   const values: Record<string, string> = {
     SERVICE_AREA: BUSINESS.facts.serviceArea,
     TIMEZONE: opts.timeZone,
@@ -48,7 +51,8 @@ export function renderSystemPrompt(template: string, opts: { transferAvailable: 
     BUSINESS_FACTS: businessFactsText(),
   };
   let out = template.replace(/^\s*<!--[\s\S]*?-->\s*/, "");
-  out = renderSections(out, { TRANSFER: opts.transferAvailable });
+  // S2S: the speech-to-speech target (vapi/targets/s2s.json) gets a few different instructions.
+  out = renderSections(out, { S2S: false, ...opts.flags, TRANSFER: opts.transferAvailable });
   out = out.replace(/<<([A-Z_]+)>>/g, (m, name: string) => {
     if (!(name in values)) throw new Error(`Unknown prompt placeholder ${m}`);
     return values[name];

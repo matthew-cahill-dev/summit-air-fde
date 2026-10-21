@@ -1,0 +1,15 @@
+{
+  "_comments": "Jacqueline - Reassuring Agent: 'Confident, young adult female for empathic customer support.' Cartesia Sonic 3 through Vapi's built-in integration (no Cartesia key needed). Voice ID from Vapi's voice library and Cartesia's agent recommendations. sonic-3 rather than 3.5/3.6 because Vapi's spec says generationConfig (speed, volume) is sonic-3 only; speed 1.0 is Cartesia's neutral. Vapi-voice fields (version, speed) are removed. 'Ava' is respelled 'Ayva' by voice.chunkPlan.formatPlan before the text reaches Cartesia, so the fix carries over; confirm by ear.",
+  "voice": {
+    "provider": "cartesia",
+    "voiceId": "9626c31c-bec5-4cca-baa8-f8ba9e84c8bc",
+    "model": "sonic-3",
+    "language": "en",
+    "generationConfig": {
+      "speed": 1.0,
+      "volume": 1.0
+    },
+    "version": null,
+    "speed": null
+  }
+}

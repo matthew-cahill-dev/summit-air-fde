@@ -94,11 +94,11 @@
   "messages": [
     {
       "type": "request-start",
-      "content": "Let me check that for you."
+      "content": "Let me check."
     },
     {
       "type": "request-start",
-      "content": "One sec, checking the schedule."
+      "content": "One moment."
     },
     {
       "type": "request-response-delayed",

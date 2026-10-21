@@ -1,0 +1,15 @@
+{
+  "_comments": "Fallback pipeline, not a model change: gpt-4.1 with the previous transcriber (nova-3) and LiveKit smart endpointing on the docs' 'Normal' curve (between the old 'Conservative' 700 ms floor and the cut-in-prone 0.1 s punctuation timeout). Use it if Flux mis-hears brand or street names (Vapi doesn't document keyterm forwarding to Flux) or ends turns too early.",
+  "transcriber": {
+    "model": "nova-3",
+    "eotThreshold": null,
+    "eotTimeoutMs": null
+  },
+  "startSpeakingPlan": {
+    "waitSeconds": 0.4,
+    "smartEndpointingPlan": {
+      "provider": "livekit",
+      "waitFunction": "(20 + 500 * sqrt(x) + 2500 * x^3 + 700 + 4000 * max(0, x-0.5)) / 2"
+    }
+  }
+}

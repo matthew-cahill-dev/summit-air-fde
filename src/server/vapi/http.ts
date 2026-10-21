@@ -3,6 +3,7 @@
 import { isAuthorizedBearer } from "@/server/lib/auth";
 import { logEvent } from "@/server/lib/log";
 import type { Repositories } from "@/server/repositories";
+import { defaultCallControlDeps, handlePhoneCallControl, type CallControlDeps } from "./call-control";
 import { handleToolCalls } from "./dispatcher";
 import { describeEnvelopeShape, getMessage } from "./envelope";
 import { parseEndOfCallReport } from "./events";
@@ -15,6 +16,8 @@ export type VapiHttpDeps = {
   registry: ToolRegistry;
   settings: ToolSettings;
   now?: () => Date;
+  /** Delayed hang-up / forwarding for phone-call-control (tail padding). */
+  callControl?: CallControlDeps;
 };
 
 const unauthorized = () => Response.json({ error: "unauthorized" }, { status: 401 });
@@ -65,7 +68,10 @@ export function warmDatabase(ping: () => Promise<void>): boolean {
   return true;
 }
 
-export async function handleEventsRequest(request: Request, deps: Pick<VapiHttpDeps, "secret" | "repos">): Promise<Response> {
+export async function handleEventsRequest(
+  request: Request,
+  deps: Pick<VapiHttpDeps, "secret" | "repos" | "callControl">,
+): Promise<Response> {
   if (!isAuthorizedBearer(request.headers.get("authorization"), deps.secret)) {
     logEvent("vapi_auth_rejected", { route: "events" });
     return unauthorized();
@@ -75,6 +81,12 @@ export async function handleEventsRequest(request: Request, deps: Pick<VapiHttpD
   logEvent("vapi_envelope", { route: "events", ...shape });
 
   const message = getMessage(body);
+  if (message?.type === "phone-call-control") {
+    // Hang-up and forwarding are delegated to us: answer now, act after the tail (see call-control.ts).
+    const outcome = handlePhoneCallControl(message, deps.callControl ?? defaultCallControlDeps());
+    if (outcome.handled !== "ignored") void outcome.done;
+    return Response.json({ ok: true, handled: outcome.handled });
+  }
   if (message?.type === "status-update") {
     // Keep-warm: the call just connected, so wake the database during the greeting
     // instead of on the first tool call. Never awaited; Vapi gets its 200 right away.

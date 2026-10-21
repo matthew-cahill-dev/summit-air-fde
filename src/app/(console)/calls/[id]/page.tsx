@@ -9,7 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { loadCall } from "@/server/console/data";
-import { formatDuration, formatPhone, formatTimestamp, toolLabel } from "@/server/console/format";
+import { formatDuration, formatPhone, formatSeconds, formatTimestamp, toolLabel } from "@/server/console/format";
 import { keyArgs } from "@/server/console/outcome";
 import type { InvocationRow } from "@/server/repositories";
 
@@ -83,7 +83,7 @@ async function CallDetail({ params }: { params: PageProps<"/calls/[id]">["params
         </div>
       </PageHeader>
 
-      <dl className="grid grid-cols-2 gap-x-8 gap-y-3 rounded-xl bg-card p-4 text-sm ring-1 ring-foreground/10 md:grid-cols-4">
+      <dl className="grid grid-cols-2 gap-x-8 gap-y-3 rounded-xl bg-card p-4 text-sm ring-1 ring-foreground/10 md:grid-cols-5">
         <Fact label="Phone">
           <PhoneLink e164={summary.callerPhone} display={phone} />
         </Fact>
@@ -91,6 +91,16 @@ async function CallDetail({ params }: { params: PageProps<"/calls/[id]">["params
         <Fact label="Tool calls">
           {summary.toolCount}
           {summary.toolErrors > 0 && <span className="text-destructive"> · {summary.toolErrors} failed</span>}
+        </Fact>
+        <Fact label="Response time">
+          {call.responseP50Ms === null ? (
+            <span className="text-muted-foreground">{summary.status === "in_progress" ? "After the call" : "Not measured"}</span>
+          ) : (
+            <span title={`Caller stops talking → Ava starts, over ${call.responseTurns ?? "?"} turns`} className="tabular-nums">
+              {formatSeconds(call.responseP50Ms)} median
+              <span className="text-muted-foreground"> · p95 {formatSeconds(call.responseP95Ms)}</span>
+            </span>
+          )}
         </Fact>
         <Fact label="Vapi call ID">
           <span className="font-mono text-xs break-all text-muted-foreground">{call.vapiCallId}</span>

@@ -58,6 +58,7 @@ const callActivity = (where: SQL) => sql`
   ), merged as (
     select coalesce(c.vapi_call_id, inv.vapi_call_id) as vapi_call_id,
            c.started_at, c.ended_at, c.ended_reason, c.caller_phone, c.summary, c.transcript,
+           c.response_p50_ms, c.response_p95_ms, c.response_turns,
            (c.id is not null) as has_report,
            inv.first_at, inv.last_at,
            coalesce(c.is_demo_seed, inv.seed, false) as is_demo_seed
@@ -147,7 +148,15 @@ export function createConsoleRepository(db: Db): ConsoleRepository {
 
     async call(vapiCallId) {
       const [r] = await rows(db, callActivity(sql`where vapi_call_id = ${vapiCallId} limit 1`));
-      return r ? { ...mapCallActivity(r), transcript: strOrNull(r.transcript) } : null;
+      return r
+        ? {
+            ...mapCallActivity(r),
+            transcript: strOrNull(r.transcript),
+            responseP50Ms: numOrNull(r.response_p50_ms),
+            responseP95Ms: numOrNull(r.response_p95_ms),
+            responseTurns: numOrNull(r.response_turns),
+          }
+        : null;
     },
 
     async callExists(vapiCallId) {
@@ -313,8 +322,17 @@ export function createConsoleRepository(db: Db): ConsoleRepository {
             where status = 'open' and (${includeSeed} or not is_demo_seed)) as open_callbacks,
           (select count(*) from dispatch_requests
             where status in ('open', 'acknowledged') and (${includeSeed} or not is_demo_seed)) as open_dispatches,
-          t.tool_calls, t.tool_errors, t.avg_ms, t.p95_ms
+          t.tool_calls, t.tool_errors, t.avg_ms, t.p95_ms,
+          rt.median_ms as median_response_ms, rt.p95_ms as p95_response_ms, rt.n as response_calls
         from (
+          select percentile_cont(0.5) within group (order by response_p50_ms) as median_ms,
+                 percentile_cont(0.95) within group (order by response_p95_ms) as p95_ms,
+                 count(response_p50_ms) as n
+            from calls
+           where response_p50_ms is not null
+             and coalesce(started_at, ended_at) >= ${from} and coalesce(started_at, ended_at) < ${to}
+             and (${includeSeed} or not is_demo_seed)
+        ) rt, (
           select count(*) as tool_calls,
                  count(*) filter (where not ok) as tool_errors,
                  avg(latency_ms) as avg_ms,
@@ -334,6 +352,9 @@ export function createConsoleRepository(db: Db): ConsoleRepository {
         toolErrors: num(r.tool_errors),
         avgToolMs: r.avg_ms === null ? null : Math.round(num(r.avg_ms)),
         p95ToolMs: r.p95_ms === null ? null : Math.round(num(r.p95_ms)),
+        medianResponseMs: r.median_response_ms === null ? null : Math.round(num(r.median_response_ms)),
+        p95ResponseMs: r.p95_response_ms === null ? null : Math.round(num(r.p95_response_ms)),
+        responseCalls: num(r.response_calls),
       };
       return stats;
     },

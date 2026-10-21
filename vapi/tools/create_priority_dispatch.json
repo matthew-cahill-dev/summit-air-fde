@@ -162,11 +162,11 @@
   "messages": [
     {
       "type": "request-start",
-      "content": "One moment, I'm getting this to our on-call team."
+      "content": "Logging this now."
     },
     {
       "type": "request-start",
-      "content": "Logging this as a priority now."
+      "content": "One moment."
     },
     {
       "type": "request-response-delayed",

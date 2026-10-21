@@ -1,4 +1,5 @@
 import type { EndOfCallReport } from "@/server/repositories";
+import { responseLatency } from "@/vapi-sync/call-report";
 import { getMessage } from "./envelope";
 
 type Obj = Record<string, unknown>;
@@ -26,8 +27,12 @@ export function parseEndOfCallReport(body: unknown): EndOfCallReport | null {
   const analysis = isObj(m.analysis) ? m.analysis : isObj(call.analysis) ? call.analysis : {};
   const artifact = isObj(m.artifact) ? m.artifact : isObj(call.artifact) ? call.artifact : {};
 
+  const latency = responseLatency(Array.isArray(artifact.messages) ? artifact.messages : m.messages);
   return {
     vapiCallId,
+    responseP50Ms: latency.p50,
+    responseP95Ms: latency.p95,
+    responseTurns: latency.turns || null,
     callerPhone: str(customer.number),
     startedAt: date(m.startedAt ?? call.startedAt),
     endedAt: date(m.endedAt ?? call.endedAt),

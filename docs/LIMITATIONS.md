@@ -32,7 +32,12 @@ What this demo does not do, and the business assumptions the owner must confirm 
 **Deployment**
 - **Replit's schema diff can propose destructive DROPs.** On republish, Replit diffs the workspace (dev) database against production and applies the difference. If dev is behind `main`, that diff drops production columns. This happened once and was caught at review. The mitigation is procedural: run `git fetch origin && git reset --hard origin/main && npm ci && npm run db:migrate` in the Replit Shell before every republish, and stop if the publish dialog shows any `DROP` (README, "Deploying to Replit"). A real deployment would use a database the platform doesn't manage, with migrations run by CI (see ARCHITECTURE ADR-7).
 - **Vapi publishing.** Vapi's changelog (Aug 2026) says edits no longer go live until published. `vapi:sync` checks that the assistant version advanced and warns if it didn't; whether *tool* updates also need a separate publish hasn't been verified on a live sync yet.
-- **Call endings and endpointing are configured per Vapi's docs but not yet heard live** (see ARCHITECTURE ADR-10 and ADR-11).
+- **Hang-ups depend on our server.** With `phone-call-control`, Vapi no longer hangs up or forwards calls itself; `/api/vapi/events` does both, after a 1.5 s tail. If the app is down when a call ends, the line stays open until the caller hangs up or `maxDurationSeconds` (15 min).
+- **Latency fixes are measured, not yet re-measured.** The Oct 21 baseline is in TESTING.md. Flux end-of-turn, `waitSeconds` 0.3, the smaller first chunk and the 24 h prompt cache are configured per the docs. The < 1.0 s median target probably needs `--variant gpt-4.1-mini` (or `waitSeconds` 0.2), which needs a live A/B.
+- **Flux and keyterms.** Deepgram supports keyterm prompting on Flux; Vapi doesn't document forwarding `keyterm` to Flux. If brand or street names come out wrong, use `--variant gpt-4.1-nova3`.
+- **Tool round trips.** Vapi sees 1.0–2.5 s per tool call while our handler takes 58–324 ms. The difference is outside our code (network, Replit edge, Vapi's tool dispatch) and isn't addressed yet; the fillers cover it. Comparing `call-report` with the console's per-tool `latency_ms` on the same call isolates it.
+- **ElevenLabs voice variants use "default voices"**, which ElevenLabs retires on Dec 31, 2026. They're for the A/B by ear only; pick a Voice Library voice before production.
+- **The S2S assistant is an experiment** (see S2S_EXPERIMENT.md): the safety script may be paraphrased, there's no endpointing control, and transcripts are approximate. Never route real callers to it.
 
 **Operations console**
 - Single shared password (no per-user accounts or audit trail of who acknowledged what).

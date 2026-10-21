@@ -16,7 +16,8 @@
     "db:reset-test": "tsc -p tsconfig.scripts.json && node .scripts-dist/scripts/reset-test-data.js",
     "start:deploy": "npm run db:migrate && npm run start",
     "vapi:sync": "tsc -p tsconfig.scripts.json && node .scripts-dist/scripts/sync-vapi.js",
-    "evals": "tsc -p tsconfig.scripts.json && node .scripts-dist/scripts/run-evals.js"
+    "evals": "tsc -p tsconfig.scripts.json && node .scripts-dist/scripts/run-evals.js",
+    "call-report": "tsc -p tsconfig.scripts.json && node .scripts-dist/scripts/call-report.js"
   },
   "dependencies": {
     "@base-ui/react": "^1.9.0",

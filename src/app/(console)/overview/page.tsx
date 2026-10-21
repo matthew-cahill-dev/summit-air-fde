@@ -17,7 +17,7 @@ import { EmptyState, PageHeader } from "@/components/console/page";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { loadOverview } from "@/server/console/data";
-import { callbackReasonLabel, formatPhone, formatTimestamp } from "@/server/console/format";
+import { callbackReasonLabel, formatPhone, formatSeconds, formatTimestamp } from "@/server/console/format";
 import type { ActivityKind, ActivityRow, OverviewStats } from "@/server/repositories";
 
 export const metadata: Metadata = { title: "Overview" };
@@ -82,11 +82,17 @@ function Kpis({ stats }: { stats: OverviewStats }) {
     { label: "Priority requests today", value: String(stats.priorityRequests), note: `${stats.openDispatches} still open` },
     { label: "Open callbacks", value: String(stats.openCallbacks), note: "Waiting on the office" },
     {
-      label: "Avg tool latency",
-      value: stats.avgToolMs === null ? "-" : `${stats.avgToolMs} ms`,
-      note: stats.toolErrors ? `${stats.toolErrors} failed today` : "No failures today",
+      label: "Median response time",
+      value: formatSeconds(stats.medianResponseMs),
+      note: stats.responseCalls
+        ? `p95 ${formatSeconds(stats.p95ResponseMs)} · ${stats.responseCalls} call${stats.responseCalls === 1 ? "" : "s"} today`
+        : "Caller stops → Ava starts",
     },
-    { label: "p95 tool latency", value: stats.p95ToolMs === null ? "-" : `${stats.p95ToolMs} ms`, note: "Today" },
+    {
+      label: "Tool latency",
+      value: stats.avgToolMs === null ? "-" : `${stats.avgToolMs} ms`,
+      note: `${stats.p95ToolMs === null ? "" : `p95 ${stats.p95ToolMs} ms · `}${stats.toolErrors ? `${stats.toolErrors} failed today` : "no failures today"}`,
+    },
   ];
   return (
     <dl className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">

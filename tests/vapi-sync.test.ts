@@ -37,6 +37,10 @@ function fakeVapi(opts: { dropTransferName?: boolean; versioning?: boolean } = {
     async getAssistant() {
       return structuredClone(assistant);
     },
+    async createAssistant(body) {
+      writes.push(`create assistant ${String(body.name)}`);
+      return { ...body, id: "asst-new", latestVersion: "v1" };
+    },
     async updateAssistant(_id, body) {
       writes.push("update assistant");
       assistant = { ...assistant, ...body, latestVersion: opts.versioning === false ? null : `v${++version}` };

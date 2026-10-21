@@ -1,0 +1,3 @@
+{
+  "_comments": "Default voice: Vapi voice Emma (version 2), as in vapi/assistant.json. Measured voice latency p50 ~230 ms. `npm run vapi:sync -- --voice emma` (or no flag)."
+}

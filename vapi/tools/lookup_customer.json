@@ -30,11 +30,11 @@
   "messages": [
     {
       "type": "request-start",
-      "content": "One sec, let me pull up your account."
+      "content": "One sec."
     },
     {
       "type": "request-start",
-      "content": "Let me look you up."
+      "content": "Okay, one sec."
     },
     {
       "type": "request-response-delayed",

@@ -126,6 +126,12 @@ export function safetyTriggerLabel(...sources: unknown[]): string | null {
   return labels.length ? labels.join(" + ") : null;
 }
 
+/** 1234 → "1.2 s"; 640 → "0.64 s". For response times. */
+export function formatSeconds(ms: number | null): string {
+  if (ms === null) return "-";
+  return ms < 1000 ? `${(ms / 1000).toFixed(2)} s` : `${(ms / 1000).toFixed(1)} s`;
+}
+
 export function readIssueType(...sources: unknown[]): string | null {
   for (const s of sources) {
     if (!isObj(s)) continue;

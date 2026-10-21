@@ -90,6 +90,10 @@ export interface ToolInvocationRepository {
 
 export type EndOfCallReport = {
   vapiCallId: string;
+  /** Caller stop → assistant start (ms), from the report's messages; null when not computable. */
+  responseP50Ms?: number | null;
+  responseP95Ms?: number | null;
+  responseTurns?: number | null;
   callerPhone: string | null;
   startedAt: Date | null;
   endedAt: Date | null;
@@ -286,7 +290,13 @@ export type CallActivityRow = {
   isDemoSeed: boolean;
 };
 
-export type CallDetailRow = CallActivityRow & { transcript: string | null };
+export type CallDetailRow = CallActivityRow & {
+  transcript: string | null;
+  /** Caller stop → assistant start, from the end-of-call report. */
+  responseP50Ms: number | null;
+  responseP95Ms: number | null;
+  responseTurns: number | null;
+};
 
 export type InvocationRow = {
   id: string;
@@ -371,6 +381,10 @@ export type OverviewStats = {
   toolErrors: number;
   avgToolMs: number | null;
   p95ToolMs: number | null;
+  /** Median of today's per-call median response times, and the 95th percentile of their p95s. */
+  medianResponseMs: number | null;
+  p95ResponseMs: number | null;
+  responseCalls: number;
 };
 
 export type ActivityKind =

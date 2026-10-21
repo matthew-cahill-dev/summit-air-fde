@@ -169,11 +169,11 @@
   "messages": [
     {
       "type": "request-start",
-      "content": "One moment while I book that."
+      "content": "Booking that now."
     },
     {
       "type": "request-start",
-      "content": "Booking that now."
+      "content": "One moment."
     },
     {
       "type": "request-response-delayed",

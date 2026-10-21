@@ -28,11 +28,11 @@
   "messages": [
     {
       "type": "request-start",
-      "content": "Let me check that area."
+      "content": "One moment."
     },
     {
       "type": "request-start",
-      "content": "One moment."
+      "content": "Let me check."
     },
     {
       "type": "request-response-delayed",

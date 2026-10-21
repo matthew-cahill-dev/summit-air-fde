@@ -81,7 +81,13 @@ describe("vapi/tools/*.json", () => {
 
   it.each(toolFiles.map((t) => [toolName(t), t] as const))("%s has request-start filler and no secrets", (_name, t) => {
     const messages = t.messages as Array<{ type: string; content: string }>;
-    expect(messages.some((m) => m.type === "request-start" && m.content.length < 60)).toBe(true);
+    const starts = messages.filter((m) => m.type === "request-start");
+    expect(starts.length).toBeGreaterThan(0);
+    // Short: the filler starts ~1.1 s after the tool call (measured) and should finish before the result.
+    // (A transfer's "please stay on the line" is a handoff instruction, not a wait filler.)
+    if (t.type !== "transferCall") for (const m of starts) expect(m.content.split(/\s+/).length, m.content).toBeLessThanOrEqual(5);
+    // Never hint that an account exists before verification.
+    expect(JSON.stringify(starts)).not.toMatch(/account/i);
     // Non-blocking, so the filler plays the moment the tool is called, while it runs.
     expect(messages.filter((m) => (m as { blocking?: boolean }).blocking)).toEqual([]);
     const text = JSON.stringify(t);
@@ -164,7 +170,9 @@ describe("persona, call flow and failure handling (live-call fixes)", () => {
     expect(p).toContain("Apologize at most once per problem");
     expect(p).toContain("After verification, use their first name once");
     // Rhythm examples: discourse markers, safety screen, casual recap.
-    expect(p).toContain("Ava: Oh no, that's no fun. Before anything else, do you smell gas, or is a carbon monoxide alarm going off?");
+    expect(p).toContain("Ava: Oh no. Before anything else, do you smell gas, or is a carbon monoxide alarm going off?");
+    // Latency: a one-to-three-word opener is its own sentence, so TTS can start on it.
+    expect(p).toContain('Start most replies with a one-to-three-word sentence of its own ("Got it." "Okay." "Oh no."');
     expect(p).toContain("Ava: Okay, so I've got you today between one and five at thirty-seven twelve eighty-second street, for the AC. Sound good?");
     expect(p.match(/^Ava: /gm)).toHaveLength(3);
   });
@@ -222,20 +230,25 @@ describe("persona, call flow and failure handling (live-call fixes)", () => {
     }
     expect("This is Ava speaking".replace(new RegExp(replacements[0].regex), replacements[0].value)).toBe("This is Ayva speaking");
     const keyterm = (assistantFile.transcriber as JsonObject).keyterm as string[];
-    for (const t of ["AC", "A/C", "air conditioner", "no heat", "no AC", "Ava", "Navien", "Weil-McLain", "Daikin", "Lennox", "Rheem", "Burnham"]) expect(keyterm).toContain(t);
-    expect(keyterm.length).toBeLessThanOrEqual(100); // Deepgram's limit
+    for (const t of ["AC", "A/C", "air conditioner", "no heat", "Navien", "Weil-McLain", "Daikin", "Lennox", "Rheem", "Burnham", "Jackson Heights"]) expect(keyterm).toContain(t);
+    expect(keyterm.length).toBeLessThanOrEqual(50); // Deepgram advises 20-50 keyterms (500-token cap)
     expect(new Set(keyterm).size).toBe(keyterm.length);
     expect(assistantFile.backgroundSound).toBe("off"); // Vapi's phone default is "office"
   });
 
-  it("turn-taking: LiveKit smart endpointing, a longer wait after asking for digits, looser fallback", () => {
+  it("turn-taking: Deepgram Flux end-of-turn, no dead endpointing config, low wait", () => {
+    expect(assistantFile.transcriber).toMatchObject({ provider: "deepgram", model: "flux-general-en", language: "en", eotThreshold: 0.7, eotTimeoutMs: 3000 });
     const plan = assistantFile.startSpeakingPlan as JsonObject;
-    expect(plan.smartEndpointingPlan).toEqual({ provider: "livekit", waitFunction: "700 + 4000 * max(0, x-0.5)" });
-    const [rule] = plan.customEndpointingRules as Array<{ type: string; regex: string; timeoutSeconds: number }>;
-    expect(rule).toMatchObject({ type: "assistant", timeoutSeconds: 1.5 });
-    expect(new RegExp(rule.regex, "i").test("And what's the address where you need service?")).toBe(true);
-    expect(plan.transcriptionEndpointingPlan).toEqual({ onPunctuationSeconds: 0.5, onNoPunctuationSeconds: 1.0, onNumberSeconds: 0.8 });
-    expect(assistantFile.stopSpeakingPlan).toMatchObject({ numWords: 2 });
+    // Vapi: don't set smartEndpointingPlan with Flux; custom rules and transcriptionEndpointingPlan are ignored.
+    expect(plan).toEqual({ waitSeconds: 0.3 });
+    expect(assistantFile._removedFromLive).toEqual([
+      "startSpeakingPlan.smartEndpointingPlan",
+      "startSpeakingPlan.customEndpointingRules",
+      "startSpeakingPlan.transcriptionEndpointingPlan",
+    ]);
+    expect(assistantFile.stopSpeakingPlan).toMatchObject({ numWords: 2, acknowledgementPhrases: expect.arrayContaining(["uh-huh", "mm-hmm"]) });
+    expect((assistantFile.voice as JsonObject).chunkPlan).toMatchObject({ enabled: true, minCharacters: 5 });
+    expect((assistantFile.model as JsonObject).promptCacheRetention).toBe("24h");
   });
 
   it("call endings: endCall speaks one closing line (blocking), which ends in the only end-call phrase", () => {
@@ -266,7 +279,9 @@ describe("assistant rendering", () => {
     const a = buildDesiredAssistant(assistantFile, "PROMPT ${NOT_A_VAR}", ["b", "a"], ENV);
     expect(a).not.toHaveProperty("_comments");
     expect(a.server).toEqual({ url: "https://summit.example.app/api/vapi/events", credentialId: "cred-123" });
-    expect(a.serverMessages).toEqual(["end-of-call-report", "status-update"]);
+    expect(a.serverMessages).toEqual(["end-of-call-report", "status-update", "phone-call-control"]);
+    expect(a.monitorPlan).toEqual({ controlEnabled: true }); // the control URL the padded hang-up uses
+    expect(a).not.toHaveProperty("_removedFromLive");
     const model = a.model as JsonObject;
     expect(model).toMatchObject({ provider: "openai", model: "gpt-4.1", toolIds: ["a", "b"] });
     // The prompt text is inserted verbatim, never re-scanned for ${...}.
