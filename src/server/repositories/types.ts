@@ -48,6 +48,8 @@ export interface CustomerRepository {
     lastName: string;
     zip?: string;
   }): Promise<Array<{ customerId: string; addressId: string; line1: string; zip: string }>>;
+  /** The customer's earliest confirmed appointment whose window hasn't ended by `after`. */
+  findNextAppointment(customerId: string, after: Date): Promise<{ startsAt: Date; endsAt: Date } | null>;
 }
 
 export interface ServiceAreaRepository {
@@ -385,6 +387,8 @@ export interface ConsoleRepository {
   /** Most recent calls first, by start time (or first tool call while a call is in progress). */
   recentCalls(opts: { includeSeed: boolean; limit: number }): Promise<CallActivityRow[]>;
   call(vapiCallId: string): Promise<CallDetailRow | null>;
+  /** Cheap existence check (two index lookups) for the proxy's 404 on unknown call IDs. */
+  callExists(vapiCallId: string): Promise<boolean>;
   /** Tool invocations (oldest first) and the records the calls created. */
   callRecords(vapiCallIds: string[]): Promise<CallRecords>;
   /** Confirmed appointments whose window hasn't ended before `from`, earliest first. */

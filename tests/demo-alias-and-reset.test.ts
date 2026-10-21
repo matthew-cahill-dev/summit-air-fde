@@ -4,20 +4,14 @@ import { describe, expect, it } from "vitest";
 import { appointmentSlots, customers, memberships, serviceAddresses } from "@/server/db/schema";
 import { countNonSeedData, resetNonSeedData } from "@/server/db/reset-test-data";
 import { SEED_CUSTOMERS } from "@/server/db/seed-data";
-import { callTool, testDb, testSettings } from "./helpers";
+import { callTool, slotFactory, TEST_NOW, testDb, testSettings } from "./helpers";
 
-const HOUR = 3_600_000;
 const REAL_PHONE = "+12025550142"; // stands in for a tester's real cell
 const TOMAS = "00000000-0000-4000-8000-000000000005";
 
-async function makeSlot(booked: number) {
-  const startsAt = new Date(Date.now() + 72 * HOUR + randomInt(1, 3_000_000));
-  const [row] = await testDb()
-    .insert(appointmentSlots)
-    .values({ county: "Queens", startsAt, endsAt: new Date(startsAt.getTime() + 3 * HOUR), capacity: 4, booked })
-    .returning();
-  return row;
-}
+const newSlot = slotFactory(3);
+const makeSlot = (booked: number) => newSlot({ county: "Queens", capacity: 4, booked });
+const at = { now: () => TEST_NOW };
 
 const slotBooked = async (id: string) =>
   (await testDb().select({ booked: appointmentSlots.booked }).from(appointmentSlots).where(eq(appointmentSlots.id, id)))[0].booked;
@@ -40,7 +34,7 @@ describe("DEMO_CALLER_PHONES precedence over a phone-matched non-seed customer",
   it("lookup and booking resolve to the demo persona, never the stray customer", async () => {
     // A failed verification + booking on an earlier call created a non-seed customer with the real cell.
     const earlierSlot = await makeSlot(0);
-    const stray = await callTool("book_appointment", bookingArgs(earlierSlot.id), { callerNumber: REAL_PHONE });
+    const stray = await callTool("book_appointment", bookingArgs(earlierSlot.id), { callerNumber: REAL_PHONE, deps: at });
     expect(stray.payload).toMatchObject({ ok: true, new_customer: true });
     const strayId = stray.payload.customer_id as string;
     expect(strayId).not.toBe(TOMAS);
@@ -58,7 +52,7 @@ describe("DEMO_CALLER_PHONES precedence over a phone-matched non-seed customer",
     const booked = await callTool(
       "book_appointment",
       bookingArgs(slot.id, { first_name: "Tomas", last_name: "Wrenfield", address: { line1: "21-45 31st St", unit: "1R", city: "Astoria", zip: "11105" } }),
-      { callerNumber: REAL_PHONE, deps },
+      { callerNumber: REAL_PHONE, deps: { ...deps, ...at } },
     );
     expect(booked.payload).toMatchObject({ ok: true, customer_id: TOMAS, new_customer: false });
     const [{ n }] = await testDb().select({ n: count() }).from(customers).where(eq(customers.phoneE164, REAL_PHONE));
@@ -80,10 +74,11 @@ describe("db:reset-test (resetNonSeedData)", () => {
 
     // A new caller's booking, a new address on a SEED customer, a callback, an end-of-call row.
     const slot = await makeSlot(2);
-    expect((await callTool("book_appointment", bookingArgs(slot.id), { callerNumber: "+17185550188" })).payload).toMatchObject({ ok: true });
+    expect((await callTool("book_appointment", bookingArgs(slot.id), { callerNumber: "+17185550188", deps: at })).payload).toMatchObject({ ok: true });
     const seedNewAddress = await callTool(
       "book_appointment",
       bookingArgs(slot.id, { customer_id: TOMAS, first_name: "Tomas", last_name: "Wrenfield", address: { line1: "9 Second Home Rd", city: "Astoria", zip: "11105" } }),
+      { deps: at },
     );
     expect(seedNewAddress.payload).toMatchObject({ ok: true, customer_id: TOMAS });
     expect(await slotBooked(slot.id)).toBe(4);

@@ -22,7 +22,8 @@ export type NextAction =
   | "book_earliest"
   | "book_standard"
   | "explain_and_close"
-  | "create_callback";
+  | "create_callback"
+  | "office_review";
 
 export type TriageFlags = {
   issueType: IssueType;
@@ -32,6 +33,11 @@ export type TriageFlags = {
   vulnerableOccupants: readonly VulnerableOccupant[];
   indoorTempF?: number;
   propertyType: "residential" | "commercial";
+  /**
+   * A building-wide central system (e.g. one boiler) serving several units. A landlord or
+   * property manager calling about a single apartment or house is NOT this: that's residential.
+   */
+  centralMultiUnit?: boolean;
 };
 
 export type ServiceAreaInfo = { zip: string; inArea: boolean; county: string | null };
@@ -156,6 +162,13 @@ export function triageRules(
         : `ZIP ${area.zip} is outside the service area`,
     );
     return { urgency, reasons, nextAction: "explain_and_close", serviceable, notServiceableReason };
+  }
+
+  // 4. NYC gray area: a central system serving several units is beyond a home visit, so the
+  // office reviews it instead of booking. An emergency still goes to the on-call team.
+  if (flags.centralMultiUnit) {
+    reasons.push("Building-wide central system serving multiple units: office to review");
+    if (urgency !== "emergency") return { urgency, reasons, nextAction: "office_review", serviceable };
   }
 
   const nextAction: NextAction =

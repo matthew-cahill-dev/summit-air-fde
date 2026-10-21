@@ -1,28 +1,15 @@
-import { randomInt, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { count, eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { appointments, appointmentSlots, customers, serviceAddresses } from "@/server/db/schema";
 import type { Repositories } from "@/server/repositories";
-import { callTool, testDb, testRepos } from "./helpers";
+import { callTool as callToolAt, slotFactory, TEST_NOW, testDb, testRepos } from "./helpers";
 
-const HOUR = 3_600_000;
+const makeSlot = slotFactory(1);
 
-/** A dedicated slot so tests don't depend on (or disturb) seeded availability. */
-async function makeSlot(opts: { county?: string; hoursFromNow?: number; capacity: number; booked: number }) {
-  // Random second offset keeps (county, starts_at) unique across tests and runs.
-  const startsAt = new Date(Date.now() + (opts.hoursFromNow ?? 72) * HOUR + randomInt(1, 3_000_000));
-  const [row] = await testDb()
-    .insert(appointmentSlots)
-    .values({
-      county: opts.county ?? "Kings",
-      startsAt,
-      endsAt: new Date(startsAt.getTime() + 3 * HOUR),
-      capacity: opts.capacity,
-      booked: opts.booked,
-    })
-    .returning();
-  return row;
-}
+/** Every call in this file runs at TEST_NOW, so lead time, the 48h windows and "later" paging are fixed. */
+const callTool = (name: string, args: unknown, opts: Parameters<typeof callToolAt>[2] = {}) =>
+  callToolAt(name, args, { ...opts, deps: { now: () => TEST_NOW, ...opts.deps } });
 
 async function slotBooked(id: string) {
   const [row] = await testDb().select({ booked: appointmentSlots.booked }).from(appointmentSlots).where(eq(appointmentSlots.id, id));
@@ -118,8 +105,8 @@ describe("book_appointment", () => {
   });
 
   it("existing customer via customer_id + address_id; members may take the held last seat inside 48h", async () => {
-    // capacity 2, booked 1, starts in 24h → the last seat is held for members.
-    const slot = await makeSlot({ capacity: 2, booked: 1, hoursFromNow: 24 });
+    // capacity 2, booked 1, starts Tuesday afternoon (inside 48h of TEST_NOW) → the last seat is held for members.
+    const slot = await makeSlot({ capacity: 2, booked: 1, day: "tuesday" });
     const nonMember = await callTool("book_appointment", newCallerArgs(slot.id, "+17185550306"));
     expect(nonMember.payload).toMatchObject({ ok: false, reason: "slot_taken" });
 

@@ -1,4 +1,6 @@
 import { getDbFor } from "@/server/db/client";
+import { appointmentSlots } from "@/server/db/schema";
+import { addDays, dayOfWeek, nextBusinessDays, todayInZone, zonedTimeToUtc } from "@/server/lib/time";
 import { createRepositories } from "@/server/repositories";
 import { TOOL_REGISTRY } from "@/server/vapi/registry";
 import type { VapiHttpDeps } from "@/server/vapi/http";
@@ -80,4 +82,46 @@ export async function callTool(
   );
   const { results } = (await res.json()) as { results: Array<{ toolCallId: string; result?: string; error?: string }> };
   return { entry: results[0], payload: payloadOf(results[0]) };
+}
+
+// ---------------------------------------------------------------------------
+// Deterministic slots. Test windows sit on fixed weekdays of the first full week the
+// seed covers (it seeds the next 10 business days), and tests that book or list them
+// pin the clock to that Monday at 06:00. No random offsets, never a weekend, so results
+// don't depend on when the suite runs.
+
+const TZ = "America/New_York";
+const HOUR = 3_600_000;
+const ANCHOR_MONDAY = nextBusinessDays(todayInZone(TZ), 10).find((d) => dayOfWeek(d) === 1)!;
+
+/** Monday 06:00 New York of the anchor week. Pass as `deps: { now: () => TEST_NOW }`. */
+export const TEST_NOW = zonedTimeToUtc(ANCHOR_MONDAY, 6, 0, TZ);
+
+const WEEKDAY_OFFSET = { monday: 0, tuesday: 1, wednesday: 2, thursday: 3, friday: 4 } as const;
+export type TestWeekday = keyof typeof WEEKDAY_OFFSET;
+
+/**
+ * Dedicated slots so tests don't depend on (or disturb) seeded availability.
+ * `series` is unique per test file (1, 2, 3, ...): each file gets its own start hour
+ * (14 + series), and each slot the next minute, so (county, starts_at) never collides.
+ * Thursday (the default) is 81+ hours after TEST_NOW, outside the 48h member-priority window;
+ * Tuesday is inside it.
+ */
+export function slotFactory(series: number) {
+  let minute = 0;
+  return async (opts: { county?: string; day?: TestWeekday; capacity: number; booked: number }) => {
+    if (minute >= 60) throw new Error("slotFactory: more than 60 slots in one file; use another series");
+    const startsAt = zonedTimeToUtc(addDays(ANCHOR_MONDAY, WEEKDAY_OFFSET[opts.day ?? "thursday"]), 14 + series, minute++, TZ);
+    const [row] = await testDb()
+      .insert(appointmentSlots)
+      .values({
+        county: opts.county ?? "Kings",
+        startsAt,
+        endsAt: new Date(startsAt.getTime() + 3 * HOUR),
+        capacity: opts.capacity,
+        booked: opts.booked,
+      })
+      .returning();
+    return row;
+  };
 }

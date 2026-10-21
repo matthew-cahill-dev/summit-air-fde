@@ -1,10 +1,11 @@
 import { NextRequest } from "next/server";
-import { unstable_doesMiddlewareMatch } from "next/experimental/testing/server";
+import { getRewrittenUrl, isRewrite, unstable_doesMiddlewareMatch } from "next/experimental/testing/server";
 import { describe, expect, it } from "vitest";
 import { config, proxy } from "@/proxy";
 import { attemptLogin } from "@/server/auth/login";
 import { dashboardAuth } from "@/server/auth/proxy";
 import { clientKey, createLoginRateLimiter } from "@/server/auth/rate-limit";
+import { callIdFromPath, UNMATCHED_CALL_PATH } from "@/server/console/call-not-found";
 import {
   createSessionToken,
   passwordMatches,
@@ -148,9 +149,9 @@ describe("dashboard auth proxy", () => {
     }
   });
 
-  it("uses DASHBOARD_PASSWORD from the environment", () => {
-    expect(proxy(request("/dispatch")).status).toBe(307);
-    expect(passedThrough(proxy(request("/dispatch", { token: createSessionToken(PASSWORD) })))).toBe(true);
+  it("uses DASHBOARD_PASSWORD from the environment", async () => {
+    expect((await proxy(request("/dispatch"))).status).toBe(307);
+    expect(passedThrough(await proxy(request("/dispatch", { token: createSessionToken(PASSWORD) })))).toBe(true);
   });
 
   it("matcher excludes the Vapi webhooks, health check and static assets only", () => {
@@ -161,5 +162,33 @@ describe("dashboard auth proxy", () => {
     for (const path of ["/api/vapi/tools", "/api/vapi/events", "/api/vapi/assistant-request", "/api/health", "/_next/static/chunks/app.js", "/_next/image", "/favicon.ico"]) {
       expect([path, matches(path)]).toEqual([path, false]);
     }
+  });
+});
+
+describe("unknown call IDs get a real 404 (proxy, real DB)", () => {
+  const token = createSessionToken(PASSWORD);
+
+  it("callIdFromPath only matches a call detail page and decodes the ID", () => {
+    expect(callIdFromPath("/calls/demo-seed-call-01")).toBe("demo-seed-call-01");
+    expect(callIdFromPath("/calls/abc%20def/")).toBe("abc def");
+    expect(callIdFromPath("/calls/%E0%A4%A")).toBe("%E0%A4%A"); // malformed: looked up as given
+    for (const p of ["/calls", "/calls/", "/calls/a/b", "/dispatch"]) expect(callIdFromPath(p)).toBeNull();
+  });
+
+  it("signed in: an unknown ID is rewritten to an unmatched path (Next serves 404); a known one passes through", async () => {
+    const missing = await proxy(request("/calls/no-such-call", { token }));
+    expect(isRewrite(missing)).toBe(true);
+    expect(new URL(getRewrittenUrl(missing)!).pathname).toBe(UNMATCHED_CALL_PATH);
+    // The target must stay unmatched: two segments under /calls has no route.
+    expect(callIdFromPath(UNMATCHED_CALL_PATH)).toBeNull();
+
+    const known = await proxy(request("/calls/demo-seed-call-01", { token }));
+    expect(passedThrough(known)).toBe(true);
+    expect(known.status).toBe(200);
+  });
+
+  it("signed out: the login redirect, never a hint about whether the call exists", async () => {
+    expect((await proxy(request("/calls/no-such-call"))).status).toBe(307);
+    expect((await proxy(request("/calls/demo-seed-call-01"))).status).toBe(307);
   });
 });

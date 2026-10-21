@@ -102,6 +102,12 @@ export const BUSINESS = {
     // ASSUMPTION: things we don't do over the phone.
     notOffered:
       "We don't service commercial properties, and we don't quote installation or replacement prices over the phone. The office can call back about installations.",
+    // ASSUMPTION: the one-sentence Comfort Club mention after a non-member books routine maintenance.
+    // Completes "mention in one sentence that ...".
+    membershipPitch:
+      "our Comfort Club membership is $19 a month and covers a heating and a cooling tune-up each year, priority scheduling and no diagnostic fee.",
+    // ASSUMPTION: member benefits the agent mentions briefly to a verified active member, when relevant.
+    memberBenefits: "priority scheduling, and the diagnostic fee is waived",
     // ASSUMPTION: payment.
     payment: "Payment is due at the time of service by card or check.",
     serviceArea: "Brooklyn, Queens and Staten Island",

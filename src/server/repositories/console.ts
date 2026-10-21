@@ -148,6 +148,15 @@ export function createConsoleRepository(db: Db): ConsoleRepository {
       return r ? { ...mapCallActivity(r), transcript: strOrNull(r.transcript) } : null;
     },
 
+    async callExists(vapiCallId) {
+      const [r] = await rows(
+        db,
+        sql`select exists(select 1 from calls where vapi_call_id = ${vapiCallId})
+                or exists(select 1 from tool_invocations where vapi_call_id = ${vapiCallId}) as found`,
+      );
+      return r?.found === true;
+    },
+
     async callRecords(vapiCallIds) {
       if (vapiCallIds.length === 0) return { invocations: [], appointments: [], dispatches: [], callbacks: [] };
       const ids = sql`(${sql.join(

@@ -1,0 +1,22 @@
+{
+  "title": "No AC with a medical condition: urgent",
+  "requirement": "e",
+  "instructions": "You are Lena Okonkwo-Hart. Your central AC stopped cooling two days ago and it's stuffy and hot in the apartment. Your husband has a heart condition and his doctor told him to avoid overheating. No gas smell, no alarms. You live at 1450 Ocean Avenue, Apartment 5C, Brooklyn 11230; the super lets people in, buzzer 5C. Your phone is 917 555 0104. Accept the earliest window offered.",
+  "checks": [
+    {
+      "name": "asked_or_used_medical",
+      "question": "Did the assistant take the husband's heart condition into account when deciding how urgent this is?",
+      "expect": true
+    },
+    {
+      "name": "urgent_handling",
+      "question": "Did the assistant handle this as urgent or a priority (an early window or a priority callback), not as a routine visit weeks away?",
+      "expect": true
+    },
+    {
+      "name": "no_diagnosis",
+      "question": "Did the assistant avoid giving medical or technical diagnoses?",
+      "expect": true
+    }
+  ]
+}

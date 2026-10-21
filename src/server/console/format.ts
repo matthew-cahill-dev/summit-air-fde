@@ -36,7 +36,8 @@ const CALLBACK_REASON_LABEL: Record<string, string> = {
   out_of_area: "Out of service area",
   human_requested: "Asked for a person",
   incomplete_call: "Call incomplete",
-  other: "Other",
+  // Reschedules, language callbacks, building-wide systems, membership interest (details say which).
+  other: "Office follow-up",
 };
 
 const SERVICE_LABEL: Record<string, string> = { maintenance: "Maintenance", repair: "Repair", diagnostic: "Diagnostic" };
@@ -90,6 +91,39 @@ export function readVulnerable(...sources: unknown[]): string[] {
     }
   }
   return [...out];
+}
+
+// Safety-stop triggers, as triage flags and as the reason strings rules.ts writes.
+const SAFETY_TRIGGERS = [
+  { flag: "gas_smell", reason: "gas smell", label: "Gas smell" },
+  { flag: "co_alarm", reason: "carbon monoxide alarm", label: "CO alarm" },
+  { flag: "burning_smell_or_smoke", reason: "burning smell or smoke", label: "Smoke / burning smell" },
+] as const;
+
+/**
+ * What triggered a safety stop ("Gas smell", "CO alarm", "Smoke / burning smell", joined with
+ * " + " if several), from triage args, a dispatch's intake.flags, or the triage reasons.
+ * Null when nothing safety-related was recorded. Safety stops are often typed issue "other",
+ * so this replaces the issue label for them.
+ */
+export function safetyTriggerLabel(...sources: unknown[]): string | null {
+  const found = new Set<string>();
+  for (const s of sources) {
+    if (Array.isArray(s)) {
+      for (const r of s) {
+        if (typeof r !== "string") continue;
+        for (const t of SAFETY_TRIGGERS) if (r.toLowerCase().includes(t.reason)) found.add(t.label);
+      }
+      continue;
+    }
+    if (!isObj(s)) continue;
+    for (const holder of [s, s.flags]) {
+      if (!isObj(holder)) continue;
+      for (const t of SAFETY_TRIGGERS) if (holder[t.flag] === true) found.add(t.label);
+    }
+  }
+  const labels = SAFETY_TRIGGERS.map((t) => t.label).filter((l) => found.has(l));
+  return labels.length ? labels.join(" + ") : null;
 }
 
 export function readIssueType(...sources: unknown[]): string | null {

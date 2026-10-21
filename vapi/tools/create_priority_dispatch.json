@@ -77,6 +77,50 @@
           },
           "description": "Specific symptoms."
         },
+        "onset": {
+          "type": "string",
+          "description": "When the problem started, in the caller's words, e.g. 'since last night'."
+        },
+        "equipment": {
+          "type": "string",
+          "description": "Equipment involved, if known: type, brand, age."
+        },
+        "tried_steps": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "What the caller already tried, e.g. 'thermostat set to heat at 72', 'reset the breaker'. Empty array if nothing."
+        },
+        "error_code": {
+          "type": "string",
+          "description": "Error code, blinking light pattern or display message, if any."
+        },
+        "pets": {
+          "type": "string",
+          "description": "Pets at the home, e.g. 'one dog, will be crated'."
+        },
+        "on_site_contact": {
+          "type": "object",
+          "description": "Only when the caller is calling for someone else (e.g. a parent): the person who will be at the home.",
+          "properties": {
+            "name": {
+              "type": "string",
+              "description": "On-site contact's name."
+            },
+            "phone": {
+              "type": "string",
+              "description": "On-site contact's phone, if different from the caller's."
+            },
+            "relationship": {
+              "type": "string",
+              "description": "Relationship to the caller, e.g. 'caller's mother'."
+            }
+          },
+          "required": [
+            "name"
+          ]
+        },
         "vulnerable_occupants": {
           "type": "array",
           "items": {

@@ -164,7 +164,7 @@ describe("priority board", () => {
     expect([late.overdue, onTime.overdue, acked.overdue]).toEqual([true, false, false]);
 
     const [cb] = buildBoard({ dispatches: [], callbacks: [c({ createdAt: at(BUSINESS.callbackRequestSlaMinutes + 1) })] }, now);
-    expect(cb).toMatchObject({ overdue: true, slaMinutes: BUSINESS.callbackRequestSlaMinutes, title: "Callback · Other" });
+    expect(cb).toMatchObject({ overdue: true, slaMinutes: BUSINESS.callbackRequestSlaMinutes, title: "Callback · Office follow-up" });
   });
 
   it("reads address, access notes and vulnerable occupants from the call's records", () => {
@@ -215,14 +215,19 @@ describe("console repository against the seeded database", () => {
     expect(withoutSeed.dispatches.map((r) => r.id)).toContain(openId);
   });
 
-  it("the seeded calls cover every outcome, plus one in progress", async () => {
+  it("the seeded calls cover every outcome, all ended (seed data is never shown as in progress)", async () => {
     const calls = (await repo().recentCalls({ includeSeed: true, limit: 500 })).filter((c) => c.isDemoSeed);
     const records = await repo().callRecords(calls.map((c) => c.vapiCallId));
     const summaries = calls.map((c) => summarizeCall(c, records, new Date()));
     expect(new Set(summaries.map((s) => s.outcome))).toEqual(
       new Set(["booked", "priority_dispatch", "safety_stop", "callback", "not_serviceable", "incomplete"]),
     );
-    expect(summaries.filter((s) => s.status === "in_progress")).toHaveLength(1);
+    expect(summaries.filter((s) => s.status !== "ended")).toEqual([]);
+    expect(calls.every((c) => c.hasReport)).toBe(true);
+    // Every seeded safety stop is described by its trigger, never "Other".
+    const safety = summaries.filter((s) => s.urgency === "safety_stop");
+    expect(safety.length).toBeGreaterThan(0);
+    for (const s of safety) expect(s.issue).toMatch(/^(Gas smell|CO alarm|Smoke \/ burning smell)( \+ .+)?$/);
   });
 
   it("a live call shows up from its first tool call, before any end-of-call report", async () => {

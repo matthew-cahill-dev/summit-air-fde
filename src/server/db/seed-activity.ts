@@ -287,10 +287,15 @@ export async function seedDemoActivity(tx: Tx, opts: { timeZone: string; now?: D
     ],
   });
 
-  // 10. In progress right now: triage done, no end-of-call report yet.
+  // 10. Hung up after triage, before choosing a time: incomplete. (Seed calls always have a
+  // report, so the console never shows demo data as "In progress".)
   addCall(10, {
     phone: "+19175550177",
-    startedMinAgo: 2,
+    startedMinAgo: 34,
+    durationSec: 96,
+    endedReason: "customer-ended-call",
+    summary:
+      "Caller in Astoria (11105) asked about a thermostat that won't hold its setting. Triage was routine and windows were offered, but the caller hung up before choosing one. No booking; consider a courtesy callback.",
     invocations: [
       { tool: "lookup_customer", args: {}, result: { found: false, verified: false }, ms: 83, dbMs: 36, at: 8 },
       { tool: "triage_issue", args: { issue_type: "thermostat", gas_smell: false, co_alarm: false, burning_smell_or_smoke: false, property_type: "residential", zip: "11105" }, result: { urgency: "routine", reasons: ["Routine request: thermostat"], serviceable: true, in_area: true, county: "Queens", next_action: "book_standard" }, ms: 149, dbMs: 70, at: 61 },

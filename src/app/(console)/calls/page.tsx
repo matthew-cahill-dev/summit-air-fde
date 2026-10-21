@@ -40,10 +40,10 @@ async function CallsTable() {
           <TableHeader>
             <tr className="border-b">
               <TableHead className="w-36 pl-4">Time</TableHead>
-              <TableHead>Caller</TableHead>
+              <TableHead className="w-64">Caller</TableHead>
               <TableHead>Issue</TableHead>
               <TableHead className="w-28">Urgency</TableHead>
-              <TableHead className="w-56 pr-4">Outcome</TableHead>
+              <TableHead className="w-48 pr-4">Outcome</TableHead>
             </tr>
           </TableHeader>
           <TableBody>

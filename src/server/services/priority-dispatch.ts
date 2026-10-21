@@ -2,8 +2,10 @@ import { z } from "zod";
 import { BUSINESS } from "@/config/business";
 import { optionalArg } from "@/server/lib/optional-arg";
 import { normalizePhoneE164 } from "@/server/lib/phone";
+import { intakeSentences } from "@/server/scheduling/technician-notes";
 import { ISSUE_TYPES, VULNERABLE_OCCUPANTS } from "@/server/triage/rules";
 import { defineTool } from "@/server/vapi/types";
+import { intakeDetails, intakeRecord, technicianIntakeShape } from "./intake";
 import { zipSchema } from "./triage-issue";
 
 export const createPriorityDispatchSchema = z.object({
@@ -21,6 +23,7 @@ export const createPriorityDispatchSchema = z.object({
   issue_type: z.enum(ISSUE_TYPES),
   issue_summary: z.string().trim().min(3),
   symptoms: z.array(z.string().trim().min(1)).default([]),
+  ...technicianIntakeShape,
   vulnerable_occupants: z.array(z.enum(VULNERABLE_OCCUPANTS)).default([]),
   indoor_temp_f: optionalArg(z.number().min(-20).max(130)),
   reasons: z.array(z.string().trim().min(1)).min(1),
@@ -54,8 +57,15 @@ export const createPriorityDispatchTool = defineTool({
           issue_type: args.issue_type,
           issue_summary: args.issue_summary,
           symptoms: args.symptoms,
+          ...intakeRecord(args),
           vulnerable_occupants: args.vulnerable_occupants,
           indoor_temp_f: args.indoor_temp_f ?? null,
+          // The same technician paragraph a booking gets, for the on-call team.
+          technician_notes: intakeSentences({
+            ...intakeDetails(args),
+            symptoms: args.symptoms,
+            vulnerableOccupants: args.vulnerable_occupants,
+          }).join(" "),
         },
         vapiCallId: ctx.callId,
       }));

@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { dispatchItem } from "@/server/console/board";
+import { safetyTriggerLabel } from "@/server/console/format";
 import {
   deriveCallStatus,
   deriveOutcome,
@@ -84,6 +86,11 @@ describe("deriveCallStatus", () => {
 
   it("is in progress with tool activity and no end-of-call report", () => {
     expect(deriveCallStatus({ hasReport: false, lastActivityAt: recent }, 2, NOW)).toBe("in_progress");
+  });
+
+  it("a seed call is never in progress, even with fresh tool activity and no report", () => {
+    expect(deriveCallStatus({ hasReport: false, lastActivityAt: recent, isDemoSeed: true }, 2, NOW)).toBe("ended");
+    expect(deriveCallStatus({ hasReport: false, lastActivityAt: stale, isDemoSeed: true }, 2, NOW)).toBe("ended");
   });
   it("is ended once the report arrives", () => {
     expect(deriveCallStatus({ hasReport: true, lastActivityAt: recent }, 2, NOW)).toBe("ended");
@@ -189,5 +196,61 @@ describe("keyArgs", () => {
       ["address", "88 Rockrose Ave, 10314"],
     ]);
     expect(keyArgs(null)).toEqual([]);
+  });
+});
+
+describe("safety stops are labeled by their trigger, never 'Other'", () => {
+  it("safetyTriggerLabel reads triage args, intake.flags or reason strings", () => {
+    expect(safetyTriggerLabel({ issue_type: "other", gas_smell: true, co_alarm: false })).toBe("Gas smell");
+    expect(safetyTriggerLabel({ source: "triage_issue", flags: { co_alarm: true } })).toBe("CO alarm");
+    expect(safetyTriggerLabel(["Burning smell or smoke reported"])).toBe("Smoke / burning smell");
+    expect(safetyTriggerLabel({ gas_smell: true }, ["Carbon monoxide alarm reported"])).toBe("Gas smell + CO alarm");
+    expect(safetyTriggerLabel({ issue_type: "no_heat" }, ["No heat during heat season"])).toBeNull();
+  });
+
+  it("calls list: the trigger replaces the issue type for a safety stop", () => {
+    const call = { vapiCallId: "c1", startedAt: NOW, endedAt: NOW, endedReason: null, callerPhone: null, summary: null, hasReport: true, firstActivityAt: NOW, lastActivityAt: NOW, isDemoSeed: false };
+    const records = {
+      invocations: [
+        {
+          id: "i1",
+          vapiCallId: "c1",
+          toolName: "triage_issue",
+          args: { issue_type: "other", gas_smell: false, co_alarm: false, burning_smell_or_smoke: true },
+          result: { ok: true, urgency: "safety_stop", reasons: ["Burning smell or smoke reported"], next_action: "safety_instructions" },
+          ok: true,
+          latencyMs: 40,
+          dbMs: 10,
+          createdAt: NOW,
+        },
+      ],
+      appointments: [],
+      dispatches: [],
+      callbacks: [],
+    };
+    expect(summarizeCall(call, records, NOW)).toMatchObject({ urgency: "safety_stop", issue: "Smoke / burning smell" });
+  });
+
+  it("board: a safety-stop dispatch shows its trigger", () => {
+    const item = dispatchItem(
+      {
+        id: "d1",
+        urgency: "safety_stop",
+        reasons: ["Carbon monoxide alarm reported"],
+        status: "open",
+        callerName: null,
+        callerPhone: "+17185550142",
+        address: { zip: "11218" },
+        intake: { source: "triage_issue", flags: { issue_type: "other", co_alarm: true } },
+        customerName: null,
+        customerPhone: null,
+        createdAt: NOW,
+        acknowledgedAt: null,
+        vapiCallId: null,
+        isDemoSeed: false,
+      },
+      NOW,
+    );
+    expect(item.issue).toBe("CO alarm");
   });
 });

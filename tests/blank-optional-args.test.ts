@@ -1,10 +1,10 @@
-import { randomInt } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
-import { appointmentSlots } from "@/server/db/schema";
 import { blankToUndefined, optionalArg } from "@/server/lib/optional-arg";
 import { TOOL_REGISTRY } from "@/server/vapi/registry";
-import { callTool, testDb } from "./helpers";
+import { callTool, slotFactory, TEST_NOW } from "./helpers";
+
+const makeSlot = slotFactory(2);
 
 describe("optionalArg", () => {
   const schema = z.object({ notes: optionalArg(z.string().trim().min(1)), temp: optionalArg(z.number()) });
@@ -47,11 +47,7 @@ describe("optionalArg", () => {
 
 describe("tools treat blank optional fields as omitted (real DB)", () => {
   it("book_appointment with access_notes, equipment, email, unit and customer_id all \"\" books", async () => {
-    const startsAt = new Date(Date.now() + 72 * 3_600_000 + randomInt(1, 3_000_000));
-    const [slot] = await testDb()
-      .insert(appointmentSlots)
-      .values({ county: "Kings", startsAt, endsAt: new Date(startsAt.getTime() + 3 * 3_600_000), capacity: 2, booked: 0 })
-      .returning();
+    const slot = await makeSlot({ capacity: 2, booked: 0 });
     const { payload } = await callTool(
       "book_appointment",
       {
@@ -70,7 +66,7 @@ describe("tools treat blank optional fields as omitted (real DB)", () => {
         equipment: "",
         access_notes: "",
       },
-      { callerNumber: "+17185550166" },
+      { callerNumber: "+17185550166", deps: { now: () => TEST_NOW } },
     );
     expect(payload).toMatchObject({ ok: true, booked: true });
   });

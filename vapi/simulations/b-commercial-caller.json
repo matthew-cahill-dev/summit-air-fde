@@ -1,0 +1,22 @@
+{
+  "title": "Commercial caller is declined warmly",
+  "requirement": "b",
+  "instructions": "You own a restaurant, Fernhollow Kitchen, at 251 Atlantic Ave, Brooklyn 11201. The rooftop AC unit over the dining room is blowing warm air and you want someone today. No gas smell, no alarms. If the assistant says they only do homes, accept it politely and ask if they can recommend anyone; then end the call.",
+  "checks": [
+    {
+      "name": "identified_commercial",
+      "question": "Did the assistant recognize this is a business (commercial) property rather than a home?",
+      "expect": true
+    },
+    {
+      "name": "declined_warmly",
+      "question": "Did the assistant politely explain that Summit Air only services homes?",
+      "expect": true
+    },
+    {
+      "name": "no_booking",
+      "question": "Did the assistant book an appointment or say a technician would come out?",
+      "expect": false
+    }
+  ]
+}

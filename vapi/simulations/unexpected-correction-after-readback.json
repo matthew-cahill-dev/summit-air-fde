@@ -1,0 +1,22 @@
+{
+  "title": "Correction after the read-back is re-confirmed",
+  "requirement": "unexpected, quality",
+  "instructions": "You are Sam Okafor, a new customer. Your AC makes a loud clicking noise when it starts (it still cools); it started three days ago. No gas smell, nobody vulnerable at home. Give your address as 520 Bay Ridge Parkway, Brooklyn 11209, apartment 2. Your phone is 718 555 0185. Accept the first window offered. When the assistant reads everything back, say: 'Oh wait, sorry, it's apartment 4, not 2, and it's 522 Bay Ridge Parkway.' Then confirm the second read-back.",
+  "checks": [
+    {
+      "name": "reread_corrected",
+      "question": "After the caller corrected the address, did the assistant read back the corrected address (522, apartment 4) and ask for confirmation again?",
+      "expect": true
+    },
+    {
+      "name": "booked_corrected_address",
+      "question": "Was the final confirmed booking at 522 Bay Ridge Parkway, apartment 4 rather than the original 520, apartment 2?",
+      "expect": true
+    },
+    {
+      "name": "no_full_restart",
+      "question": "Did the assistant avoid making the caller repeat everything from the start?",
+      "expect": true
+    }
+  ]
+}

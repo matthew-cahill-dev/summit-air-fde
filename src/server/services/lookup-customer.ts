@@ -1,8 +1,10 @@
 import { z } from "zod";
+import { BUSINESS } from "@/config/business";
 import { streetAddressMatches } from "@/server/lib/address-match";
 import { logEvent } from "@/server/lib/log";
 import { optionalArg } from "@/server/lib/optional-arg";
 import { normalizePhoneE164 } from "@/server/lib/phone";
+import { spokenWindow } from "@/server/lib/time";
 import { defineTool, type ToolContext, type ToolOutcome } from "@/server/vapi/types";
 import { getCallerContext, restrictToAddresses, verifyCustomerByName, type CallerContext } from "./caller-context";
 import { zipSchema } from "./triage-issue";
@@ -37,6 +39,7 @@ export function verifiedPayload(context: FoundContext): Record<string, unknown> 
     first_name: context.firstName,
     is_member: context.isActiveMember,
     membership: context.membership ? { status: context.membership.status, plan: context.membership.planName } : null,
+    member_benefits: context.isActiveMember ? BUSINESS.facts.memberBenefits : null,
     addresses: context.addresses.map((a) => ({
       address_id: a.addressId,
       line1: a.line1,
@@ -50,6 +53,23 @@ export function verifiedPayload(context: FoundContext): Record<string, unknown> 
 
 const VERIFIED_SAY =
   "Identity verified. You may now greet them by first name and use these account details. Ask for the unit if one is on file and they didn't say it.";
+const MEMBER_SAY = ` They're an active member: when it's relevant (offering times, or if cost comes up), mention briefly that ${BUSINESS.facts.memberBenefits}. Don't list benefits otherwise.`;
+const NEXT_APPOINTMENT_SAY =
+  " If they ask when their technician is coming, give next_appointment (day and window only). To reschedule or cancel, don't change anything yourself: offer an office callback (create_callback_request, reason other, details with the appointment and what they want) and say the office will confirm.";
+
+/** Verified result plus the next upcoming appointment (day and window only) and member hints. */
+async function verifiedOutcome(context: FoundContext, ctx: ToolContext, extra: Record<string, unknown> = {}): Promise<ToolOutcome> {
+  const next = await ctx.repos.customers.findNextAppointment(context.customerId, ctx.now);
+  return {
+    ok: true,
+    data: {
+      ...verifiedPayload(context),
+      ...extra,
+      next_appointment: next ? spokenWindow(next.startsAt, next.endsAt, ctx.settings.timeZone, ctx.now) : null,
+    },
+    say: VERIFIED_SAY + (context.isActiveMember ? MEMBER_SAY : "") + (next ? NEXT_APPOINTMENT_SAY : ""),
+  };
+}
 
 const UNVERIFIED: ToolOutcome = {
   ok: true,
@@ -79,7 +99,7 @@ export const lookupCustomerTool = defineTool({
         ctx.repos.customers,
       );
       logEvent("customer_verification", { callId: ctx.callId, path: "name", status: result.status, zip_given: Boolean(args.zip) });
-      if (result.status === "verified") return { ok: true, data: verifiedPayload(result.context), say: VERIFIED_SAY };
+      if (result.status === "verified") return verifiedOutcome(result.context, ctx);
       if (result.status === "ambiguous") {
         return {
           ok: true,
@@ -137,10 +157,8 @@ export const lookupCustomerTool = defineTool({
     const matched = context.addresses.filter((a) => streetAddressMatches(stated, a.line1));
     logEvent("customer_verification", { callId: ctx.callId, path: "phone", verified: matched.length > 0 });
     if (matched.length === 0) return UNVERIFIED;
-    return {
-      ok: true,
-      data: { ...verifiedPayload(restrictToAddresses(context, new Set(matched.map((a) => a.addressId)))), phone_e164: context.phoneE164 },
-      say: VERIFIED_SAY,
-    };
+    return verifiedOutcome(restrictToAddresses(context, new Set(matched.map((a) => a.addressId))), ctx, {
+      phone_e164: context.phoneE164,
+    });
   },
 });

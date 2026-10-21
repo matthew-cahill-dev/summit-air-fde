@@ -11,6 +11,7 @@ export const createCallbackRequestSchema = z.object({
   details: z.string().trim().min(3),
   caller_name: optionalArg(z.string().trim().min(1)),
   phone: optionalArg(z.string().trim().min(1)),
+  language: optionalArg(z.string().trim().min(2)),
   context: optionalArg(z.record(z.string(), z.unknown())),
 });
 
@@ -31,13 +32,17 @@ export const createCallbackRequestTool = defineTool({
       callerPhone: phoneE164,
       callerName: args.caller_name ?? null,
       reason: args.reason,
-      context: { details: args.details, ...args.context },
+      context: { details: args.details, ...args.context, ...(args.language ? { language: args.language } : {}) },
       vapiCallId: ctx.callId,
     });
     return {
       ok: true,
       data: { callback_id: id, status: "open", callback_phone: phoneE164 },
-      say: `The callback request is logged. Tell the caller the office will call back during office hours (${BUSINESS.facts.officeHours}). Don't promise an exact time.`,
+      say:
+        `The callback request is logged. Tell the caller the office will call back during office hours (${BUSINESS.facts.officeHours}). Don't promise an exact time.` +
+        (args.language && !/^english$/i.test(args.language)
+          ? ` Say it once in English, then once in simple ${args.language}: the office will call them back in ${args.language}.`
+          : ""),
     };
   },
 });

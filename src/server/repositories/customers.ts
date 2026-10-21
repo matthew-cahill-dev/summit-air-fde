@@ -1,6 +1,6 @@
-import { and, asc, desc, eq, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, sql } from "drizzle-orm";
 import type { Db } from "@/server/db/client";
-import { customers, equipment, memberships, serviceAddresses } from "@/server/db/schema";
+import { appointments, appointmentSlots, customers, equipment, memberships, serviceAddresses } from "@/server/db/schema";
 import type { AddressRow, CallerContextRows, CustomerRepository, CustomerRow } from "./types";
 
 const customerColumns = {
@@ -102,6 +102,19 @@ export function createCustomerRepository(db: Db): CustomerRepository {
           ),
         )
         .limit(200);
+    },
+
+    async findNextAppointment(customerId, after) {
+      const [row] = await db
+        .select({ startsAt: appointmentSlots.startsAt, endsAt: appointmentSlots.endsAt })
+        .from(appointments)
+        .innerJoin(appointmentSlots, eq(appointmentSlots.id, appointments.slotId))
+        .where(
+          and(eq(appointments.customerId, customerId), eq(appointments.status, "confirmed"), gt(appointmentSlots.endsAt, after)),
+        )
+        .orderBy(asc(appointmentSlots.startsAt))
+        .limit(1);
+      return row ?? null;
     },
   };
 }

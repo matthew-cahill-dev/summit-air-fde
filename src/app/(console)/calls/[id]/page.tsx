@@ -74,7 +74,10 @@ async function CallDetail({ params }: { params: PageProps<"/calls/[id]">["params
       >
         <div className="flex flex-wrap items-center gap-2">
           <SeedTag show={summary.isDemoSeed} />
-          {summary.urgency && <UrgencyBadge urgency={summary.urgency} />}
+          {/* A safety stop's outcome badge already says "Safety stop"; don't show it twice. */}
+          {summary.urgency && !(summary.urgency === "safety_stop" && summary.outcome === "safety_stop") && (
+            <UrgencyBadge urgency={summary.urgency} />
+          )}
           <OutcomeBadge outcome={summary.outcome} status={summary.status} />
         </div>
       </PageHeader>

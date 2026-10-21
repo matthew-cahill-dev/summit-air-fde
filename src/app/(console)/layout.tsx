@@ -42,10 +42,11 @@ export default function ConsoleLayout({ children }: LayoutProps<"/">) {
       </aside>
       <div className="flex min-w-0 flex-1 flex-col">
         <div className="sticky top-0 z-10 flex h-12 items-center justify-end gap-5 border-b bg-background/85 px-8 backdrop-blur">
-          <Suspense fallback={<SeedToggle hidden={false} />}>
+          <Suspense fallback={<SeedToggle hidden />}>
             <SeedPreference />
           </Suspense>
-          <Separator orientation="vertical" className="h-4" />
+          {/* A plain rule: the Separator's self-stretch plus a fixed height pins it to the top of the bar. */}
+          <span aria-hidden className="h-4 w-px shrink-0 bg-border" />
           <LiveRefresh />
         </div>
         <main className="mx-auto w-full max-w-7xl flex-1 space-y-6 px-8 py-7">{children}</main>

@@ -1,0 +1,27 @@
+{
+  "title": "Daughter books for her elderly mother's home",
+  "requirement": "d, e",
+  "instructions": "You are Maria Alvarez calling about your mother's home, not your own. Your mother Rosa Alvarez is 84 and lives alone at 12 Linden Street, Apartment 3B, Brooklyn 11221. Her radiators have been only lukewarm since yesterday; the heat isn't completely off and it's about 64 degrees inside. No gas smell. You've never been a Summit Air customer. Your phone is 347 555 0182; your mother's phone is 718 555 0183 and she'll be home to let the technician in. Buzzer 3B. She has a cat. Confirm the read-back and accept the first window.",
+  "checks": [
+    {
+      "name": "asked_about_occupant",
+      "question": "Did the assistant take into account that the elderly mother lives at the service address (for example by asking about or acknowledging who lives there)?",
+      "expect": true
+    },
+    {
+      "name": "on_site_contact",
+      "question": "Did the assistant ask who will be at the home or collect the mother's name or phone number separately from the caller's?",
+      "expect": true
+    },
+    {
+      "name": "not_blocked_by_verification",
+      "question": "Did the assistant move ahead with service for the mother's home (offering times or logging a priority request) rather than refusing because the caller couldn't be verified or isn't the account holder?",
+      "expect": true
+    },
+    {
+      "name": "next_step_confirmed",
+      "question": "Did the assistant confirm a clear next step for the mother's home at 12 Linden Street: either a booked arrival window, or a priority request with a callback from the on-call team? (With an 84-year-old and no heat in heat season, a priority callback is the expected outcome.)",
+      "expect": true
+    }
+  ]
+}

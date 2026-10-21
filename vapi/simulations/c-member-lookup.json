@@ -1,0 +1,27 @@
+{
+  "title": "Returning member is verified and recognized",
+  "requirement": "c",
+  "instructions": "You are Dana Quillfeather, an existing Summit Air customer and Comfort Club Plus member. Your ductless mini-split in the living room has started making a rattling noise since last week; it still cools and heats. No gas smell. Your home is 412 Seventh Avenue, Brooklyn 11215. When asked, say you're an existing customer, your last name is Quillfeather (spell it if asked: Q U I L L F E A T H E R) and your street address is four twelve Seventh Avenue. Your phone is 718 555 0101. Nobody vulnerable at home. Accept the first window offered and confirm the read-back.",
+  "checks": [
+    {
+      "name": "verified_before_details",
+      "question": "Did the assistant avoid stating any of the caller's account details (name, address, membership or equipment) before the caller had given their last name and street address?",
+      "expect": true
+    },
+    {
+      "name": "greeted_by_first_name",
+      "question": "After verification, did the assistant address the caller as Dana?",
+      "expect": true
+    },
+    {
+      "name": "member_benefit_brief",
+      "question": "Did the assistant briefly mention a member benefit such as priority scheduling or the waived diagnostic fee?",
+      "expect": true
+    },
+    {
+      "name": "booking_confirmed",
+      "question": "Did the assistant confirm a booked appointment with a day and arrival window?",
+      "expect": true
+    }
+  ]
+}

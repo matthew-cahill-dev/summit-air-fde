@@ -8,6 +8,7 @@ import {
   readAddress,
   readIssueType,
   readVulnerable,
+  safetyTriggerLabel,
   URGENCY_RANK,
   type DisplayAddress,
 } from "./format";
@@ -24,6 +25,10 @@ export type BoardItem = {
   address: DisplayAddress | null;
   vulnerable: string[];
   issue: string | null;
+  /** Technician intake paragraph (priority dispatch), e.g. "Started: last night. Already tried: ...". */
+  notes: string | null;
+  /** Callback in a language other than English, e.g. "Spanish". */
+  language: string | null;
   createdAt: Date;
   acknowledgedAt: Date | null;
   ageMs: number;
@@ -51,7 +56,12 @@ export function dispatchItem(d: BoardDispatchRow, now: Date): BoardItem {
     callerPhone: d.callerPhone ?? d.customerPhone,
     address: readAddress(d.address),
     vulnerable: readVulnerable(d.intake),
-    issue: str(d.intake?.issue_summary) ?? issueLabel(issueType),
+    issue:
+      d.urgency === "safety_stop"
+        ? (safetyTriggerLabel(d.intake, d.reasons) ?? (issueType && issueType !== "other" ? issueLabel(issueType) : "Safety concern"))
+        : (str(d.intake?.issue_summary) ?? issueLabel(issueType)),
+    notes: str(d.intake?.technician_notes),
+    language: null,
     createdAt: d.createdAt,
     acknowledgedAt: d.acknowledgedAt,
     ageMs,
@@ -78,6 +88,8 @@ export function callbackItem(c: BoardCallbackRow, now: Date): BoardItem {
     address: readAddress(c.context?.address),
     vulnerable: readVulnerable(c.context),
     issue: str(c.context?.details) ?? issueLabel(readIssueType(c.context)),
+    notes: null,
+    language: str(c.context?.language),
     createdAt: c.createdAt,
     acknowledgedAt: null,
     ageMs,

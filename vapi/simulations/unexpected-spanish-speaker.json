@@ -1,0 +1,22 @@
+{
+  "title": "Spanish speaker gets a callback in Spanish",
+  "requirement": "unexpected",
+  "instructions": "Speak only Spanish for the whole call; you speak very little English. You are Carmen Rivera. Your heat isn't working ('no tengo calefacción') in your apartment at 30-15 Steinway Street, Astoria 11103. No gas smell ('no huele a gas'). Your phone is 718 555 0184. If the assistant says the office will call you back in Spanish, say 'gracias' and end the call.",
+  "checks": [
+    {
+      "name": "spoke_some_spanish",
+      "question": "Did the assistant say something in Spanish to the caller?",
+      "expect": true
+    },
+    {
+      "name": "callback_in_language",
+      "question": "Did the assistant tell the caller the office would call them back in Spanish?",
+      "expect": true
+    },
+    {
+      "name": "no_english_only_dead_end",
+      "question": "Did the assistant keep going in English only, ignoring that the caller didn't understand?",
+      "expect": false
+    }
+  ]
+}

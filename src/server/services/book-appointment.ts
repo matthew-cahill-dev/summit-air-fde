@@ -10,6 +10,7 @@ import { buildTechnicianNotes } from "@/server/scheduling/technician-notes";
 import { VULNERABLE_OCCUPANTS } from "@/server/triage/rules";
 import { defineTool, type ToolContext, type ToolOutcome } from "@/server/vapi/types";
 import { findOfferableSlots, isActiveMember } from "./availability";
+import { intakeDetails, intakeRecord, technicianIntakeShape } from "./intake";
 import { zipSchema } from "./triage-issue";
 
 export const bookAppointmentSchema = z
@@ -34,7 +35,7 @@ export const bookAppointmentSchema = z
     urgency: z.enum(["urgent", "routine"]),
     issue_summary: z.string().trim().min(3),
     symptoms: z.array(z.string().trim().min(1)).default([]),
-    equipment: optionalArg(z.string().trim().min(1)),
+    ...technicianIntakeShape,
     access_notes: optionalArg(z.string().trim().min(1)),
     vulnerable_occupants: z.array(z.enum(VULNERABLE_OCCUPANTS)).default([]),
   })
@@ -72,6 +73,18 @@ export function normalizeLine1(line1: string): string {
 }
 
 const normUnit = (u: string | null | undefined) => (u ?? "").toLowerCase().replace(/^(apt|apartment|unit|#)\s*/, "").replace(/\s+/g, "");
+
+/**
+ * Comfort Club is mentioned once, after the booking, only to non-members booking routine
+ * maintenance with nobody vulnerable at home. Never on urgent, emergency or safety calls.
+ */
+export function shouldOfferMembership(i: { isMember: boolean; urgency: string; serviceType: string; vulnerableOccupants: string[] }): boolean {
+  return !i.isMember && i.urgency === "routine" && i.serviceType === "maintenance" && i.vulnerableOccupants.length === 0;
+}
+
+const MEMBERSHIP_SAY =
+  ` After the recap, and only once: mention in one sentence that ${BUSINESS.facts.membershipPitch} Ask if they'd like the office to follow up about it. ` +
+  "If yes, call create_callback_request with reason other and details 'Interested in Comfort Club membership'. If no, drop it.";
 
 const confirmationCode = (appointmentId: string) => `SA-${appointmentId.replace(/-/g, "").slice(0, 6).toUpperCase()}`;
 
@@ -192,11 +205,11 @@ export const bookAppointmentTool = defineTool({
           address = { ...address, accessNotes: args.access_notes };
         }
 
+        const isMember = await tx.hasActiveMembership(customer.id);
         // Idempotent: the same customer already holds this window.
         const existing = await tx.findAppointment(customer.id, slot.id);
-        if (existing?.status === "confirmed") return { appointmentId: existing.id, already: true, slot, address, customer };
+        if (existing?.status === "confirmed") return { appointmentId: existing.id, already: true, slot, address, customer, isMember };
 
-        const isMember = await tx.hasActiveMembership(customer.id);
         const claimed = await tx.claimSeat(slot.id, {
           isMember,
           earliestStart: earliestBookableStart(ctx.now, cfg),
@@ -208,7 +221,7 @@ export const bookAppointmentTool = defineTool({
         const intake = {
           issue_summary: args.issue_summary,
           symptoms: args.symptoms,
-          equipment: args.equipment ?? null,
+          ...intakeRecord(args),
           vulnerable_occupants: args.vulnerable_occupants,
           access_notes: address.accessNotes,
           caller_confirmed: true,
@@ -223,7 +236,7 @@ export const bookAppointmentTool = defineTool({
           windowLabel: spokenWindow(slot.startsAt, slot.endsAt, ctx.settings.timeZone),
           issueSummary: args.issue_summary,
           symptoms: args.symptoms,
-          equipment: args.equipment,
+          ...intakeDetails(args),
           vulnerableOccupants: args.vulnerable_occupants,
           accessNotes: address.accessNotes,
           vapiCallId: ctx.callId,
@@ -240,11 +253,20 @@ export const bookAppointmentTool = defineTool({
           technicianNotes,
           vapiCallId: ctx.callId,
         });
-        return { appointmentId: appt.id, already: false, slot, address, customer };
+        return { appointmentId: appt.id, already: false, slot, address, customer, isMember };
       });
 
       const window = spokenWindow(booked.slot.startsAt, booked.slot.endsAt, ctx.settings.timeZone, ctx.now);
       logEvent("appointment_booked", { callId: ctx.callId, already: booked.already, newCustomer });
+      // A replay (already) never re-offers: the caller heard it the first time.
+      const offerMembership =
+        !booked.already &&
+        shouldOfferMembership({
+          isMember: booked.isMember,
+          urgency: args.urgency,
+          serviceType: args.service_type,
+          vulnerableOccupants: args.vulnerable_occupants,
+        });
       return {
         ok: true,
         data: {
@@ -256,8 +278,12 @@ export const bookAppointmentTool = defineTool({
           customer_id: booked.customer.id,
           window,
           address: { line1: booked.address.line1, unit: booked.address.unit, zip: booked.address.zip },
+          offer_membership: offerMembership,
         },
-        say: `The booking is confirmed. Recap it: ${window}, at ${booked.address.line1}${booked.address.unit ? `, unit ${booked.address.unit}` : ""}. Then ask if there's anything else.`,
+        say:
+          `The booking is confirmed. Recap it: ${window}, at ${booked.address.line1}${booked.address.unit ? `, unit ${booked.address.unit}` : ""}.` +
+          (offerMembership ? MEMBERSHIP_SAY : "") +
+          " Then ask if there's anything else.",
       };
     } catch (err) {
       if (err instanceof BookingRejected) return rejected(err, args, ctx, slotCounty, resolvedCustomerId);

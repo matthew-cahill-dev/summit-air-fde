@@ -3,7 +3,7 @@
   "async": false,
   "function": {
     "name": "triage_issue",
-    "description": "Classify the problem with Summit Air's rules and get the next step. Returns urgency, reasons, next_action (safety_instructions, priority_dispatch, book_earliest, book_standard, explain_and_close, create_callback) and, when bookable, up to 3 offered_slots with spoken labels. For gas/CO/smoke, give safety instructions BEFORE calling this.",
+    "description": "Classify the problem with Summit Air's rules and get the next step. Returns urgency, reasons, next_action (safety_instructions, priority_dispatch, book_earliest, book_standard, explain_and_close, create_callback, office_review) and, when bookable, up to 3 offered_slots with spoken labels. For gas/CO/smoke, give safety instructions BEFORE calling this.",
     "parameters": {
       "type": "object",
       "properties": {
@@ -57,7 +57,11 @@
             "residential",
             "commercial"
           ],
-          "description": "residential for a house or apartment; commercial for a business."
+          "description": "residential for a house or apartment; commercial for a business. If unclear, ask before calling; never assume."
+        },
+        "multi_unit_central_system": {
+          "type": "boolean",
+          "description": "true only when the problem is a building-wide central system (e.g. one boiler) serving several units. A landlord or property manager calling about one apartment or house is false."
         },
         "zip": {
           "type": "string",

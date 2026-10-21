@@ -9,7 +9,7 @@ import type {
   InvocationRow,
   Urgency,
 } from "@/server/repositories";
-import { issueLabel, isUrgency, URGENCY_RANK } from "./format";
+import { issueLabel, isUrgency, safetyTriggerLabel, URGENCY_RANK } from "./format";
 
 export const CALL_OUTCOMES = [
   "safety_stop",
@@ -82,12 +82,14 @@ export function deriveOutcome(e: CallEvidence): CallOutcome {
 export type CallStatus = "in_progress" | "ended" | "report_missing";
 
 export function deriveCallStatus(
-  call: Pick<CallActivityRow, "hasReport" | "lastActivityAt">,
+  call: Pick<CallActivityRow, "hasReport" | "lastActivityAt"> & { isDemoSeed?: boolean },
   invocationCount: number,
   now: Date,
 ): CallStatus {
   if (call.hasReport) return "ended";
   if (invocationCount === 0) return "ended";
+  // Demo data is never live: a seed call without a report shows as its outcome (e.g. Incomplete).
+  if (call.isDemoSeed) return "ended";
   const quietFor = call.lastActivityAt ? now.getTime() - call.lastActivityAt.getTime() : Infinity;
   return quietFor < IN_PROGRESS_QUIET_MS ? "in_progress" : "report_missing";
 }
@@ -152,6 +154,17 @@ export function summarizeCall(call: CallActivityRow, records: CallRecords, now: 
     evidence.callbacks.map((c) => nonEmpty(c.context?.details)).find(Boolean) ??
     null;
   const issueType = issueLabel(nonEmpty(triage?.args?.issue_type));
+  // A safety stop is described by its trigger, never by its (usually "other") issue type.
+  const safetyDispatches = evidence.dispatches.filter((d) => d.urgency === "safety_stop");
+  const safetyTrigger =
+    urgency === "safety_stop"
+      ? (safetyTriggerLabel(
+          triage?.args,
+          ...safetyDispatches.map((d) => d.intake),
+          triage?.result.reasons,
+          ...safetyDispatches.map((d) => d.reasons),
+        ) ?? (triage?.args?.issue_type && triage.args.issue_type !== "other" ? issueType : "Safety concern"))
+      : null;
 
   const reasons = [
     ...(Array.isArray(triage?.result.reasons) ? (triage.result.reasons as unknown[]) : []),
@@ -163,7 +176,7 @@ export function summarizeCall(call: CallActivityRow, records: CallRecords, now: 
     at: call.startedAt ?? call.firstActivityAt ?? call.endedAt,
     callerName,
     callerPhone,
-    issue: issueSummary ?? issueType,
+    issue: safetyTrigger ?? issueSummary ?? issueType,
     urgency,
     reasons: [...new Set(reasons)],
     outcome: deriveOutcome(evidence),

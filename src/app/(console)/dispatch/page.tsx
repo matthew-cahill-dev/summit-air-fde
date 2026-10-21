@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Suspense } from "react";
-import { AlarmClockIcon, ArrowUpRightIcon, CheckCircle2Icon, KeyRoundIcon, MapPinIcon, PhoneIcon } from "lucide-react";
+import { AlarmClockIcon, ArrowUpRightIcon, CheckCircle2Icon, KeyRoundIcon, LanguagesIcon, MapPinIcon, PhoneIcon } from "lucide-react";
 import { CallbackActions, DispatchActions } from "@/components/console/board-actions";
 import { SeedTag, URGENCY_RAIL, UrgencyBadge, VulnerableList } from "@/components/console/badges";
 import { FreshItem, FreshScope } from "@/components/console/live";
@@ -75,7 +75,7 @@ function BoardCard({ item, now, tz }: { item: BoardItem; now: Date; tz: string }
       )}
     >
       <div className={cn("w-1 shrink-0", URGENCY_RAIL[item.urgency ?? "none"])} aria-hidden />
-      <div className="grid min-w-0 flex-1 gap-x-8 gap-y-4 p-4 md:grid-cols-2 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)_auto]">
+      <div className="grid min-w-0 flex-1 gap-x-8 gap-y-4 p-4 md:grid-cols-2 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)_15rem]">
         {/* Who and where */}
         <div className="min-w-0 space-y-2.5">
           <div className="flex flex-wrap items-center gap-2">
@@ -115,6 +115,13 @@ function BoardCard({ item, now, tz }: { item: BoardItem; now: Date; tz: string }
         {/* Why */}
         <div className="min-w-0 space-y-2">
           {item.issue && <p className="font-medium">{item.issue}</p>}
+          {item.language && (
+            <p className="flex items-center gap-1.5 text-muted-foreground">
+              <LanguagesIcon className="size-3.5 shrink-0" aria-hidden />
+              <span>Call back in {item.language}</span>
+            </p>
+          )}
+          {item.notes && <p className="text-muted-foreground text-pretty">{item.notes}</p>}
           {item.reasons.length > 0 ? (
             <ul className="space-y-1 text-muted-foreground">
               {item.reasons.map((r) => (

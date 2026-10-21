@@ -21,8 +21,9 @@ export async function hasValidSession(): Promise<boolean> {
   return verifySessionToken(jar.get(SESSION_COOKIE)?.value, getEnv().DASHBOARD_PASSWORD);
 }
 
+/** Seed data is hidden unless the viewer turned "Show seed data" on, so a demo shows only real calls. */
 export async function readHideSeed(): Promise<boolean> {
-  return (await cookies()).get(HIDE_SEED_COOKIE)?.value === "1";
+  return (await cookies()).get(HIDE_SEED_COOKIE)?.value !== "0";
 }
 
 async function consoleContext() {

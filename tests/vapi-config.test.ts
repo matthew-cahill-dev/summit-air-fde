@@ -211,3 +211,70 @@ describe("assistant rendering", () => {
     expect(() => substituteVars({ a: "${APP_URL}/x" }, {})).toThrow("Missing value for ${APP_URL}");
   });
 });
+
+describe("M5 prompt rules: requirements and the unexpected", () => {
+  const off = renderSystemPrompt(template, { transferAvailable: false, timeZone: "America/New_York" });
+  const on = renderSystemPrompt(template, { transferAvailable: true, timeZone: "America/New_York" });
+
+  it("technician intake is gathered naturally, one at a time, skipping what's known, never as a checklist", () => {
+    expect(off).toContain("# What the technician needs");
+    expect(off).toContain("one question at a time");
+    expect(off).toContain("Skip anything the caller already told you, and never run through them like a checklist");
+    for (const item of ["When it started", "brand or rough age", "thermostat setting and mode", "breaker", "error code", "Pets", "read it back in groups"]) {
+      expect(off).toContain(item);
+    }
+    expect(off).toContain("Include symptoms, onset, equipment, tried steps, error code, pets, access notes, on-site contact and vulnerable occupants");
+  });
+
+  it("residential is never silently assumed; businesses declined; multi-unit central systems go to the office", () => {
+    expect(off).not.toContain("Assume residential");
+    expect(off).toContain("Never silently assume what kind of property it is");
+    expect(off).toContain('"And this is for your home, right?"');
+    expect(off).toContain("A landlord or property manager calling about a single apartment or house is residential");
+    expect(off).toContain("multi_unit_central_system true");
+    expect(off).toContain("office_review");
+  });
+
+  it("members: benefits only when relevant; one Comfort Club mention, never on urgent/emergency/safety calls", () => {
+    expect(off).toContain("Only after verified is true: if they're an active member, mention their benefits briefly");
+    expect(off).toContain("Never mention Comfort Club on urgent, emergency or safety calls, and never push it");
+  });
+
+  it("calling for someone else: on-site contact separate, verification never blocks booking, vulnerability is about the occupants", () => {
+    expect(off).toContain("# Calling for someone else");
+    expect(off).toContain("on_site_contact");
+    expect(off).toContain("It never blocks booking service at a new address");
+    expect(off).toContain("about whoever lives at the service address");
+  });
+
+  it("existing appointments: verified only; reschedule/cancel become an honest office callback", () => {
+    expect(off).toContain("never confirm an appointment to an unverified caller");
+    expect(off).toContain("you can't change bookings by phone");
+    expect(off).toContain("the office will call to confirm the change");
+  });
+
+  it("other languages: English then simple Spanish, then a callback with the language", () => {
+    expect(off).toContain("first in English and then in simple Spanish");
+    expect(off).toContain("La oficina le va a llamar en español");
+    expect(off).toContain("language set to their language");
+  });
+
+  it("human requests: warm callback when transfer is off, immediate transfer offer when it's on", () => {
+    expect(off).toContain("don't refuse or argue");
+    expect(off).toContain("reason human_requested");
+    expect(on).toContain("If the caller asks for a person, offer to connect them right away");
+    expect(on).toContain("offer the transfer right after create_priority_dispatch succeeds");
+  });
+
+  it("non-service and abusive calls end politely; prices limited to configured fees", () => {
+    expect(off).toContain("Wrong numbers, sales or vendor pitches, robocalls and job applicants: one polite sentence");
+    expect(off).toContain("set one calm boundary");
+    expect(off).toContain("You may state only the diagnostic fee and the membership prices");
+    expect(off).toContain("the technician gives a quote on site");
+  });
+
+  it("corrections after the read-back are read back again before booking", () => {
+    expect(off).toContain("If they correct anything after the read-back");
+    expect(off).toContain("get a fresh yes before you book. Never book on the old details.");
+  });
+});

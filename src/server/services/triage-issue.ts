@@ -23,6 +23,7 @@ export const triageIssueSchema = z.object({
   vulnerable_occupants: z.array(z.enum(VULNERABLE_OCCUPANTS)).default([]),
   indoor_temp_f: optionalArg(z.number().min(-20).max(130)),
   property_type: z.enum(["residential", "commercial"]),
+  multi_unit_central_system: optionalArg(z.boolean()),
   zip: zipSchema,
   customer_id: optionalArg(z.uuid()),
   preferred_window: optionalArg(preferredWindowSchema),
@@ -32,6 +33,8 @@ type TriageArgs = z.infer<typeof triageIssueSchema>;
 
 const SAFETY_SAY =
   "Give the gas and carbon monoxide safety instructions now: leave the home with everyone, don't touch switches or flames, don't use a phone inside, and call 911 from outside. Do not book an appointment. Say clearly that Summit Air has NOT contacted 911, the fire department or the gas utility; the caller must call 911 themselves.";
+
+export const OFFICE_REVIEW_CALLBACK = { reason: "other", details: "multi-unit/central system, office to review" } as const;
 
 async function recordSafetyStop(args: TriageArgs, decision: TriageDecision, ctx: ToolContext): Promise<boolean> {
   try {
@@ -67,6 +70,7 @@ export const triageIssueTool = defineTool({
         vulnerableOccupants: args.vulnerable_occupants,
         indoorTempF: args.indoor_temp_f,
         propertyType: args.property_type,
+        centralMultiUnit: args.multi_unit_central_system ?? false,
       },
       area,
       todayInZone(ctx.settings.timeZone, ctx.now),
@@ -102,6 +106,16 @@ export const triageIssueTool = defineTool({
           decision.notServiceableReason === "residential_only"
             ? "Politely explain Summit Air only services homes, so we can't help with a commercial property."
             : `Confirm the ZIP once. If it's right, explain we only serve ${BUSINESS.facts.serviceArea}. If anyone's health is at risk, they should call 911.`,
+      };
+    }
+
+    if (decision.nextAction === "office_review") {
+      return {
+        ok: true,
+        data: { ...base, next_action: "office_review", callback: OFFICE_REVIEW_CALLBACK },
+        say:
+          "Don't book. Explain kindly that building-wide systems serving several units are reviewed by the office before anyone is scheduled. " +
+          "Get their name and best callback number, then call create_callback_request with reason other and details starting 'multi-unit/central system, office to review', plus the address and problem.",
       };
     }
 
