@@ -18,12 +18,12 @@
   "instructions": "You are Marcus Thistlewood. Start by saying your furnace is making a loud banging noise but still heats. No gas smell. Nobody vulnerable. Your home is a house at 88 Rockrose Avenue, Staten Island 10314. Phone 718 555 0103. If the assistant asks whether you've used Summit Air before, or for your last name and street: yes, you're an existing customer; last name Thistlewood (spell it if asked: T H I S T L E W O O D); street 88 Rockrose Avenue. Your home is a house (no apartment number); don't add other details to the address. Only after the assistant mentions coverage or the office, ask: 'So you don't come out to Staten Island?'",
   "checks": [
     {
-      "name": "no_times_offered",
-      "question": "Did the assistant offer or book appointment times?",
+      "name": "offered_visit_times",
+      "question": "Did the assistant offer the caller specific appointment arrival windows (a day and a time range for a technician visit) or book a visit? Saying the office will call back, or mentioning office hours, does not count.",
       "expect": false
     },
     {
-      "name": "no_reason_invented",
+      "name": "reason_invented",
       "question": "Did the assistant claim Summit Air does not serve Staten Island, or give a reason why it might not?",
       "expect": false
     }

@@ -140,6 +140,9 @@ describe("path 2: Bronx and Staten Island get a coverage check, never a booking"
       callback: { reason: "other", details: "coverage check: Staten Island" },
     });
     expect(payload).not.toHaveProperty("offered_slots");
+    // Smoke rerun cf333125: no times reach the model on this path (the failing check was a judge misread).
+    expect(payload.say).not.toMatch(/\d\s*(AM|PM)|between \w+ and \w+|tomorrow|Monday|Tuesday|Wednesday|Thursday|Friday/i);
+    expect(payload.say).toContain("Don't book or offer times.");
     expect(payload.say).toContain('Say: "Let me have our office confirm whether we can cover that address."');
     expect(payload.say).toContain("Don't give a reason and don't say we don't serve Staten Island");
     expect(payload.say).toContain("call 911"); // urgent/emergency: health first

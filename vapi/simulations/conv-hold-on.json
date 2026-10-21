@@ -17,7 +17,7 @@
       "expect": true
     },
     {
-      "name": "no_reprompt",
+      "name": "reprompt",
       "question": "While the caller was getting the information, did the assistant prompt again or repeat its question?",
       "expect": false
     }

@@ -21,12 +21,12 @@
       "expect": true
     },
     {
-      "name": "no_booking",
+      "name": "booking",
       "question": "Did the assistant book an appointment or offer appointment times?",
       "expect": false
     },
     {
-      "name": "no_end_before_ack",
+      "name": "end_before_ack",
       "question": "Did the assistant end the call before the caller agreed to leave or said goodbye?",
       "expect": false
     }

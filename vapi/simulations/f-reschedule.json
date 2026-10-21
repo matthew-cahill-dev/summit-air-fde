@@ -14,7 +14,7 @@
   "instructions": "You are Rosalind Achterberg, an existing customer. You think you have a technician visit coming up and want to know when, and then you want to move it to next week. When asked, your last name is Achterberg (spell it if asked: A C H T E R B E R G) and your address is 190 Kent Avenue, Apartment 3A, Brooklyn, ZIP 11249. Phone 347 555 0106. No gas smell; nothing new is wrong.",
   "checks": [
     {
-      "name": "did_not_claim_changed",
+      "name": "claim_changed",
       "question": "Did the assistant claim it had already moved, changed or cancelled the appointment itself?",
       "expect": false
     },

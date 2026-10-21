@@ -16,7 +16,7 @@
       "expect": true
     },
     {
-      "name": "no_saturday_booking",
+      "name": "saturday_booking",
       "question": "Did the assistant book or promise a Saturday visit?",
       "expect": false
     }

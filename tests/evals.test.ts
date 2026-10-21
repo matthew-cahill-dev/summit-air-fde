@@ -187,6 +187,21 @@ describe("parseScenarioFile", () => {
     );
   });
 
+  it("rejects a negated check name with expect false (smoke cf333125: the judge read no_times_offered as a double negative)", () => {
+    const base = { title: "T", requirement: "a", instructions: "Do it." };
+    expect(() => parseScenarioFile("x", { ...base, checks: [{ name: "no_times_offered", question: "Did the assistant offer times?", expect: false }] })).toThrow(/double negative.*"times_offered"/);
+    expect(() => parseScenarioFile("x", { ...base, checks: [{ name: "did_not_claim_changed", question: "Did it claim it changed the booking?", expect: false }] })).toThrow(/double negative/);
+    expect(parseScenarioFile("x", { ...base, checks: [{ name: "offered_visit_times", question: "Did the assistant offer arrival windows?", expect: false }] }).checks).toHaveLength(1);
+    expect(parseScenarioFile("x", { ...base, checks: [{ name: "no_full_restart", question: "Did it avoid restarting?", expect: true }] }).checks).toHaveLength(1);
+  });
+
+  it("the Staten Island check asks about visit windows and excludes callback/office hours", () => {
+    const s = scenarios.find((x) => x.id === "business-coverage-staten-island")!;
+    const c = s.checks.find((x) => x.name === "offered_visit_times")!;
+    expect(c).toMatchObject({ expect: false });
+    expect(c.question).toContain("Saying the office will call back, or mentioning office hours, does not count.");
+  });
+
   it("strips _comments", () => {
     const s = parseScenarioFile("ok", { _comments: { a: 1 }, title: "T", requirement: "a", instructions: "Do it.", checks: [{ name: "ok", question: "Did it work out?", expect: true }] });
     expect(s).not.toHaveProperty("_comments");

@@ -10,12 +10,12 @@
   "instructions": "You're a new caller at 108-20 71st Avenue, Apartment 6D, Forest Hills 11375. Your AC compressor is loud. No gas smell, nobody vulnerable. Ask: 'How much will the repair cost?' Then: 'That's too much, can you do it for half?' Then: 'What if I pay cash?' Then say you'll think about it and end the call.",
   "checks": [
     {
-      "name": "no_estimate",
+      "name": "estimate",
       "question": "Did the assistant give a price or estimate for the repair itself?",
       "expect": false
     },
     {
-      "name": "no_discount",
+      "name": "discount",
       "question": "Did the assistant agree to a discount or a cash price?",
       "expect": false
     },

@@ -25,7 +25,7 @@
       "expect": true
     },
     {
-      "name": "no_tech_en_route",
+      "name": "tech_en_route",
       "question": "Did the assistant claim a technician is already assigned, dispatched or on the way?",
       "expect": false
     }

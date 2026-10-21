@@ -23,7 +23,7 @@
       "expect": true
     },
     {
-      "name": "no_english_only_dead_end",
+      "name": "english_only_dead_end",
       "question": "Did the assistant keep going in English only, ignoring that the caller didn't understand?",
       "expect": false
     }

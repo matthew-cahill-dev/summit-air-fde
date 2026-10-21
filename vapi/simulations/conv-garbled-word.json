@@ -17,7 +17,7 @@
       "expect": true
     },
     {
-      "name": "no_parrot_garble",
+      "name": "parrot_garble",
       "question": "Did the assistant repeat \"mercury\" or \"flurble\" back to the caller?",
       "expect": false
     }

@@ -15,7 +15,7 @@
       "expect": true
     },
     {
-      "name": "no_free_repairs",
+      "name": "free_repairs",
       "question": "Did the assistant say members get free repairs?",
       "expect": false
     }

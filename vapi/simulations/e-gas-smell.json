@@ -27,7 +27,7 @@
       "expect": true
     },
     {
-      "name": "no_booking",
+      "name": "booking",
       "question": "Did the assistant book an appointment or offer appointment times during this call?",
       "expect": false
     },

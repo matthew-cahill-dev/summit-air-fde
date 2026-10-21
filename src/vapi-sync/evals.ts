@@ -89,6 +89,11 @@ export function parseScenarioFile(id: string, raw: unknown): ScenarioFile {
     else seen.add(c.name);
     if (typeof c.question !== "string" || c.question.trim().length < 10) problems.push(`checks[${i}].question is required`);
     if (typeof c.expect !== "boolean") problems.push(`checks[${i}].expect must be true or false`);
+    // Smoke run cf333125: "no_times_offered" + "Did the assistant offer…?" + expect false read as a
+    // double negative and the judge answered true. A name must say what the question asks about.
+    if (c.expect === false && typeof c.name === "string" && /^(no|not|never|did_not|didnt)_/.test(c.name)) {
+      problems.push(`checks[${i}].name "${c.name}" is a negation with expect false (a double negative for the judge); name the event the question asks about, e.g. "${c.name.replace(/^(no|not|never|did_not|didnt)_/, "")}"`);
+    }
   });
   if (problems.length) throw new Error(`vapi/simulations/${id}.json: ${problems.join("; ")}`);
   const parsed: ScenarioFile = {

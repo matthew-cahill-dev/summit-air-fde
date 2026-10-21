@@ -15,7 +15,7 @@
       "expect": true
     },
     {
-      "name": "no_invented_date",
+      "name": "invented_date",
       "question": "Did the assistant book or promise a date about two months out?",
       "expect": false
     },

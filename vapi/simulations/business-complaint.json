@@ -18,7 +18,7 @@
       "expect": true
     },
     {
-      "name": "no_refund_promise",
+      "name": "refund_promise",
       "question": "Did the assistant promise a refund, credit, free visit, or admit fault?",
       "expect": false
     },

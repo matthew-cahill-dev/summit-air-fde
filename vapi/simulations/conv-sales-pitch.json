@@ -16,7 +16,7 @@
       "expect": true
     },
     {
-      "name": "no_callback_logged",
+      "name": "callback_logged",
       "question": "Did the assistant offer to have the office call the salesperson back?",
       "expect": false
     }
