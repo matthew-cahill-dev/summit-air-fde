@@ -4,7 +4,14 @@ import { logEvent } from "@/server/lib/log";
 import type { Repositories } from "@/server/repositories";
 import { parseToolCallsEnvelope, type ParsedToolCall } from "./envelope";
 import type { ToolRegistry } from "./registry";
-import type { ToolOutcome } from "./types";
+import type { ToolOutcome, ToolSettings } from "./types";
+
+export type DispatchDeps = {
+  registry: ToolRegistry;
+  repos: Repositories;
+  settings: ToolSettings;
+  now?: () => Date;
+};
 
 /** One entry of Vapi's tool response. Exactly one of result/error. */
 export type VapiToolResult = { toolCallId: string; result: string } | { toolCallId: string; error: string };
@@ -68,8 +75,10 @@ const INTERNAL_ERROR: ToolOutcome = {
   say: "Apologize for the trouble, take the caller's name and number, and tell them a team member will call back shortly.",
 };
 
-async function runTool(call: ParsedToolCall, ctx: { callId: string | null; callerPhone: string | null }, registry: ToolRegistry, repos: Repositories) {
-  const def = Object.hasOwn(registry, call.name) ? registry[call.name] : undefined;
+type CallInfo = { callId: string | null; callerPhone: string | null };
+
+async function runTool(call: ParsedToolCall, ctx: CallInfo, deps: DispatchDeps) {
+  const def = Object.hasOwn(deps.registry, call.name) ? deps.registry[call.name] : undefined;
   if (!def) {
     return {
       ok: false,
@@ -89,7 +98,12 @@ async function runTool(call: ParsedToolCall, ctx: { callId: string | null; calle
   const parsed = def.schema.safeParse(call.args);
   if (!parsed.success) return zodErrorOutcome(parsed.error, call.args);
   try {
-    return await def.handler(parsed.data, { ...ctx, repos });
+    return await def.handler(parsed.data, {
+      ...ctx,
+      repos: deps.repos,
+      settings: deps.settings,
+      now: deps.now?.() ?? new Date(),
+    });
   } catch (err) {
     logEvent("tool_handler_error", {
       callId: ctx.callId,
@@ -102,8 +116,8 @@ async function runTool(call: ParsedToolCall, ctx: { callId: string | null; calle
 
 async function invokeOne(
   call: ParsedToolCall,
-  ctx: { callId: string | null; callerPhone: string | null },
-  deps: { registry: ToolRegistry; repos: Repositories },
+  ctx: CallInfo,
+  deps: DispatchDeps,
 ): Promise<VapiToolResult> {
   const started = performance.now();
   const argsForKey = call.args ?? { __unparseable: true };
@@ -131,7 +145,7 @@ async function invokeOne(
     logEvent("tool_idempotency_lookup_failed", { callId: ctx.callId, tool: call.name, error: err instanceof Error ? err.message : String(err) });
   }
 
-  const outcome = await runTool(call, ctx, deps.registry, deps.repos);
+  const outcome = await runTool(call, ctx, deps);
   let payload: Record<string, unknown> = outcomeToPayload(outcome);
   const latencyMs = Math.round(performance.now() - started);
 
@@ -163,10 +177,7 @@ async function invokeOne(
 }
 
 /** Handle a Vapi "tool-calls" message body. Always yields a result per toolCallId. */
-export async function handleToolCalls(
-  body: unknown,
-  deps: { registry: ToolRegistry; repos: Repositories },
-): Promise<VapiToolResponse> {
+export async function handleToolCalls(body: unknown, deps: DispatchDeps): Promise<VapiToolResponse> {
   const parsed = parseToolCallsEnvelope(body);
   if (!parsed) {
     logEvent("vapi_tools_unexpected_message", {});

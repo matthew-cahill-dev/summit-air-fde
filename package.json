@@ -13,7 +13,8 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "node scripts/migrate.mjs",
     "db:seed": "tsc -p tsconfig.scripts.json && node .scripts-dist/scripts/seed.js",
-    "start:deploy": "npm run db:migrate && npm run start"
+    "start:deploy": "npm run db:migrate && npm run start",
+    "vapi:sync": "tsc -p tsconfig.scripts.json && node .scripts-dist/scripts/sync-vapi.js"
   },
   "dependencies": {
     "@base-ui/react": "^1.9.0",

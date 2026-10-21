@@ -1,0 +1,154 @@
+{
+  "type": "function",
+  "async": false,
+  "function": {
+    "name": "book_appointment",
+    "description": "Book an arrival window. ONLY call after reading back name, address, day/window and problem and hearing the caller say yes; then set caller_confirmed to true. Pass customer_id and address_id from lookup_customer when the caller confirmed them; otherwise pass address. Returns booked:true, or ok:false with reason slot_taken and alternatives.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "slot_id": {
+          "type": "string",
+          "description": "slot_id of the window the caller chose."
+        },
+        "caller_confirmed": {
+          "type": "boolean",
+          "enum": [
+            true
+          ],
+          "description": "Must be true: the caller confirmed the read-back."
+        },
+        "customer_id": {
+          "type": "string",
+          "description": "From lookup_customer, if found and confirmed."
+        },
+        "first_name": {
+          "type": "string",
+          "description": "Caller's first name."
+        },
+        "last_name": {
+          "type": "string",
+          "description": "Caller's last name."
+        },
+        "phone": {
+          "type": "string",
+          "description": "Best callback number if different from caller ID."
+        },
+        "email": {
+          "type": "string",
+          "description": "Email, only if offered."
+        },
+        "address_id": {
+          "type": "string",
+          "description": "address_id from lookup_customer when using an address on file."
+        },
+        "address": {
+          "type": "object",
+          "description": "Service address for new addresses.",
+          "properties": {
+            "line1": {
+              "type": "string",
+              "description": "House number and street, e.g. 37-12 82nd St."
+            },
+            "unit": {
+              "type": "string",
+              "description": "Apartment or unit, if any."
+            },
+            "city": {
+              "type": "string",
+              "description": "Neighborhood or city, e.g. Astoria."
+            },
+            "zip": {
+              "type": "string",
+              "description": "5-digit ZIP code of the service address, e.g. 11372."
+            }
+          },
+          "required": [
+            "line1",
+            "zip"
+          ]
+        },
+        "service_type": {
+          "type": "string",
+          "enum": [
+            "maintenance",
+            "repair",
+            "diagnostic"
+          ],
+          "description": "maintenance = tune-up; repair = known problem; diagnostic = unknown cause."
+        },
+        "urgency": {
+          "type": "string",
+          "enum": [
+            "urgent",
+            "routine"
+          ],
+          "description": "From triage: book_earliest = urgent, book_standard = routine."
+        },
+        "issue_summary": {
+          "type": "string",
+          "description": "One-sentence description of the problem in the caller's words."
+        },
+        "symptoms": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Specific symptoms, e.g. 'blowing cold air', 'clicking noise'."
+        },
+        "equipment": {
+          "type": "string",
+          "description": "Equipment involved, if known: type, brand, age."
+        },
+        "access_notes": {
+          "type": "string",
+          "description": "Buzzer, doorman, entrance, parking, pets."
+        },
+        "vulnerable_occupants": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "elderly",
+              "infant",
+              "medical_condition",
+              "pregnant",
+              "medical_equipment",
+              "disability"
+            ]
+          },
+          "description": "Vulnerable people in the home. Empty array if none."
+        }
+      },
+      "required": [
+        "slot_id",
+        "caller_confirmed",
+        "first_name",
+        "last_name",
+        "service_type",
+        "urgency",
+        "issue_summary"
+      ]
+    }
+  },
+  "messages": [
+    {
+      "type": "request-start",
+      "content": "One moment while I book that."
+    },
+    {
+      "type": "request-start",
+      "content": "Booking that now."
+    },
+    {
+      "type": "request-response-delayed",
+      "content": "Thanks for waiting, almost there.",
+      "timingMilliseconds": 3000
+    }
+  ],
+  "server": {
+    "url": "${APP_URL}/api/vapi/tools",
+    "credentialId": "${VAPI_CREDENTIAL_ID}",
+    "timeoutSeconds": 10
+  }
+}

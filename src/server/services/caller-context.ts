@@ -2,6 +2,7 @@
 // Used by lookup_customer now; designed to also back a future
 // assistant-request endpoint (personalized greeting before answer), which
 // has a hard ~7.5 s end-to-end budget, hence the timing and 2-round-trip query.
+import { streetAddressMatches } from "@/server/lib/address-match";
 import type { CallerContextRows, CustomerRepository, EquipmentRow, MembershipRow } from "@/server/repositories";
 
 export type CallerContextAddress = {
@@ -16,10 +17,13 @@ export type CallerContextAddress = {
   equipmentSummary: string;
 };
 
+export type MatchedBy = "phone" | "demo_alias" | "name";
+
 export type CallerContext =
   | { found: false; phoneE164: string }
   | {
       found: true;
+      matchedBy: MatchedBy;
       phoneE164: string;
       customerId: string;
       firstName: string;
@@ -60,10 +64,20 @@ export function pickMembership(rows: MembershipRow[]): MembershipRow | null {
   return [...pool].sort((a, b) => (a.renewsOn < b.renewsOn ? 1 : a.renewsOn > b.renewsOn ? -1 : 0))[0];
 }
 
-/** Pure: shape repository rows into caller context. */
-export function buildCallerContext(phoneE164: string, rows: CallerContextRows | null): CallerContext {
-  // Defense in depth: never return a record for a different number than asked.
-  if (!rows || rows.customer.phoneE164 !== phoneE164) return { found: false, phoneE164 };
+/**
+ * Pure: shape repository rows into caller context.
+ * Defense in depth: rows are only accepted if they are the record that was asked for:
+ * the same phone, or (demo alias / name match) the expected customer id.
+ */
+export function buildCallerContext(
+  phoneE164: string,
+  rows: CallerContextRows | null,
+  expect: { matchedBy: "phone" } | { matchedBy: "demo_alias" | "name"; customerId: string } = { matchedBy: "phone" },
+): CallerContext {
+  if (!rows) return { found: false, phoneE164 };
+  const isExpected =
+    expect.matchedBy === "phone" ? rows.customer.phoneE164 === phoneE164 : rows.customer.id === expect.customerId;
+  if (!isExpected) return { found: false, phoneE164 };
 
   const membership = pickMembership(rows.memberships);
   const addresses: CallerContextAddress[] = rows.addresses.map((a) => ({
@@ -87,7 +101,8 @@ export function buildCallerContext(phoneE164: string, rows: CallerContextRows | 
 
   return {
     found: true,
-    phoneE164,
+    matchedBy: expect.matchedBy,
+    phoneE164: expect.matchedBy === "phone" ? phoneE164 : rows.customer.phoneE164,
     customerId: rows.customer.id,
     firstName: rows.customer.firstName,
     lastName: rows.customer.lastName,
@@ -100,13 +115,67 @@ export function buildCallerContext(phoneE164: string, rows: CallerContextRows | 
   };
 }
 
-/** Fetch + shape. `phoneE164` must already be normalized. */
+/**
+ * Fetch + shape. `phoneE164` must already be normalized. A phone listed in
+ * DEMO_CALLER_PHONES resolves to its seeded demo customer instead.
+ */
 export async function getCallerContext(
   phoneE164: string,
   repo: CustomerRepository,
+  demoCallerMap: ReadonlyMap<string, string> = new Map(),
 ): Promise<{ context: CallerContext; dbMs: number }> {
   const started = performance.now();
-  const rows = await repo.findCallerContextByPhone(phoneE164);
+  const demoCustomerId = demoCallerMap.get(phoneE164);
+  const rows = demoCustomerId
+    ? await repo.findCallerContextByCustomerId(demoCustomerId)
+    : await repo.findCallerContextByPhone(phoneE164);
   const dbMs = Math.round(performance.now() - started);
-  return { context: buildCallerContext(phoneE164, rows), dbMs };
+  const context = demoCustomerId
+    ? buildCallerContext(phoneE164, rows, { matchedBy: "demo_alias", customerId: demoCustomerId })
+    : buildCallerContext(phoneE164, rows);
+  // A demo alias reports the caller's own number, never the seeded one.
+  return { context: context.found && demoCustomerId ? { ...context, phoneE164 } : context, dbMs };
+}
+
+export type NameLookup =
+  | { status: "unverified" }
+  | { status: "ambiguous" }
+  | { status: "verified"; context: Extract<CallerContext, { found: true }> };
+
+/** Keep only the addresses the caller stated; recompute the equipment summary for them. */
+export function restrictToAddresses(
+  context: Extract<CallerContext, { found: true }>,
+  addressIds: ReadonlySet<string>,
+): Extract<CallerContext, { found: true }> {
+  const addresses = context.addresses.filter((a) => addressIds.has(a.addressId));
+  return {
+    ...context,
+    addresses,
+    equipmentSummary:
+      addresses.length === 1
+        ? addresses[0].equipmentSummary
+        : addresses.map((a) => `${a.line1}: ${a.equipmentSummary}`).join("; "),
+  };
+}
+
+/**
+ * Last name + ZIP + the street address the CALLER states. The caller is verified
+ * only if exactly one customer has that name, ZIP and street. Not-found and
+ * mismatch look identical ("unverified") so the tool can't be used to probe
+ * which addresses exist.
+ */
+export async function verifyCustomerByName(
+  input: { lastName: string; zip: string; streetAddress: string },
+  repo: CustomerRepository,
+): Promise<NameLookup> {
+  const rows = await repo.findByLastName({ lastName: input.lastName, zip: input.zip });
+  const matches = rows.filter((r) => streetAddressMatches(input.streetAddress, r.line1));
+  const customerIds = [...new Set(matches.map((m) => m.customerId))];
+  if (customerIds.length === 0) return { status: "unverified" };
+  if (customerIds.length > 1) return { status: "ambiguous" };
+
+  const [customerId] = customerIds;
+  const context = buildCallerContext("", await repo.findCallerContextByCustomerId(customerId), { matchedBy: "name", customerId });
+  if (!context.found) return { status: "unverified" };
+  return { status: "verified", context: restrictToAddresses(context, new Set(matches.map((m) => m.addressId))) };
 }

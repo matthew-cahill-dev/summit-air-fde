@@ -3,7 +3,7 @@
   "async": false,
   "function": {
     "name": "check_service_area",
-    "description": "Check whether Summit Air services a ZIP code. Summit Air serves residential homes in Brooklyn, Queens and Staten Island only. Returns in_area, county, serviceable, and reason (residential_only or out_of_area) when not serviceable.",
+    "description": "Check whether Summit Air services a ZIP code (homes in Brooklyn, Queens and Staten Island only). triage_issue already does this; use this only for a quick 'do you serve my area?' question.",
     "parameters": {
       "type": "object",
       "properties": {
@@ -13,16 +13,36 @@
         },
         "property_type": {
           "type": "string",
-          "enum": ["residential", "commercial"],
-          "description": "Whether the property is a home (residential) or a business (commercial). Defaults to residential."
+          "enum": [
+            "residential",
+            "commercial"
+          ],
+          "description": "Home (residential) or business (commercial). Defaults to residential."
         }
       },
-      "required": ["zip"]
+      "required": [
+        "zip"
+      ]
     }
   },
+  "messages": [
+    {
+      "type": "request-start",
+      "content": "Let me check that area."
+    },
+    {
+      "type": "request-start",
+      "content": "One moment."
+    },
+    {
+      "type": "request-response-delayed",
+      "content": "Thanks for waiting, almost there.",
+      "timingMilliseconds": 3000
+    }
+  ],
   "server": {
-    "url": "{{APP_URL}}/api/vapi/tools",
-    "credentialId": "REPLACE_WITH_VAPI_BEARER_CREDENTIAL_ID",
+    "url": "${APP_URL}/api/vapi/tools",
+    "credentialId": "${VAPI_CREDENTIAL_ID}",
     "timeoutSeconds": 10
   }
 }

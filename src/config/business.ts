@@ -4,6 +4,16 @@
 
 export type County = "Kings" | "Queens" | "Richmond";
 
+export type MonthDay = { month: number; day: number };
+export type Season = { start: MonthDay; end: MonthDay };
+export type VulnerableOccupant =
+  | "elderly"
+  | "infant"
+  | "medical_condition"
+  | "pregnant"
+  | "medical_equipment"
+  | "disability";
+
 export const BUSINESS = {
   name: "Summit Air",
 
@@ -15,13 +25,82 @@ export const BUSINESS = {
   heatSeason: {
     start: { month: 10, day: 1 },
     end: { month: 5, day: 31 },
-  },
+  } satisfies Season,
+
+  // ASSUMPTION: cooling season runs Jun 1 through Sep 30 (the rest of the year).
+  coolingSeason: {
+    start: { month: 6, day: 1 },
+    end: { month: 9, day: 30 },
+  } satisfies Season,
 
   // ASSUMPTION: a priority-dispatch request gets a human callback within 15 minutes.
   priorityDispatchCallbackSlaMinutes: 15,
 
   // ASSUMPTION: we serve Brooklyn (Kings), Queens and Staten Island (Richmond).
   serviceCounties: ["Kings", "Queens", "Richmond"] as const satisfies readonly County[],
+
+  triage: {
+    // ASSUMPTION: no heat with indoor temperature at or below this is an emergency in any season.
+    noHeatEmergencyMaxIndoorTempF: 55,
+    // ASSUMPTION: no cooling with indoor temperature at or above this (plus a medical
+    // vulnerability) is an emergency even outside cooling season.
+    noCoolingEmergencyMinIndoorTempF: 85,
+    // ASSUMPTION: occupants at high risk of heat illness (CDC high-risk groups) count as a
+    // "medical vulnerability" for the no-cooling emergency rule. Pregnancy and disability
+    // alone don't; those calls are urgent in cooling season.
+    coolingMedicalVulnerabilities: [
+      "elderly",
+      "infant",
+      "medical_condition",
+      "medical_equipment",
+    ] as const satisfies readonly VulnerableOccupant[],
+  },
+
+  scheduling: {
+    // ASSUMPTION: urgent calls are offered arrival windows starting within 48 hours.
+    urgentWindowHours: 48,
+    // ASSUMPTION: routine calls are offered windows up to 14 days out.
+    routineHorizonDays: 14,
+    // ASSUMPTION: a window must start at least 2 hours from now to be offered or booked.
+    bookingLeadTimeMinutes: 120,
+    // ASSUMPTION: "members get first pick" = the last seat in any window starting within
+    // the next 48 hours is held for active members.
+    memberReservedSeatsPerSlot: 1,
+    memberPriorityWindowHours: 48,
+    // How many windows the agent offers at once (one tool call, then offer times).
+    maxOfferedSlots: 3,
+    // ASSUMPTION: "morning" = windows starting before noon; "afternoon" = noon or later.
+    morningEndsHour: 12,
+  },
+
+  // Business facts the agent may state. Every value is an ASSUMPTION for the owner to confirm.
+  facts: {
+    // ASSUMPTION: fictional office number (555-01xx range).
+    officePhoneDisplay: "(718) 555-0100",
+    officePhoneSpoken: "seven one eight, five five five, zero one zero zero",
+    // ASSUMPTION: office phone hours.
+    officeHours: "Monday to Friday 8 AM to 6 PM, and Saturday 9 AM to 2 PM",
+    // ASSUMPTION: technician arrival windows offered on weekdays only.
+    appointmentHours: "Monday to Friday, with arrival windows between 8 AM and 5 PM",
+    // ASSUMPTION: on-call team handles priority-dispatch callbacks around the clock.
+    onCallCoverage: "Our on-call team handles priority calls 24 hours a day, 7 days a week.",
+    // ASSUMPTION: diagnostic visit fee.
+    diagnosticFee: "$129 for a diagnostic visit, waived for active Comfort Club members",
+    // ASSUMPTION: membership plans and benefits.
+    membershipPlans: [
+      "Comfort Club: $19 a month. One heating and one cooling tune-up a year, priority scheduling, no diagnostic fee, and 15 percent off repairs.",
+      "Comfort Club Plus: $29 a month. Everything in Comfort Club, plus 20 percent off repairs and no after-hours fee.",
+    ],
+    // ASSUMPTION: what we service.
+    servicesOffered:
+      "Repair, maintenance and diagnostics for furnaces, boilers, central air, heat pumps and ductless mini-splits, all major brands, in homes only.",
+    // ASSUMPTION: things we don't do over the phone.
+    notOffered:
+      "We don't service commercial properties, and we don't quote installation or replacement prices over the phone. The office can call back about installations.",
+    // ASSUMPTION: payment.
+    payment: "Payment is due at the time of service by card or check.",
+    serviceArea: "Brooklyn, Queens and Staten Island",
+  },
 } as const;
 
 // ASSUMPTION: service area is defined by ZIP. These are residential USPS ZIPs
@@ -51,9 +130,18 @@ export const SERVICE_AREA_ZIPS: Record<County, readonly string[]> = {
   ],
 };
 
-/** True if `date` (a calendar date in the business time zone) falls in heat season. */
-export function isHeatSeason(month: number, day: number): boolean {
-  const { start, end } = BUSINESS.heatSeason;
+/** True if the calendar date (month 1-based) falls inside `season`, which may wrap the new year. */
+export function isInSeason(season: Season, month: number, day: number): boolean {
   const md = month * 100 + day;
-  return md >= start.month * 100 + start.day || md <= end.month * 100 + end.day;
+  const start = season.start.month * 100 + season.start.day;
+  const end = season.end.month * 100 + season.end.day;
+  return start <= end ? md >= start && md <= end : md >= start || md <= end;
+}
+
+export function isHeatSeason(month: number, day: number): boolean {
+  return isInSeason(BUSINESS.heatSeason, month, day);
+}
+
+export function isCoolingSeason(month: number, day: number): boolean {
+  return isInSeason(BUSINESS.coolingSeason, month, day);
 }

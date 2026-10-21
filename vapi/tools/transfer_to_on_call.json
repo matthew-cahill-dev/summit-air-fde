@@ -1,0 +1,24 @@
+{
+  "type": "transferCall",
+  "function": {
+    "name": "transfer_to_on_call",
+    "description": "Connect the caller to Summit Air's on-call team. Use only after create_priority_dispatch succeeded and the caller agreed to be transferred."
+  },
+  "destinations": [
+    {
+      "type": "number",
+      "number": "${ON_CALL_TRANSFER_NUMBER}",
+      "message": "Connecting you to our on-call team now. Please stay on the line.",
+      "description": "Summit Air on-call team",
+      "transferPlan": {
+        "mode": "blind-transfer"
+      }
+    }
+  ],
+  "messages": [
+    {
+      "type": "request-start",
+      "content": "Connecting you now. Please stay on the line."
+    }
+  ]
+}

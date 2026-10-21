@@ -1,0 +1,160 @@
+{
+  "_comments": {
+    "_": "Keys starting with _ are stripped by scripts/sync-vapi.ts. ${VAR} placeholders are filled at sync time; {{...}} / {% %} are Vapi Liquid.",
+    "model": "Starts from the Balanced preset's model tier: gpt-4.1. Latency tuning: gpt-4.1-mini (faster, weaker at multi-step tool use; try it once the scenario tests pass), gpt-4o-mini (fastest/cheapest, least reliable with 8 tools). Pin a dated snapshot (e.g. gpt-4.1-2025-04-14) to avoid silent model updates.",
+    "transcriber": "Deepgram nova-3 uses keyterm (plain phrases, no boosts). Deepgram suggests 20-50 key terms; 500 tokens max. For lower end-of-turn latency try model flux-general-en.",
+    "voice": "Vapi native voice. The Balanced preset's exact voice isn't documented; swap provider/voiceId freely (e.g. cartesia sonic-3, 11labs).",
+    "startSpeakingPlan": "onNumberSeconds is longer so callers can pause while reading phone numbers, ZIPs and Queens house numbers without being cut off. Lower waitSeconds (0.4) for snappier turns.",
+    "stopSpeakingPlan": "numWords 2 means 'uh-huh' doesn't interrupt the assistant; a real interruption of 2+ words does.",
+    "hooks": "Idle messages via customer.speech.timeout hooks (replaces the older messagePlan.idleMessages).",
+    "analysisPlan": "Deprecated in the API but still works; feeds message.analysis.summary into our calls table. Migrate to structured outputs later.",
+    "firstMessage": "Never personalized: callers aren't verified at greeting time. assistant-request (ASSISTANT_REQUEST_ENABLED) only sets caller_recognized, used by the prompt."
+  },
+  "name": "Summit Air Virtual Assistant",
+  "firstMessageMode": "assistant-speaks-first",
+  "firstMessage": "Thanks for calling Summit Air. This is the virtual assistant. How can I help today?",
+  "model": {
+    "provider": "openai",
+    "model": "gpt-4.1",
+    "temperature": 0.3,
+    "maxTokens": 300,
+    "messages": [
+      {
+        "role": "system",
+        "content": "${SYSTEM_PROMPT}"
+      }
+    ],
+    "tools": [
+      {
+        "type": "endCall"
+      }
+    ],
+    "toolIds": "${TOOL_IDS}"
+  },
+  "voice": {
+    "provider": "vapi",
+    "voiceId": "Elliot"
+  },
+  "transcriber": {
+    "provider": "deepgram",
+    "model": "nova-3",
+    "language": "en",
+    "keyterm": [
+      "Summit Air",
+      "Comfort Club",
+      "Comfort Club Plus",
+      "furnace",
+      "boiler",
+      "heat pump",
+      "mini-split",
+      "ductless",
+      "central air",
+      "condenser",
+      "air handler",
+      "thermostat",
+      "pilot light",
+      "igniter",
+      "radiator",
+      "baseboard",
+      "carbon monoxide",
+      "refrigerant",
+      "compressor",
+      "Brooklyn",
+      "Queens",
+      "Staten Island",
+      "Astoria",
+      "Jackson Heights",
+      "Flushing",
+      "Forest Hills",
+      "Jamaica",
+      "Ridgewood",
+      "Sunnyside",
+      "Bay Ridge",
+      "Bushwick",
+      "Williamsburg",
+      "Park Slope",
+      "Flatbush",
+      "Canarsie",
+      "Bensonhurst",
+      "Tottenville",
+      "St. George",
+      "Carrier",
+      "Trane",
+      "Lennox",
+      "Rheem",
+      "Goodman",
+      "Daikin",
+      "Mitsubishi",
+      "Fujitsu",
+      "Burnham",
+      "Weil-McLain",
+      "Peerless",
+      "Navien"
+    ]
+  },
+  "startSpeakingPlan": {
+    "waitSeconds": 0.6,
+    "transcriptionEndpointingPlan": {
+      "onPunctuationSeconds": 0.1,
+      "onNoPunctuationSeconds": 1.5,
+      "onNumberSeconds": 1.0
+    }
+  },
+  "stopSpeakingPlan": {
+    "numWords": 2,
+    "voiceSeconds": 0.2,
+    "backoffSeconds": 1
+  },
+  "hooks": [
+    {
+      "on": "customer.speech.timeout",
+      "options": {
+        "timeoutSeconds": 10,
+        "triggerMaxCount": 3,
+        "triggerResetMode": "onUserSpeech"
+      },
+      "do": [
+        {
+          "type": "say",
+          "exact": [
+            "Are you still there?",
+            "I'm still here whenever you're ready.",
+            "Take your time. I'm here."
+          ]
+        }
+      ]
+    }
+  ],
+  "maxDurationSeconds": 900,
+  "endCallMessage": "Thanks for calling Summit Air. Take care.",
+  "backgroundSpeechDenoisingPlan": {
+    "smartDenoisingPlan": {
+      "enabled": true
+    }
+  },
+  "server": {
+    "url": "${APP_URL}/api/vapi/events",
+    "credentialId": "${VAPI_CREDENTIAL_ID}"
+  },
+  "serverMessages": [
+    "end-of-call-report"
+  ],
+  "analysisPlan": {
+    "summaryPlan": {
+      "enabled": true,
+      "messages": [
+        {
+          "role": "system",
+          "content": "Summarize this Summit Air HVAC call for the office in 2-3 sentences: who called, the problem, urgency, and the outcome (booked window, priority dispatch, callback, safety stop, or nothing). Note anything the office must follow up on."
+        },
+        {
+          "role": "user",
+          "content": "Transcript:\n\n{{transcript}}\n\nEnded reason: {{endedReason}}"
+        }
+      ]
+    }
+  },
+  "metadata": {
+    "managedBy": "summit-air-fde scripts/sync-vapi.ts"
+  }
+}

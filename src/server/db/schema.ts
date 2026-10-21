@@ -37,15 +37,20 @@ export const callbackStatusEnum = pgEnum("callback_status", ["open", "done"]);
 
 const createdAt = () => timestamp("created_at", { withTimezone: true }).notNull().defaultNow();
 
-export const customers = pgTable("customers", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  firstName: text("first_name").notNull(),
-  lastName: text("last_name").notNull(),
-  phoneE164: text("phone_e164").notNull().unique(),
-  email: text("email"),
-  createdAt: createdAt(),
-  isDemoSeed: boolean("is_demo_seed").notNull().default(false),
-});
+export const customers = pgTable(
+  "customers",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    firstName: text("first_name").notNull(),
+    lastName: text("last_name").notNull(),
+    phoneE164: text("phone_e164").notNull().unique(),
+    email: text("email"),
+    createdAt: createdAt(),
+    isDemoSeed: boolean("is_demo_seed").notNull().default(false),
+  },
+  // lookup_customer by last name + ZIP/street number.
+  (t) => [index("customers_last_name_lower_idx").on(sql`lower(${t.lastName})`)],
+);
 
 export const serviceAddresses = pgTable(
   "service_addresses",
@@ -142,6 +147,8 @@ export const appointments = pgTable(
     urgency: urgencyEnum("urgency").notNull(),
     issueSummary: text("issue_summary"),
     symptoms: jsonb("symptoms"),
+    // Full structured intake (equipment, vulnerable occupants, access notes, ...) as captured on the call.
+    intake: jsonb("intake"),
     technicianNotes: text("technician_notes"),
     status: appointmentStatusEnum("status").notNull().default("confirmed"),
     vapiCallId: text("vapi_call_id"),

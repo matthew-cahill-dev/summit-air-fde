@@ -1,0 +1,79 @@
+{
+  "type": "function",
+  "async": false,
+  "function": {
+    "name": "get_availability",
+    "description": "Find more arrival windows after triage, e.g. 'anything later?', 'mornings only', 'do you have Saturday?'. Returns up to 3 offered_slots with spoken labels.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "zip": {
+          "type": "string",
+          "description": "5-digit ZIP code of the service address, e.g. 11372."
+        },
+        "urgency": {
+          "type": "string",
+          "enum": [
+            "urgent",
+            "routine"
+          ],
+          "description": "urgent if triage said book_earliest, otherwise routine."
+        },
+        "preferred_window": {
+          "type": "string",
+          "enum": [
+            "morning",
+            "afternoon",
+            "any"
+          ],
+          "description": "Time-of-day preference."
+        },
+        "preferred_day": {
+          "type": "string",
+          "enum": [
+            "monday",
+            "tuesday",
+            "wednesday",
+            "thursday",
+            "friday",
+            "saturday",
+            "sunday"
+          ],
+          "description": "Day-of-week preference."
+        },
+        "after": {
+          "type": "string",
+          "description": "ISO timestamp; only windows starting after this. Use the last offered starts_at for 'anything later'."
+        },
+        "customer_id": {
+          "type": "string",
+          "description": "customer_id from lookup_customer, if found (members get first pick)."
+        }
+      },
+      "required": [
+        "zip",
+        "urgency"
+      ]
+    }
+  },
+  "messages": [
+    {
+      "type": "request-start",
+      "content": "One sec, checking the schedule."
+    },
+    {
+      "type": "request-start",
+      "content": "Let me see what else is open."
+    },
+    {
+      "type": "request-response-delayed",
+      "content": "Thanks for waiting, almost there.",
+      "timingMilliseconds": 3000
+    }
+  ],
+  "server": {
+    "url": "${APP_URL}/api/vapi/tools",
+    "credentialId": "${VAPI_CREDENTIAL_ID}",
+    "timeoutSeconds": 10
+  }
+}

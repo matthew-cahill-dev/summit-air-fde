@@ -7,11 +7,14 @@ import { handleToolCalls } from "./dispatcher";
 import { describeEnvelopeShape } from "./envelope";
 import { parseEndOfCallReport } from "./events";
 import type { ToolRegistry } from "./registry";
+import type { ToolSettings } from "./types";
 
 export type VapiHttpDeps = {
   secret: string;
   repos: () => Repositories;
   registry: ToolRegistry;
+  settings: ToolSettings;
+  now?: () => Date;
 };
 
 const unauthorized = () => Response.json({ error: "unauthorized" }, { status: 401 });
@@ -32,11 +35,16 @@ export async function handleToolsRequest(request: Request, deps: VapiHttpDeps): 
   const body = await readJson(request);
   logEvent("vapi_envelope", { route: "tools", ...describeEnvelopeShape(body) });
   // Always 200: Vapi ignores non-200 bodies and the agent hears "no result".
-  const response = await handleToolCalls(body, { registry: deps.registry, repos: deps.repos() });
+  const response = await handleToolCalls(body, {
+    registry: deps.registry,
+    repos: deps.repos(),
+    settings: deps.settings,
+    now: deps.now,
+  });
   return Response.json(response);
 }
 
-export async function handleEventsRequest(request: Request, deps: Omit<VapiHttpDeps, "registry">): Promise<Response> {
+export async function handleEventsRequest(request: Request, deps: Pick<VapiHttpDeps, "secret" | "repos">): Promise<Response> {
   if (!isAuthorizedBearer(request.headers.get("authorization"), deps.secret)) {
     logEvent("vapi_auth_rejected", { route: "events" });
     return unauthorized();

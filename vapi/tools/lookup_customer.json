@@ -3,13 +3,25 @@
   "async": false,
   "function": {
     "name": "lookup_customer",
-    "description": "Look up the caller's Summit Air account. Call this early in every call. Omit phone to use the caller ID; pass phone only if the caller gives a different number on their account. Returns found, first_name, membership, addresses on file (street, unit, ZIP) and an equipment summary.",
+    "description": "Find and VERIFY the caller's Summit Air account. Step 1: call with no arguments (uses caller ID). If it returns verification_required, ask the caller for the service street address and call again with street_address exactly as they said it. If there's no account for the number, ask for last name, ZIP and street address and call with all three. Account details (first name, membership, addresses, equipment, customer_id) are returned only when verified is true. Never read anything back before that.",
     "parameters": {
       "type": "object",
       "properties": {
         "phone": {
           "type": "string",
-          "description": "Phone number on the account, any US format (e.g. 718-555-0101). Leave out to use the caller's number."
+          "description": "Phone number on the account, if different from caller ID. Any US format."
+        },
+        "street_address": {
+          "type": "string",
+          "description": "The street address AS THE CALLER SAID IT, e.g. 'thirty-seven twelve 82nd street' or '412 Seventh Ave'. Never fill this from a previous tool result."
+        },
+        "last_name": {
+          "type": "string",
+          "description": "Account holder's last name. Requires zip and street_address."
+        },
+        "zip": {
+          "type": "string",
+          "description": "5-digit ZIP code of the service address."
         }
       },
       "required": []
@@ -17,14 +29,22 @@
   },
   "messages": [
     {
+      "type": "request-start",
+      "content": "One sec, let me pull up your account."
+    },
+    {
+      "type": "request-start",
+      "content": "Let me look you up."
+    },
+    {
       "type": "request-response-delayed",
-      "content": "Thanks for your patience, still pulling that up.",
-      "timingMilliseconds": 2500
+      "content": "Thanks for waiting, almost there.",
+      "timingMilliseconds": 3000
     }
   ],
   "server": {
-    "url": "{{APP_URL}}/api/vapi/tools",
-    "credentialId": "REPLACE_WITH_VAPI_BEARER_CREDENTIAL_ID",
+    "url": "${APP_URL}/api/vapi/tools",
+    "credentialId": "${VAPI_CREDENTIAL_ID}",
     "timeoutSeconds": 10
   }
 }

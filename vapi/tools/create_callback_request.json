@@ -1,0 +1,64 @@
+{
+  "type": "function",
+  "async": false,
+  "function": {
+    "name": "create_callback_request",
+    "description": "Ask the office to call the caller back: when a tool failed, the caller is out of area but thinks we misheard, they want a person and transfer isn't available, or the call can't be finished.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "reason": {
+          "type": "string",
+          "enum": [
+            "backend_failure",
+            "out_of_area",
+            "human_requested",
+            "incomplete_call",
+            "other"
+          ],
+          "description": "Why a callback is needed."
+        },
+        "details": {
+          "type": "string",
+          "description": "Short summary of what the caller needs."
+        },
+        "caller_name": {
+          "type": "string",
+          "description": "Caller's name, if known."
+        },
+        "phone": {
+          "type": "string",
+          "description": "Best callback number if different from caller ID."
+        },
+        "context": {
+          "type": "object",
+          "description": "Anything useful already collected (address, issue, chosen window)."
+        }
+      },
+      "required": [
+        "reason",
+        "details"
+      ]
+    }
+  },
+  "messages": [
+    {
+      "type": "request-start",
+      "content": "One moment, I'm setting up a callback."
+    },
+    {
+      "type": "request-start",
+      "content": "Let me get that callback request in."
+    },
+    {
+      "type": "request-response-delayed",
+      "content": "Thanks for waiting, almost there.",
+      "timingMilliseconds": 3000
+    }
+  ],
+  "server": {
+    "url": "${APP_URL}/api/vapi/tools",
+    "credentialId": "${VAPI_CREDENTIAL_ID}",
+    "timeoutSeconds": 10
+  }
+}

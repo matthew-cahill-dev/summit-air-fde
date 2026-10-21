@@ -1,0 +1,136 @@
+{
+  "type": "function",
+  "async": false,
+  "function": {
+    "name": "create_priority_dispatch",
+    "description": "Log a priority request for the on-call team when triage says priority_dispatch. Returns the callback time policy. It does NOT assign or send a technician.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "first_name": {
+          "type": "string",
+          "description": "Caller's first name."
+        },
+        "last_name": {
+          "type": "string",
+          "description": "Caller's last name, if given."
+        },
+        "phone": {
+          "type": "string",
+          "description": "Best callback number if different from caller ID."
+        },
+        "customer_id": {
+          "type": "string",
+          "description": "From lookup_customer, if found."
+        },
+        "address": {
+          "type": "object",
+          "description": "Full service address.",
+          "properties": {
+            "line1": {
+              "type": "string",
+              "description": "House number and street."
+            },
+            "unit": {
+              "type": "string",
+              "description": "Apartment or unit, if any."
+            },
+            "city": {
+              "type": "string",
+              "description": "Neighborhood or city."
+            },
+            "zip": {
+              "type": "string",
+              "description": "5-digit ZIP code of the service address, e.g. 11372."
+            },
+            "access_notes": {
+              "type": "string",
+              "description": "Buzzer, doorman, entrance."
+            }
+          },
+          "required": [
+            "line1",
+            "zip"
+          ]
+        },
+        "issue_type": {
+          "type": "string",
+          "enum": [
+            "no_heat",
+            "no_cooling",
+            "maintenance",
+            "noise",
+            "leak",
+            "thermostat",
+            "other"
+          ],
+          "description": "Main problem. leak = active water or refrigerant leak."
+        },
+        "issue_summary": {
+          "type": "string",
+          "description": "One-sentence description of the problem."
+        },
+        "symptoms": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Specific symptoms."
+        },
+        "vulnerable_occupants": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "elderly",
+              "infant",
+              "medical_condition",
+              "pregnant",
+              "medical_equipment",
+              "disability"
+            ]
+          },
+          "description": "Vulnerable people in the home. Empty array if none."
+        },
+        "indoor_temp_f": {
+          "type": "number",
+          "description": "Indoor temperature in Fahrenheit, if known."
+        },
+        "reasons": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "The reasons array from triage_issue, unchanged."
+        }
+      },
+      "required": [
+        "first_name",
+        "address",
+        "issue_type",
+        "issue_summary",
+        "reasons"
+      ]
+    }
+  },
+  "messages": [
+    {
+      "type": "request-start",
+      "content": "One moment, I'm getting this to our on-call team."
+    },
+    {
+      "type": "request-start",
+      "content": "Logging this as a priority now."
+    },
+    {
+      "type": "request-response-delayed",
+      "content": "Thanks for waiting, almost there.",
+      "timingMilliseconds": 3000
+    }
+  ],
+  "server": {
+    "url": "${APP_URL}/api/vapi/tools",
+    "credentialId": "${VAPI_CREDENTIAL_ID}",
+    "timeoutSeconds": 10
+  }
+}

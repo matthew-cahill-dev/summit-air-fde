@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { buildCallerContext, getCallerContext } from "@/server/services/caller-context";
 import { handleToolsRequest } from "@/server/vapi/http";
-import { payloadOf, post, testDeps, testRepos, toolCallsBody } from "./helpers";
+import { payloadOf, post, testDeps, testRepos, testSettings, toolCallsBody } from "./helpers";
 
 describe("getCallerContext (real DB)", () => {
   it("active member with equipment", async () => {
@@ -47,61 +47,131 @@ describe("getCallerContext (real DB)", () => {
   });
 });
 
-describe("lookup_customer tool", () => {
-  async function lookup(args: unknown, callerNumber?: string) {
+describe("lookup_customer tool (identity verification)", () => {
+  async function lookup(args: unknown, callerNumber?: string, opts: { demoCallerMap?: Map<string, string>; callId?: string } = {}) {
     const res = await handleToolsRequest(
       post(
         "/api/vapi/tools",
-        toolCallsBody({ callId: `call-${randomUUID()}`, callerNumber, calls: [{ id: "t", name: "lookup_customer", arguments: args }] }),
+        toolCallsBody({
+          callId: opts.callId ?? `call-${randomUUID()}`,
+          callerNumber,
+          calls: [{ id: `t-${randomUUID()}`, name: "lookup_customer", arguments: args }],
+        }),
       ),
-      testDeps(),
+      testDeps({ settings: testSettings({ demoCallerMap: opts.demoCallerMap ?? new Map() }) }),
     );
     const { results } = (await res.json()) as { results: Array<{ result?: string; error?: string }> };
     return payloadOf(results[0]);
   }
 
-  it("defaults to the caller's number and returns only confirmation fields", async () => {
-    const out = await lookup({}, "+13475550102");
-    expect(out).toEqual({
-      ok: true,
-      found: true,
-      phone_e164: "+13475550102",
-      first_name: "Priya",
-      is_member: true,
-      membership: { status: "active", plan: "Comfort Club" },
-      addresses: [{ line1: "37-12 82nd St", unit: null, zip: "11372" }],
-      equipment_summary: "furnace (Carrier, 2012), central AC (Carrier, 2012)", // enum order: heating first
-      say: expect.any(String),
-    });
-    // No last name, email, city, access notes or internal ids leak to the agent.
+  // Nothing stored may appear in an unverified result.
+  const STORED_DETAILS = ["Priya", "Marlowe", "37-12", "82nd", "11372", "Comfort", "Carrier", "00000000-", "example.com", "driveway"];
+  const expectNoDisclosure = (out: Record<string, unknown>) => {
     const text = JSON.stringify(out);
-    for (const leaked of ["Marlowe", "example.com", "Jackson Heights", "driveway", "00000000-"]) {
-      expect(text).not.toContain(leaked);
+    for (const d of STORED_DETAILS) expect(text).not.toContain(d);
+  };
+
+  describe("by phone", () => {
+    it("caller ID match without a stated address is unverified and discloses nothing", async () => {
+      const out = await lookup({}, "+13475550102");
+      expect(out).toEqual({ ok: true, found: true, verified: false, verification_required: true, say: expect.stringContaining("street address") });
+      expectNoDisclosure(out);
+    });
+
+    it.each([["37-12 82nd Street"], ["thirty-seven twelve eighty-second street"], ["3712 82nd St, Jackson Heights"], ["37 12 82 st"]])(
+      "verified when the caller says %j",
+      async (said) => {
+        const out = await lookup({ street_address: said }, "+13475550102");
+        expect(out).toMatchObject({
+          ok: true,
+          verified: true,
+          matched_by: "phone",
+          customer_id: "00000000-0000-4000-8000-000000000002",
+          first_name: "Priya",
+          is_member: true,
+          membership: { status: "active", plan: "Comfort Club" },
+          addresses: [{ address_id: "00000000-0000-4000-8001-000000000002", line1: "37-12 82nd St", unit: null, zip: "11372", access_notes_on_file: true }],
+          equipment_summary: "furnace (Carrier, 2012), central AC (Carrier, 2012)",
+        });
+        expect(JSON.stringify(out)).not.toMatch(/Marlowe|example\.com|driveway/);
+      },
+    );
+
+    it.each([["37-14 82nd Street"], ["37-12 83rd Street"], ["82nd Street"], ["412 Seventh Ave"]])("wrong address %j → verified:false, nothing disclosed", async (said) => {
+      const out = await lookup({ street_address: said }, "+13475550102");
+      expect(out).toMatchObject({ ok: true, found: false, verified: false, verification_failed: true });
+      expectNoDisclosure(out);
+    });
+
+    it("multi-address customers: only the stated address is returned", async () => {
+      const out = await lookup({ street_address: "one oh eight twenty seventy first avenue", phone: "(718) 555-0109" });
+      expect(out).toMatchObject({ verified: true, first_name: "Grace" });
+      expect(out.addresses).toEqual([expect.objectContaining({ line1: "108-20 71st Ave", unit: "6D" })]);
+      expect(JSON.stringify(out)).not.toContain("Bayview");
+    });
+
+    it("unknown number", async () => {
+      expect(await lookup({}, "+17185550188")).toMatchObject({ ok: true, found: false, verified: false });
+    });
+
+    it("errors when no phone and no caller ID", async () => {
+      expect(await lookup({})).toMatchObject({ ok: false, error_code: "missing_phone" });
+    });
+
+    it("errors with the field name when the phone is invalid", async () => {
+      const out = await lookup({ phone: "555-0101" });
+      expect(out.invalid_fields).toEqual([{ field: "phone", problem: "not a valid phone number" }]);
+    });
+  });
+
+  describe("by last name + ZIP + caller-stated street", () => {
+    it("verifies on an exact match, even without caller ID", async () => {
+      const out = await lookup({ last_name: "marlowe-venn", zip: "11372", street_address: "thirty seven twelve eighty second street" });
+      expect(out).toMatchObject({ verified: true, matched_by: "name", first_name: "Priya" });
+      expect(out).not.toHaveProperty("phone_e164");
+    });
+
+    it("shared last name + ZIP is disambiguated by the stated street", async () => {
+      const morgan = await lookup({ last_name: "Quillfeather", zip: "11215", street_address: "two eleven prospect park west" });
+      expect(morgan).toMatchObject({ verified: true, first_name: "Morgan" });
+      expect(JSON.stringify(morgan)).not.toContain("Dana");
+      const dana = await lookup({ last_name: "Quillfeather", zip: "11215", street_address: "four twelve seventh avenue" });
+      expect(dana).toMatchObject({ verified: true, first_name: "Dana" });
+    });
+
+    it("unknown name and wrong street look identical (no enumeration)", async () => {
+      const unknownName = await lookup({ last_name: "Nobody", zip: "11215", street_address: "412 Seventh Ave" });
+      const wrongStreet = await lookup({ last_name: "Quillfeather", zip: "11215", street_address: "500 Fifth Ave" });
+      expect(unknownName).toEqual(wrongStreet);
+      expectNoDisclosure(unknownName);
+    });
+
+    it("requires zip and street_address with last_name, naming the fields", async () => {
+      const out = await lookup({ last_name: "Quillfeather" });
+      expect(out).toMatchObject({ ok: false, error_code: "invalid_arguments", message: "Missing: zip, street_address" });
+    });
+  });
+
+  it("locks after 3 failed verifications on one call", async () => {
+    const callId = `call-${randomUUID()}`;
+    for (const street of ["1 Main St", "2 Main St", "3 Main St"]) {
+      expect(await lookup({ street_address: street }, "+13475550102", { callId })).toMatchObject({ verification_failed: true });
     }
+    // Even the right address no longer verifies on this call.
+    const out = await lookup({ street_address: "37-12 82nd St" }, "+13475550102", { callId });
+    expect(out).toMatchObject({ verified: false, verification_locked: true });
+    expectNoDisclosure(out);
   });
 
-  it("explicit phone overrides caller ID and is normalized", async () => {
-    const out = await lookup({ phone: "(718) 555-0109" }, "+13475550102");
-    expect(out).toMatchObject({ found: true, phone_e164: "+17185550109", first_name: "Grace" });
-    expect(out.addresses).toHaveLength(2);
-    expect(out.equipment_summary).toContain("108-20 71st Ave:");
-  });
+  describe("DEMO_CALLER_PHONES", () => {
+    const realPhone = "+12025550100"; // stands in for a tester's real phone
+    const demoMap = new Map([[realPhone, "00000000-0000-4000-8000-000000000005"]]);
 
-  it("non-member", async () => {
-    expect(await lookup({ phone: "917-555-0111" })).toMatchObject({ found: true, first_name: "Wen", is_member: false, membership: null });
-  });
-
-  it("unknown number returns found:false", async () => {
-    expect(await lookup({}, "+17185550188")).toMatchObject({ ok: true, found: false, phone_e164: "+17185550188" });
-  });
-
-  it("errors when no phone and no caller ID", async () => {
-    expect(await lookup({})).toMatchObject({ ok: false, error_code: "missing_phone" });
-  });
-
-  it("errors with the field name when the phone is invalid", async () => {
-    const out = await lookup({ phone: "555-0101" });
-    expect(out).toMatchObject({ ok: false, error_code: "invalid_arguments" });
-    expect(out.invalid_fields).toEqual([{ field: "phone", problem: "not a valid phone number" }]);
+    it("maps a configured phone to its demo customer, still requiring the street", async () => {
+      expect(await lookup({}, realPhone, { demoCallerMap: demoMap })).toMatchObject({ found: true, verified: false });
+      const out = await lookup({ street_address: "twenty one forty five thirty first street" }, realPhone, { demoCallerMap: demoMap });
+      expect(out).toMatchObject({ verified: true, matched_by: "demo_alias", first_name: "Tomas", phone_e164: realPhone });
+      expect(JSON.stringify(out)).not.toContain("+17185550105");
+    });
   });
 });

@@ -11,5 +11,10 @@ export function productionVapiDeps(): VapiHttpDeps {
     secret: env.VAPI_TOOL_SECRET,
     repos: () => createRepositories(getDbFor(env.DATABASE_URL)),
     registry: TOOL_REGISTRY,
+    settings: {
+      timeZone: env.APP_TIMEZONE,
+      transferAvailable: Boolean(env.ON_CALL_TRANSFER_NUMBER),
+      demoCallerMap: env.DEMO_CALLER_PHONES,
+    },
   };
 }

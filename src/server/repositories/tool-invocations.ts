@@ -1,4 +1,4 @@
-import { and, eq, sql } from "drizzle-orm";
+import { and, count, eq, sql } from "drizzle-orm";
 import type { Db } from "@/server/db/client";
 import { toolInvocations } from "@/server/db/schema";
 import type { StoredInvocation, ToolInvocationRepository } from "./types";
@@ -22,6 +22,20 @@ export function createToolInvocationRepository(db: Db): ToolInvocationRepository
 
   return {
     findByKey,
+
+    async countFailedVerifications(vapiCallId) {
+      const [row] = await db
+        .select({ n: count() })
+        .from(toolInvocations)
+        .where(
+          and(
+            eq(toolInvocations.vapiCallId, vapiCallId),
+            eq(toolInvocations.toolName, "lookup_customer"),
+            sql`${toolInvocations.result}->>'verification_failed' = 'true'`,
+          ),
+        );
+      return row?.n ?? 0;
+    },
 
     async record(input) {
       const values = {

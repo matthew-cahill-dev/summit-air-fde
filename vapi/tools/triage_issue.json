@@ -1,0 +1,110 @@
+{
+  "type": "function",
+  "async": false,
+  "function": {
+    "name": "triage_issue",
+    "description": "Classify the problem with Summit Air's rules and get the next step. Returns urgency, reasons, next_action (safety_instructions, priority_dispatch, book_earliest, book_standard, explain_and_close, create_callback) and, when bookable, up to 3 offered_slots with spoken labels. For gas/CO/smoke, give safety instructions BEFORE calling this.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "issue_type": {
+          "type": "string",
+          "enum": [
+            "no_heat",
+            "no_cooling",
+            "maintenance",
+            "noise",
+            "leak",
+            "thermostat",
+            "other"
+          ],
+          "description": "Main problem. leak = active water or refrigerant leak."
+        },
+        "gas_smell": {
+          "type": "boolean",
+          "description": "Caller smells gas (rotten eggs/sulfur)."
+        },
+        "co_alarm": {
+          "type": "boolean",
+          "description": "A carbon monoxide alarm is going off."
+        },
+        "burning_smell_or_smoke": {
+          "type": "boolean",
+          "description": "Burning smell or visible smoke."
+        },
+        "vulnerable_occupants": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "elderly",
+              "infant",
+              "medical_condition",
+              "pregnant",
+              "medical_equipment",
+              "disability"
+            ]
+          },
+          "description": "Vulnerable people in the home. Empty array if none."
+        },
+        "indoor_temp_f": {
+          "type": "number",
+          "description": "Indoor temperature in Fahrenheit, only if the caller knows it."
+        },
+        "property_type": {
+          "type": "string",
+          "enum": [
+            "residential",
+            "commercial"
+          ],
+          "description": "residential for a house or apartment; commercial for a business."
+        },
+        "zip": {
+          "type": "string",
+          "description": "5-digit ZIP code of the service address, e.g. 11372."
+        },
+        "customer_id": {
+          "type": "string",
+          "description": "customer_id from lookup_customer, if found."
+        },
+        "preferred_window": {
+          "type": "string",
+          "enum": [
+            "morning",
+            "afternoon",
+            "any"
+          ],
+          "description": "Caller's preferred time of day, if mentioned."
+        }
+      },
+      "required": [
+        "issue_type",
+        "gas_smell",
+        "co_alarm",
+        "burning_smell_or_smoke",
+        "property_type",
+        "zip"
+      ]
+    }
+  },
+  "messages": [
+    {
+      "type": "request-start",
+      "content": "Let me check that for you."
+    },
+    {
+      "type": "request-start",
+      "content": "One sec, checking the schedule."
+    },
+    {
+      "type": "request-response-delayed",
+      "content": "Thanks for waiting, almost there.",
+      "timingMilliseconds": 3000
+    }
+  ],
+  "server": {
+    "url": "${APP_URL}/api/vapi/tools",
+    "credentialId": "${VAPI_CREDENTIAL_ID}",
+    "timeoutSeconds": 10
+  }
+}

@@ -1,12 +1,24 @@
 import type { z } from "zod";
 import type { Repositories } from "@/server/repositories";
 
+export type ToolSettings = {
+  /** IANA zone for "today", seasons and spoken times. */
+  timeZone: string;
+  /** True when ON_CALL_TRANSFER_NUMBER is configured (transfer tool attached). */
+  transferAvailable: boolean;
+  /** DEMO_CALLER_PHONES: E.164 → seeded customer id. */
+  demoCallerMap: ReadonlyMap<string, string>;
+};
+
 export type ToolContext = {
   /** Vapi call ID (body.message.call.id); null when Vapi didn't send one (e.g. dashboard tool test). */
   callId: string | null;
   /** Caller's number as Vapi sent it (body.message.call.customer.number), not normalized. */
   callerPhone: string | null;
   repos: Repositories;
+  settings: ToolSettings;
+  /** Request time; injected so tests can pin the clock. */
+  now: Date;
 };
 
 /** What a tool handler returns. Serialized into the Vapi `result` (ok) or `error` (not ok) string. */

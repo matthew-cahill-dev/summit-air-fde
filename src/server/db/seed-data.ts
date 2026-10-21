@@ -164,6 +164,15 @@ export const SEED_CUSTOMERS: SeedCustomer[] = [
       equipment: [{ id: eid(19), kind: "heat_pump", brand: "Daikin", installYear: 2023 }],
     }],
   },
+  {
+    // Shares last name + ZIP with customer 1: exercises the "ambiguous" name lookup.
+    id: cid(13), firstName: "Morgan", lastName: "Quillfeather", phoneE164: "+13475550113", email: null,
+    addresses: [{
+      id: aid(14), line1: "211 Prospect Park W", unit: "2", city: "Brooklyn", zip: "11215", county: "Kings",
+      propertyType: "residential", accessNotes: "Brownstone; garden-level door under the stoop.",
+      equipment: [{ id: eid(20), kind: "boiler", brand: "Burnham", installYear: 2016 }],
+    }],
+  },
 ];
 
 // ASSUMPTION: arrival windows per business day (local time). 2–4 hours each.

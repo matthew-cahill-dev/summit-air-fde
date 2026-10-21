@@ -35,7 +35,10 @@ export default async function setup() {
   const { db, pool } = createDb(url);
   try {
     await migrate(db, { migrationsFolder: "./drizzle" });
-    await db.execute(sql`truncate tool_invocations, calls`);
+    // Reset everything tests write; the seed then restores demo rows and fresh slots.
+    await db.execute(sql`truncate tool_invocations, calls, appointments, dispatch_requests, callback_requests`);
+    await db.execute(sql`delete from appointment_slots`);
+    await db.execute(sql`delete from customers where is_demo_seed = false`);
     await seed(db, { timeZone: "America/New_York" });
   } finally {
     await pool.end();
