@@ -105,11 +105,10 @@ describe("xai-liora voice (copied from the sandbox assistant Riley)", () => {
     expect(removed).toEqual(expect.arrayContaining(["voice.version", "voice.speed"]));
   });
 
-  it("keeps the Ayva respelling and a short first chunk", () => {
+  it("keeps plain 'Ava' and a short first chunk", () => {
     const plan = voice.chunkPlan as JsonObject;
     expect(plan).toMatchObject({ enabled: true, minCharacters: 5 });
-    const [ava] = (plan.formatPlan as JsonObject).replacements as Array<{ regex: string; value: string }>;
-    expect("This is Ava".replace(new RegExp(ava.regex), ava.value)).toBe("This is Ayva");
+    for (const r of (plan.formatPlan as JsonObject).replacements as Array<{ regex: string; value: string }>) expect("This is Ava".replace(new RegExp(r.regex), r.value)).toBe("This is Ava");
   });
 });
 
@@ -143,12 +142,12 @@ describe.each(models.flatMap((variant) => voices.map((voice) => [variant, voice]
     expect((model.tools as JsonObject[]).find((t) => t.type === "endCall")).toEqual((base.model as JsonObject).tools && ((base.model as JsonObject).tools as JsonObject[]).find((t) => t.type === "endCall"));
   });
 
-  it("keeps 'Ava' pronounced as AY-vuh", () => {
-    expect(built.firstMessage).toContain("Ayva");
+  it("says plain 'Ava' (no respelling)", () => {
+    expect(built.firstMessage).toContain("This is Ava,");
     const v = built.voice as JsonObject;
     const replacements = (((v.chunkPlan as JsonObject | undefined)?.formatPlan as JsonObject | undefined)?.replacements ?? []) as Array<{ regex?: string; key?: string; value: string }>;
     const ava = replacements.find((r) => r.regex?.includes("Ava") || r.key === "Ava");
-    expect(ava, "every voice must respell Ava").toBeDefined();
+    expect(ava, "no voice respells Ava").toBeUndefined();
     expect((v.chunkPlan as JsonObject).enabled).toBe(true);
   });
 });

@@ -3,7 +3,7 @@
     "_": "Keys starting with _ are stripped by scripts/sync-vapi.ts. ${VAR} placeholders are filled at sync time; {{...}} / {% %} are Vapi Liquid.",
     "model": "gpt-4.1, temperature 0.5 (Vapi's default) for a warmer, less repetitive delivery; tool-call accuracy comes from the backend rules, not low temperature. FASTER ALTERNATIVE (not switched): \"gpt-4.1-mini\" (or the pinned \"gpt-4.1-mini-2025-04-14\") cuts model time per turn noticeably, but it's weaker at multi-step tool use and long instruction lists; this prompt has ~20 rules the backend can't enforce (call order, read-back, no invented facts). Switch only after `npm run evals -- --confirm` passes on it. Prompt caching: OpenAI caches identical prompt prefixes automatically, so the system prompt keeps the per-call date line at the END. promptCacheRetention '24h' (spec: supported on gpt-4.1 and GPT-5 models): calls are minutes or hours apart, longer than the default in-memory cache lives, so without it the ~4,300-token prompt is usually re-read cold.",
     "transcriber": "Deepgram Flux (flux-general-en): transcription and end-of-turn detection in one model. Vapi forwards our keyterms to Flux (confirmed in the Oct 21 call log: the /v2/listen URL carries every keyterm). End-of-turn values come from the endpointing preset (vapi/variants/endpointing/*.json; default in _defaults): eotThreshold (0.5-0.9 in Vapi; higher = more certain before ending a turn, fewer cut-ins, slightly slower) and eotTimeoutMs (silence that forces a turn end). The values below match the default 'safe' preset. Vapi docs: don't set smartEndpointingPlan with Flux; custom endpointing rules and transcriptionEndpointingPlan are ignored, so they were removed. keyterm: 48 terms (Deepgram advises 20-50). Default preset 'fast' since Oct 21 (live: caller-side p95 2054 vs 2941 ms for 'safe', worst turn 3.7 vs 5.5 s, 0 overlaps).",
-    "voice": "Provider and voiceId are a placeholder until the owner picks one (see README 'Voice options'). chunkPlan: TTS gets whole sentences (no comma boundaries, so speech isn't choppy), but minCharacters is 5 (Vapi default 30): a short opener like \"Got it.\" is sent to the voice on its own, so audio starts while the model is still writing the rest. Measured voice latency is ~230 ms either way; this removes the wait for a 30-character first chunk. formatPlan.replacements respell names the TTS mispronounced before synthesis: live transcripts heard the greeting's 'Ava' as 'Eva', so it's spelled 'Ayva' (AY-vuh). A Vapi pronunciation dictionary isn't used: on version-2 Vapi voices it reroutes the voice through Cartesia, which would change the voice. Replacements need chunkPlan.enabled; they may not apply to firstMessage (undocumented), so firstMessage spells 'Ayva' itself.",
+    "voice": "Provider and voiceId are a placeholder until the owner picks one (see README 'Voice options'). chunkPlan: TTS gets whole sentences (no comma boundaries, so speech isn't choppy), but minCharacters is 5 (Vapi default 30): a short opener like \"Got it.\" is sent to the voice on its own, so audio starts while the model is still writing the rest. Measured voice latency is ~230 ms either way; this removes the wait for a 30-character first chunk. formatPlan.replacements respell names the TTS mispronounced before synthesis (needs chunkPlan.enabled). Plain 'Ava': the voice reads 'Ayva' as 'EYE-vuh'. The earlier 'Eva' issue was transcription, not TTS.",
     "startSpeakingPlan": "waitSeconds comes from the endpointing preset (default 'fast': 0.2). Endpointing itself is Flux's job (see transcriber).",
     "stopSpeakingPlan": "numWords 2: 'uh-huh' doesn't interrupt Ava; a real interruption of 2+ words does. acknowledgementPhrases per Vapi's Flux example: these never interrupt. backoffSeconds 1 before Ava resumes after being interrupted.",
     "analysisPlan": "Deprecated in the API but still works; feeds message.analysis.summary into our calls table. Migrate to structured outputs later.",
@@ -25,7 +25,7 @@
   },
   "name": "Summit Air Virtual Assistant",
   "firstMessageMode": "assistant-speaks-first",
-  "firstMessage": "Hi, thanks for calling Summit Air! This is Ayva, the virtual assistant. What's going on today?",
+  "firstMessage": "Hi, thanks for calling Summit Air! This is Ava, the virtual assistant. What's going on today?",
   "firstMessageInterruptionsEnabled": false,
   "model": {
     "provider": "openai",
@@ -69,11 +69,6 @@
       ],
       "formatPlan": {
         "replacements": [
-          {
-            "type": "regex",
-            "regex": "\\bAva\\b",
-            "value": "Ayva"
-          },
           {
             "type": "regex",
             "regex": "\\bNavien\\b",

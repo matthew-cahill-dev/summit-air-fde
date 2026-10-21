@@ -209,8 +209,8 @@ describe("persona, call flow and failure handling (live-call fixes)", () => {
   });
 
   it("assistant: greeting, temperature, voice settings and keyterms", () => {
-    // "Ava" is spelled phonetically for the TTS (live transcripts heard "Eva").
-    expect(assistantFile.firstMessage).toBe("Hi, thanks for calling Summit Air! This is Ayva, the virtual assistant. What's going on today?");
+    // Plain "Ava": the voice reads "Ayva" as "EYE-vuh".
+    expect(assistantFile.firstMessage).toBe("Hi, thanks for calling Summit Air! This is Ava, the virtual assistant. What's going on today?");
     expect((assistantFile.model as JsonObject).temperature).toBe(0.5);
     const voice = assistantFile.voice as JsonObject;
     expect(voice.provider).toEqual(expect.any(String));
@@ -224,7 +224,7 @@ describe("persona, call flow and failure handling (live-call fixes)", () => {
       expect(r.type).toBe("regex");
       expect(() => new RegExp(r.regex)).not.toThrow();
     }
-    expect("This is Ava speaking".replace(new RegExp(replacements[0].regex), replacements[0].value)).toBe("This is Ayva speaking");
+    for (const r of replacements) expect("This is Ava speaking".replace(new RegExp(r.regex), r.value)).toBe("This is Ava speaking");
     const keyterm = (assistantFile.transcriber as JsonObject).keyterm as string[];
     for (const t of ["AC", "A/C", "air conditioner", "no heat", "Navien", "Weil-McLain", "Daikin", "Lennox", "Rheem", "Burnham", "Jackson Heights"]) expect(keyterm).toContain(t);
     expect(keyterm.length).toBeLessThanOrEqual(50); // Deepgram advises 20-50 keyterms (500-token cap)
