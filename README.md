@@ -86,6 +86,7 @@ Validated with Zod in `src/lib/env.ts`. The server exits at boot if any are inva
 | `DEMO_CALLER_PHONES` | no | `<phone>=<customer uuid>,...`: real phones that resolve to seeded demo customers. Never commit real numbers |
 | `ASSISTANT_REQUEST_ENABLED` | no | Default `false`. `/api/vapi/assistant-request` tells the prompt the caller ID is recognized (no account details) |
 | `VAPI_ASSISTANT_ID` | for assistant-request / sync | The saved Vapi assistant |
+| `VAPI_EVAL_PERSONALITY_ID` | no (local) | Tester personality for `npm run evals -- --confirm`; create it with `npm run evals -- --setup-personality` |
 | `HANGUP_SEND_DELAY_MS` | no | Default 0 (0–1000). How long after the goodbye ends the app sends end-call (phone-call-control, the `controlled` ending only). Replaces `HANGUP_TAIL_MS`, which is now ignored (see ADR-10) |
 | `VAPI_S2S_ASSISTANT_ID` | for `--target s2s` | The separate speech-to-speech test assistant (created by the first `vapi:sync -- --target s2s`). Local `.env` only |
 | `VAPI_API_KEY`, `VAPI_CREDENTIAL_ID` | sync only | Local `.env` only, for `npm run vapi:sync`. Not needed on the server |

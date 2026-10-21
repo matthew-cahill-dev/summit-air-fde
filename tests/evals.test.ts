@@ -3,11 +3,14 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   allChecks,
+  buildPersonalityDto,
   buildScenarioDto,
   estimateCostUsd,
   KNOWN_TOOLS,
   parseScenarioFile,
   passCriteria,
+  PERSONALITY_NAME,
+  PERSONALITY_PROMPT,
   SCENARIO_PREFIX,
   selectScenarios,
   summarizeRun,
@@ -110,6 +113,20 @@ describe("buildScenarioDto", () => {
         required: true,
       },
     ]);
+  });
+});
+
+describe("tester personality", () => {
+  it("is one neutral NYC caller with Vapi's personality shape; behavior comes from each scenario", () => {
+    expect(buildPersonalityDto()).toEqual({
+      name: PERSONALITY_NAME,
+      assistant: { model: { provider: "openai", model: "gpt-4.1", messages: [{ role: "system", content: PERSONALITY_PROMPT }], tools: [{ type: "endCall" }] } },
+    });
+    expect(PERSONALITY_NAME.startsWith(SCENARIO_PREFIX)).toBe(true); // found by name on re-runs
+    expect(PERSONALITY_PROMPT).toContain("Your scenario instructions decide who you are");
+    expect(PERSONALITY_PROMPT).toContain("cooperative and polite but realistic");
+    // No adversarial behavior baked in: that stays in the scenarios that test it.
+    expect(PERSONALITY_PROMPT).not.toMatch(/ignore (all|your)|swear|refuse|prompt|instructions word for word/i);
   });
 });
 

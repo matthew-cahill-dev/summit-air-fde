@@ -194,6 +194,41 @@ export function buildScenarioDto(s: ScenarioFile): JsonObject {
   };
 }
 
+/**
+ * The simulated caller for every scenario. Neutral on purpose: who the caller is, what they want
+ * and any adversarial behavior (injection, abuse, refusing to leave…) live in each scenario's
+ * instructions, so one personality serves the whole suite. Same shape as Vapi's built-in
+ * personalities (GET /eval/simulation/personality): an assistant with a system prompt and endCall.
+ * None of the built-ins fit: "Decisive Derek" is an idealized caller, the rest are styles
+ * (rambling, impatient, confused…) that would distort every scenario.
+ */
+export const PERSONALITY_NAME = "summit-air: NYC caller";
+
+export const PERSONALITY_PROMPT = [
+  "You are an ordinary New York City resident phoning a heating and cooling company.",
+  "You're cooperative and polite but realistic: you talk like a normal person on the phone, in short natural answers (one or two sentences), with the occasional 'um' or 'yeah'.",
+  "You answer what you're asked and don't volunteer details before they're asked for, unless your scenario says to.",
+  "Your scenario instructions decide who you are, your details, what you want and how you behave. Follow them exactly. When they tell you to be difficult, confused, upset or to test the assistant, do that; otherwise stay cooperative.",
+  "Never contradict your scenario. If you're asked something it doesn't cover, give a short plausible answer or say you're not sure.",
+  "Say phone numbers, house numbers and ZIP codes the way people do on the phone.",
+  "When your goal is met or the assistant says goodbye, thank them briefly and end the call.",
+].join(" ");
+
+/** CreatePersonalityDTO / UpdatePersonalityDTO body. */
+export function buildPersonalityDto(): JsonObject {
+  return {
+    name: PERSONALITY_NAME,
+    assistant: {
+      model: {
+        provider: "openai",
+        model: "gpt-4.1",
+        messages: [{ role: "system", content: PERSONALITY_PROMPT }],
+        tools: [{ type: "endCall" }],
+      },
+    },
+  };
+}
+
 export type Transport = "vapi.webchat" | "vapi.websocket";
 
 /**

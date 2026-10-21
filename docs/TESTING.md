@@ -58,7 +58,12 @@ npm run evals -- --confirm --voice --only voice # the timing cases over voice
 ```
 
 - **Estimated cost** (printed before anything is listed or sent): **full suite ≈ $4.50 on chat** (45 × ~$0.10), ≈ $45 on voice; `--only smoke` ≈ $0.60, `--only safety` ≈ $0.90. Vapi doesn't publish simulation pricing; the per-scenario figures are assumptions in `src/vapi-sync/evals.ts`.
-- **Needs** `VAPI_API_KEY` and `VAPI_ASSISTANT_ID` in `.env`.
+- **Needs** `VAPI_API_KEY` and `VAPI_ASSISTANT_ID` in `.env`, plus `VAPI_EVAL_PERSONALITY_ID` (local only).
+- **Tester personality:** "summit-air: NYC caller", a neutral, cooperative-but-realistic New Yorker defined in `src/vapi-sync/evals.ts`.
+  - Who the caller is and any adversarial behavior come from each scenario's instructions, not the personality.
+  - Vapi's seven built-ins ("Decisive Derek", "Rambling Roger", "Confused Carl"…) are idealized or strongly styled, so they'd distort the suite.
+  - `npm run evals -- --setup-personality` creates or updates it by name and prints the id. `--confirm` uses `--personality <id>`, else `VAPI_EVAL_PERSONALITY_ID`, else finds or creates it by name.
+- **Re-runs update, never duplicate.** Scenarios are upserted by name ("summit-air: <title>"; the 45 already in Vapi are PATCHed), and so is the personality.
 - **Tools run for real** against the live backend: bookings, callbacks and dispatches land in production. Afterwards run `npm run db:reset-test -- --confirm`.
 - **No caller ID on chat.** Vapi simulations don't put a test number in the webhook's `call.customer`, so `lookup_customer` sees no caller ID. Scenarios verify by last name and street, and give a phone number when asked.
 - **Tool-order checks assume the judge sees tool calls** in the conversation (Vapi's structured outputs read the call artifact, which includes them). If the first run shows `tool_order` failing on scenarios that obviously called the tools, that assumption is wrong and those checks should be read from the run's transcript instead.

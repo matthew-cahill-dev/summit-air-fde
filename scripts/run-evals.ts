@@ -2,6 +2,9 @@
 //   (default)    validate vapi/simulations/*.json, print the scenarios and an estimated cost; no network
 //   --confirm    upsert the scenarios in Vapi, run them against VAPI_ASSISTANT_ID, print pass/fail
 //   --voice      voice transport (vapi.websocket) instead of chat (vapi.webchat); ~10x the cost
+//   --setup-personality  create/update only the tester personality and print its id (no scenarios, no run)
+//   --personality <id>   tester personality; default VAPI_EVAL_PERSONALITY_ID, else the one named
+//                        "summit-air: NYC caller" (created on first --confirm if missing)
 //   --only       a subset by file id or tag, e.g. --only safety or --only privacy,e-gas-smell
 //                (tags: safety, privacy, business, conversation, voice, smoke, req-a … req-f, unexpected, quality)
 //
@@ -11,10 +14,12 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   allChecks,
+  buildPersonalityDto,
   buildScenarioDto,
   estimateCostUsd,
   parseScenarioFile,
   passCriteria,
+  PERSONALITY_NAME,
   scenarioName,
   selectScenarios,
   summarizeRun,
@@ -39,6 +44,37 @@ function loadScenarios(only: string[] | null): ScenarioFile[] {
   return selectScenarios(all, only);
 }
 
+type Request = <T>(method: string, path: string, body?: unknown) => Promise<T>;
+
+function vapiClient(): { request: Request } {
+  const apiKey = process.env.VAPI_API_KEY?.trim();
+  if (!apiKey) throw new Error("VAPI_API_KEY must be set (add it to .env)");
+  const request: Request = async <T>(method: string, path: string, body?: unknown): Promise<T> => {
+    const res = await fetch(`https://api.vapi.ai${path}`, {
+      method,
+      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+    const text = await res.text();
+    if (!res.ok) throw new Error(`Vapi ${method} ${path} failed with HTTP ${res.status}: ${text.slice(0, 600)}`);
+    return (text ? JSON.parse(text) : undefined) as T;
+  };
+  return { request };
+}
+
+const list = <T>(body: T[] | { results: T[] }) => (Array.isArray(body) ? body : body.results);
+
+/** Create or update the tester personality by name (vapi-sync/evals.ts); returns its id. */
+async function upsertPersonality(request: Request): Promise<string> {
+  const all = list(await request<JsonObject[] | { results: JsonObject[] }>("GET", "/eval/simulation/personality?limit=100"));
+  const match = all.find((p) => p.name === PERSONALITY_NAME);
+  const saved = match
+    ? await request<JsonObject>("PATCH", `/eval/simulation/personality/${match.id}`, buildPersonalityDto())
+    : await request<JsonObject>("POST", "/eval/simulation/personality", buildPersonalityDto());
+  console.log(`${match ? "updated" : "created"} personality "${PERSONALITY_NAME}" (${saved.id})`);
+  return String(saved.id);
+}
+
 async function main() {
   const args = process.argv.slice(2);
   const confirm = args.includes("--confirm");
@@ -49,6 +85,13 @@ async function main() {
     process.loadEnvFile(".env");
   } catch {
     // No .env; use the process environment.
+  }
+
+  if (args.includes("--setup-personality")) {
+    const { request } = vapiClient();
+    const id = await upsertPersonality(request);
+    console.log(`\nPersonality "${PERSONALITY_NAME}": ${id}\nAdd to .env (local only): VAPI_EVAL_PERSONALITY_ID=${id}`);
+    return;
   }
 
   const scenarios = loadScenarios(only);
@@ -67,22 +110,11 @@ async function main() {
     return;
   }
 
-  const apiKey = process.env.VAPI_API_KEY?.trim();
   const assistantId = process.env.VAPI_ASSISTANT_ID?.trim();
-  if (!apiKey || !assistantId) throw new Error("VAPI_API_KEY and VAPI_ASSISTANT_ID must be set (add them to .env)");
-  const request = async <T>(method: string, path: string, body?: unknown): Promise<T> => {
-    const res = await fetch(`https://api.vapi.ai${path}`, {
-      method,
-      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-      body: body === undefined ? undefined : JSON.stringify(body),
-    });
-    const text = await res.text();
-    if (!res.ok) throw new Error(`Vapi ${method} ${path} failed with HTTP ${res.status}: ${text.slice(0, 600)}`);
-    return (text ? JSON.parse(text) : undefined) as T;
-  };
-  const list = <T>(body: T[] | { results: T[] }) => (Array.isArray(body) ? body : body.results);
+  if (!assistantId) throw new Error("VAPI_ASSISTANT_ID must be set (add it to .env)");
+  const { request } = vapiClient();
 
-  // 1. Upsert scenarios by name.
+  // 1. Upsert scenarios by name: a re-run updates the 45 already in Vapi, never duplicates them.
   const existing = list(await request<JsonObject[] | { results: JsonObject[] }>("GET", "/eval/simulation/scenario?limit=1000"));
   const upserted: Array<{ file: ScenarioFile; scenarioId: string }> = [];
   for (const file of scenarios) {
@@ -95,17 +127,10 @@ async function main() {
     console.log(`${match ? "updated" : "created"} scenario ${file.id} (${saved.id})`);
   }
 
-  // 2. Personality: --personality, else a Vapi built-in (orgId null), preferring one marked default.
-  let personalityId = flag(args, "--personality");
-  if (!personalityId) {
-    const builtIn = list(await request<JsonObject[] | { results: JsonObject[] }>("GET", "/eval/simulation/personality?limit=100")).filter(
-      (p) => p.orgId === null,
-    );
-    const pick = builtIn.find((p) => /default/i.test(String(p.name))) ?? builtIn[0];
-    if (!pick) throw new Error("No built-in personality found; pass --personality <id>");
-    personalityId = String(pick.id);
-    console.log(`personality: ${pick.name} (${pick.id})`);
-  }
+  // 2. Personality: --personality, else VAPI_EVAL_PERSONALITY_ID, else ours by name (created if missing).
+  // (Vapi's built-ins come back with the org's id, so "orgId null" never matched them.)
+  const personalityId = flag(args, "--personality") ?? process.env.VAPI_EVAL_PERSONALITY_ID?.trim() ?? (await upsertPersonality(request));
+  console.log(`personality: ${personalityId}`);
 
   // 3. Run.
   const run = await request<JsonObject>("POST", "/eval/simulation/run", {
