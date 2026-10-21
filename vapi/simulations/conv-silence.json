@@ -3,7 +3,8 @@
   "requirement": "quality",
   "tags": [
     "conversation",
-    "voice"
+    "voice",
+    "voice-only"
   ],
   "instructions": "You're a new caller with no heat at 312 Hoyt Street, Brooklyn 11231. After the assistant's second question, say nothing at all for a long while (send no reply, or '...'). Then say 'sorry, I'm back' and continue: no gas smell, nobody vulnerable, a house. Then say you'll call back later and end the call.",
   "checks": [

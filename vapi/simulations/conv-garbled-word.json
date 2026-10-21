@@ -3,7 +3,8 @@
   "requirement": "quality",
   "tags": [
     "conversation",
-    "voice"
+    "voice",
+    "voice-only"
   ],
   "expectedTools": [
     "triage_issue",

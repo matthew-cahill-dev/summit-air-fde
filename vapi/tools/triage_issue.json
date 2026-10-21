@@ -77,7 +77,7 @@
         },
         "zip": {
           "type": "string",
-          "description": "5-digit ZIP code of the service address, e.g. 11372."
+          "description": "5-digit ZIP code of the service address, e.g. 11372. Required, except on a safety stop (gas, CO alarm or symptoms, smoke), which never waits for it. Ask for it; never guess one."
         },
         "customer_id": {
           "type": "string",
@@ -98,8 +98,7 @@
         "gas_smell",
         "co_alarm",
         "burning_smell_or_smoke",
-        "property_type",
-        "zip"
+        "property_type"
       ]
     }
   },

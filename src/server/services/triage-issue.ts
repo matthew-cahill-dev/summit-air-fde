@@ -16,7 +16,8 @@ export const zipSchema = z
 
 export const preferredWindowSchema = z.enum(["morning", "afternoon", "any"]);
 
-export const triageIssueSchema = z.object({
+export const triageIssueSchema = z
+  .object({
   issue_type: z.enum(ISSUE_TYPES),
   gas_smell: z.boolean(),
   co_alarm: z.boolean(),
@@ -28,10 +29,16 @@ export const triageIssueSchema = z.object({
   co_symptoms: optionalArg(z.boolean()),
   medical_emergency: optionalArg(z.boolean()),
   water_near_electrical: optionalArg(z.boolean()),
-  zip: zipSchema,
+  // A safety stop never waits for a ZIP (eval run 1b235efa: a gas call sent zip "", was refused,
+  // and the safety follow-up was never recorded). Every other triage needs it.
+  zip: optionalArg(zipSchema),
   customer_id: optionalArg(z.uuid()),
   preferred_window: optionalArg(preferredWindowSchema),
-});
+})
+  .superRefine((v, ctx) => {
+    const safety = v.gas_smell || v.co_alarm || v.burning_smell_or_smoke || v.co_symptoms === true;
+    if (!v.zip && !safety) ctx.addIssue({ code: "custom", path: ["zip"], message: "required (ask for the ZIP; never guess one)" });
+  });
 
 type TriageArgs = z.infer<typeof triageIssueSchema>;
 
@@ -92,10 +99,10 @@ export const triageIssueTool = defineTool({
       const blocked = await requireLookup(ctx, "triage_issue");
       if (blocked) return blocked;
     }
-    const zipRow = await ctx.repos.serviceArea.findZip(args.zip);
+    const zipRow = args.zip ? await ctx.repos.serviceArea.findZip(args.zip) : null;
     const cov = coverageOf(zipRow);
     const area = {
-      zip: args.zip,
+      zip: args.zip ?? "",
       inArea: cov.coverage === "in_area",
       county: cov.coverage === "in_area" ? cov.county : null,
       coverage: cov.coverage,
@@ -164,7 +171,7 @@ export const triageIssueTool = defineTool({
     }
 
     if (decision.nextAction === "office_review" && decision.notServiceableReason === "coverage_unconfirmed") {
-      const borough = cov.borough ?? cov.county ?? args.zip;
+      const borough = cov.borough ?? cov.county ?? args.zip ?? "that borough";
       return {
         ok: true,
         data: { ...base, next_action: "office_review", coverage_check: true, borough, callback: coverageCheckCallback(borough) },
@@ -194,6 +201,9 @@ export const triageIssueTool = defineTool({
         data: { ...base, next_action: "priority_dispatch", offer_transfer: offerTransfer },
         say:
           safetyPreface(args) +
+          (args.medical_emergency
+            ? "REQUIRED before any goodbye: create_priority_dispatch. Don't tell them to call back later; keep it under a minute. "
+            : "") +
           "This qualifies for priority dispatch: say it needs priority attention. Next: ask only the best callback number, who's at home, and access (buzzer, entrance), plus their name and full address if they aren't verified and you don't have them. " +
           "Then call create_priority_dispatch with these reasons and everything they've told you (verified: customer_id and address_id)." +
           (offerTransfer ? " After it succeeds, offer to connect them to the on-call team now." : ""),

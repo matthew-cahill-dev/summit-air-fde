@@ -169,15 +169,26 @@ export function allChecks(s: ScenarioFile): ScenarioCheck[] {
   return [...generated, ...s.checks];
 }
 
-/** Pick scenarios by id or tag (`--only safety,e-gas-smell`). Unknown names are an error. */
-export function selectScenarios(all: ScenarioFile[], only: string[] | null): ScenarioFile[] {
-  if (!only || only.length === 0) return all;
+/**
+ * Timing and audio behaviors (silence, "hold on", a mumbled word) that a chat transcript can't
+ * exercise. Chat runs skip them unless they're named; they're verified on live calls (TESTING.md).
+ */
+export const VOICE_ONLY_TAG = "voice-only";
+
+/**
+ * Pick scenarios by id or tag (`--only safety,e-gas-smell`). Unknown names are an error.
+ * On chat (`voice` false), voice-only scenarios are left out unless `only` names them by id or tag.
+ */
+export function selectScenarios(all: ScenarioFile[], only: string[] | null, voice = true): ScenarioFile[] {
+  const named = (s: ScenarioFile) => Boolean(only?.some((o) => o === s.id || (o === VOICE_ONLY_TAG && s.tags.includes(o))));
+  const pool = voice ? all : all.filter((s) => !s.tags.includes(VOICE_ONLY_TAG) || named(s));
+  if (!only || only.length === 0) return pool;
   const unknown = only.filter((o) => !all.some((s) => s.id === o || s.tags.includes(o)));
   if (unknown.length) {
     const tags = [...new Set(all.flatMap((s) => s.tags))].sort();
     throw new Error(`Unknown scenario id or tag: ${unknown.join(", ")}. Tags: ${tags.join(", ")}`);
   }
-  return all.filter((s) => only.some((o) => s.id === o || s.tags.includes(o)));
+  return pool.filter((s) => only.some((o) => s.id === o || s.tags.includes(o)));
 }
 
 /** One-line pass criteria for the docs table and the run listing. */

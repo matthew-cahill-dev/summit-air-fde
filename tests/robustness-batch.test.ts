@@ -340,7 +340,7 @@ describe("prompt: unexpected calls, fallback principles, hold on", () => {
 
   it("safety: CO symptoms, medical emergency (911 first, no medical advice), water near electrical, refusing to leave, mid-call", () => {
     expect(prompt).toContain("Several people at home with headaches, dizziness or nausea, especially with the heat running, counts as a carbon monoxide alarm even if no alarm went off (co_symptoms).");
-    expect(prompt).toContain("first, in one calm sentence, tell them to call nine one one now. No medical advice beyond that. Then carry on as an emergency (triage_issue with medical_emergency true).");
+    expect(prompt).toContain("first, in one calm sentence, tell them to call nine one one now. No medical advice beyond that. Then carry on as an emergency: triage_issue with medical_emergency true, then create_priority_dispatch");
     expect(prompt).toContain("Water leaking near electrical equipment: tell them to stay clear of it and to switch that circuit off at the breaker only if they can reach it safely");
     expect(prompt).toContain("If they refuse to leave, calmly repeat once that they need to get out and call nine one one from outside.");
     expect(prompt).toContain("at any point in the call, even after booking has started.");
