@@ -1,10 +1,11 @@
-// `npm run call-report -- <vapiCallId|latest> [--last N] [--json] [--any-assistant | --target s2s]`
+// `npm run call-report -- <vapiCallId|latest> [--last N] [--json] [--no-log] [--any-assistant | --target s2s]`
 //   latest: the most recent ended calls on VAPI_ASSISTANT_ID (or VAPI_S2S_ASSISTANT_ID with --target s2s;
 //   any assistant with --any-assistant).
 // Read-only: GET /call/{id} or GET /call?limit=N from the Vapi API, then per-turn latency
 // (caller stop → Ava start), Vapi's own latency breakdown, tool durations, p50/p95,
 // ended reason, last assistant message and recording URL. Never prints the API key.
-import { buildCallReport, formatCallReport, responseGaps, stats, type JsonObject } from "../src/vapi-sync/call-report";
+import { gunzipSync } from "node:zlib";
+import { analyzeLog, buildCallReport, formatCallReport, responseGaps, stats, type JsonObject, type LogRow } from "../src/vapi-sync/call-report";
 
 async function main() {
   const args = process.argv.slice(2);
@@ -48,6 +49,24 @@ async function main() {
   }
 
   const reports = calls.map(buildCallReport);
+  // Vapi's per-call log (presigned, gzip NDJSON): webhook latencies and the real hang-up time.
+  if (!args.includes("--no-log")) {
+    for (const [i, call] of calls.entries()) {
+      const artifact = (call.artifact ?? {}) as JsonObject;
+      const url = typeof artifact.presignedLogUrl === "string" ? artifact.presignedLogUrl : null;
+      if (!url) continue;
+      try {
+        const res = await fetch(url);
+        if (!res.ok) continue;
+        const raw = Buffer.from(await res.arrayBuffer());
+        const text = raw[0] === 0x1f && raw[1] === 0x8b ? gunzipSync(raw).toString("utf8") : raw.toString("utf8");
+        const rows = text.split("\n").filter((l) => l.startsWith("{")).map((l) => JSON.parse(l) as LogRow);
+        reports[i].log = analyzeLog(rows);
+      } catch {
+        // The log is optional; the report stands without it.
+      }
+    }
+  }
   if (args.includes("--json")) {
     console.log(JSON.stringify(reports, null, 2));
     return;

@@ -2,9 +2,9 @@
   "_comments": {
     "_": "Keys starting with _ are stripped by scripts/sync-vapi.ts. ${VAR} placeholders are filled at sync time; {{...}} / {% %} are Vapi Liquid.",
     "model": "gpt-4.1, temperature 0.5 (Vapi's default) for a warmer, less repetitive delivery; tool-call accuracy comes from the backend rules, not low temperature. FASTER ALTERNATIVE (not switched): \"gpt-4.1-mini\" (or the pinned \"gpt-4.1-mini-2025-04-14\") cuts model time per turn noticeably, but it's weaker at multi-step tool use and long instruction lists; this prompt has ~20 rules the backend can't enforce (call order, read-back, no invented facts). Switch only after `npm run evals -- --confirm` passes on it. Prompt caching: OpenAI caches identical prompt prefixes automatically, so the system prompt keeps the per-call date line at the END. promptCacheRetention '24h' (spec: supported on gpt-4.1 and GPT-5 models): calls are minutes or hours apart, longer than the default in-memory cache lives, so without it the ~4,300-token prompt is usually re-read cold.",
-    "transcriber": "Deepgram Flux (flux-general-en): transcription and end-of-turn detection in one model. Measured on the Oct 21 calls with nova-3: endpointing p50 727 ms / p95 2250 ms (LiveKit 'Conservative' floor of 700 ms plus a 1.5 s rule) and transcriber p95 2.7 s (max 5 s). Flux decides end of turn from audio and text together (Deepgram quotes ~260 ms EOT p50). eotThreshold 0.7 is Deepgram's default and its 'low-latency mode' value (0.5-0.6 is 'aggressive' and risks cut-ins); eotTimeoutMs 3000 is in the docs' 'fast' band (2000-3000): a turn ends 3 s after speech even if the model is unsure. Vapi docs: do NOT set smartEndpointingPlan with Flux, custom endpointing rules aren't evaluated, and transcriptionEndpointingPlan is ignored, so all three were removed (_removedFromLive tells vapi:sync to report them if the live assistant still has them). keyterm: 48 terms (Deepgram advises 20-50; 500-token cap). Deepgram supports keyterm on Flux; Vapi doesn't document forwarding it to Flux, so check a transcript for brand and street names after the first call. Fallback: --variant gpt-4.1-nova3 (nova-3 + LiveKit 'Normal' curve).",
+    "transcriber": "Deepgram Flux (flux-general-en): transcription and end-of-turn detection in one model. Vapi forwards our keyterms to Flux (confirmed in the Oct 21 call log: the /v2/listen URL carries every keyterm). End-of-turn values come from the endpointing preset (vapi/variants/endpointing/*.json; default in _defaults): eotThreshold (0.5-0.9 in Vapi; higher = more certain before ending a turn, fewer cut-ins, slightly slower) and eotTimeoutMs (silence that forces a turn end). The values below match the default 'safe' preset. Vapi docs: don't set smartEndpointingPlan with Flux; custom endpointing rules and transcriptionEndpointingPlan are ignored, so they were removed. keyterm: 48 terms (Deepgram advises 20-50).",
     "voice": "Provider and voiceId are a placeholder until the owner picks one (see README 'Voice options'). chunkPlan: TTS gets whole sentences (no comma boundaries, so speech isn't choppy), but minCharacters is 5 (Vapi default 30): a short opener like \"Got it.\" is sent to the voice on its own, so audio starts while the model is still writing the rest. Measured voice latency is ~230 ms either way; this removes the wait for a 30-character first chunk. formatPlan.replacements respell names the TTS mispronounced before synthesis: live transcripts heard the greeting's 'Ava' as 'Eva', so it's spelled 'Ayva' (AY-vuh). A Vapi pronunciation dictionary isn't used: on version-2 Vapi voices it reroutes the voice through Cartesia, which would change the voice. Replacements need chunkPlan.enabled; they may not apply to firstMessage (undocumented), so firstMessage spells 'Ayva' itself.",
-    "startSpeakingPlan": "waitSeconds 0.3: the low end of Vapi's customer-service range (0.3-0.5; 0-0.2 is for 'gaming, real-time'). Endpointing itself is Flux's job (see transcriber). If test calls show no cut-ins, 0.2 is the next step.",
+    "startSpeakingPlan": "waitSeconds comes from the endpointing preset (default 'safe': 0.2). Endpointing itself is Flux's job (see transcriber).",
     "stopSpeakingPlan": "numWords 2: 'uh-huh' doesn't interrupt Ava; a real interruption of 2+ words does. acknowledgementPhrases per Vapi's Flux example: these never interrupt. backoffSeconds 1 before Ava resumes after being interrupted.",
     "analysisPlan": "Deprecated in the API but still works; feeds message.analysis.summary into our calls table. Migrate to structured outputs later.",
     "firstMessage": "Never personalized: callers aren't verified at greeting time. assistant-request (ASSISTANT_REQUEST_ENABLED) only sets caller_recognized, used by the prompt. Vapi has no first-message delay for inbound calls (checked Oct 2026), so the opening words 'Hi, thanks for calling' are deliberately skippable if the line clips them.",
@@ -12,7 +12,15 @@
     "serverMessages": "status-update: keep-warm (a non-blocking select 1 on 'in-progress'). phone-call-control: Vapi delegates hang-up and forwarding to /api/vapi/events, which waits HANGUP_TAIL_MS (1.5 s) and then ends the call via monitor.controlUrl. That's the goodbye tail padding for EVERY ending path (src/server/vapi/call-control.ts). monitorPlan.controlEnabled must stay true for that URL to exist.",
     "endCall": "Call endings (live: the model said its own goodbye, then Vapi's was cut off at 'Take', and Ava re-engaged after goodbye). Per docs.vapi.ai/tools/hang-up: when the endCall tool has a request-start message, Vapi speaks it instead of endCallMessage, then hangs up; the prompt tells the model never to say goodbye itself, only to call endCall. blocking:true makes the hang-up wait until the message is spoken. Belt and braces: the closing line ends with the endCallPhrases entry 'goodbye for now', and the docs say Vapi waits for the assistant to finish speaking before an end-call phrase hangs up. The phrase must never appear elsewhere (endCallPhrases match any assistant speech, e.g. the greeting). endCallMessage is the same line, used only if the tool's message is ever removed. Oct 21 measurement: the hang-up still landed 0.15-0.67 s before the goodbye audio ended, and the carrier dropped the tail on the phone (the recording was complete). Fixed with phone-call-control tail padding (see serverMessages).",
     "backgroundSound": "'off' | 'office' | an audio URL. Vapi's default for phone calls is 'office' (ambient office noise), so it's set explicitly; 'off' by default.",
-    "hooks": "Idle messages via customer.speech.timeout hooks, for silence mid-call (replaces the older messagePlan.idleMessages). They never fire after the call has ended."
+    "hooks": "Idle messages via customer.speech.timeout hooks, for silence mid-call (replaces the older messagePlan.idleMessages). They never fire after the call has ended.",
+    "server": "Events server for end-of-call reports, keep-warm status updates and phone-call-control. backoffPlan: Vapi re-delivers a message whose request failed (non-2xx or timeout), 3 times with exponential backoff from 1 s. That's the hang-up failsafe: /api/vapi/events answers phone-call-control only after its end-call succeeded, so a crash or a failed control request gets retried instead of leaving the call open. Re-delivery is safe for every message we take: end-of-call reports upsert, status-updates only ping, and ending an already-ended call is a no-op.",
+    "maxDurationSeconds": "600 (Vapi's default; was 900). The last-resort cap if a call is somehow never hung up. The longest live call so far was ~5 minutes. Whether Vapi's own max-duration cutoff is also delegated through phone-call-control isn't documented; if it is, the backoff retries above are the real guard.",
+    "_defaults": "Which overlays a plain `npm run vapi:sync` applies: model variant (vapi/variants/model), voice (vapi/variants/voice), endpointing preset (vapi/variants/endpointing). Change with `npm run vapi:set-default -- --variant <x> --voice <y> --endpointing <z>`; show with `npm run vapi:set-default -- --show`."
+  },
+  "_defaults": {
+    "variant": "gpt-4.1",
+    "voice": "emma",
+    "endpointing": "safe"
   },
   "name": "Summit Air Virtual Assistant",
   "firstMessageMode": "assistant-speaks-first",
@@ -48,7 +56,7 @@
     "provider": "vapi",
     "voiceId": "Emma",
     "version": "2",
-    "speed": 1.0,
+    "speed": 1,
     "chunkPlan": {
       "enabled": true,
       "minCharacters": 5,
@@ -98,8 +106,8 @@
     "provider": "deepgram",
     "model": "flux-general-en",
     "language": "en",
-    "eotThreshold": 0.7,
-    "eotTimeoutMs": 3000,
+    "eotThreshold": 0.8,
+    "eotTimeoutMs": 4000,
     "keyterm": [
       "Summit Air",
       "Comfort Club",
@@ -152,7 +160,7 @@
     ]
   },
   "startSpeakingPlan": {
-    "waitSeconds": 0.3
+    "waitSeconds": 0.2
   },
   "stopSpeakingPlan": {
     "numWords": 2,
@@ -187,7 +195,7 @@
       ]
     }
   ],
-  "maxDurationSeconds": 900,
+  "maxDurationSeconds": 600,
   "endCallMessage": "Thanks for calling Summit Air. Take care, and goodbye for now.",
   "endCallPhrases": [
     "goodbye for now"
@@ -200,7 +208,12 @@
   },
   "server": {
     "url": "${APP_URL}/api/vapi/events",
-    "credentialId": "${VAPI_CREDENTIAL_ID}"
+    "credentialId": "${VAPI_CREDENTIAL_ID}",
+    "backoffPlan": {
+      "type": "exponential",
+      "maxRetries": 3,
+      "baseDelaySeconds": 1
+    }
   },
   "serverMessages": [
     "end-of-call-report",

@@ -145,54 +145,70 @@ Short ADRs. Each one gives the context, the decision, and what it costs.
 - **Decision.** The leave-now / call-911-from-outside script is in the system prompt and is spoken *before* any tool call. The prompt says it never depends on a tool. `triage_issue` then records a `safety_stop` follow-up as best effort, and its `say` adapts if recording failed ("Do not say the office was notified"). The agent always says Summit Air has not called 911.
 - **Tradeoff.** The model is trusted to recognize the trigger. Mitigations: the explicit safety-screen question on every call, Deepgram keyterms for "carbon monoxide", and a live scenario and eval for it (`e-gas-smell`).
 
-### ADR-10: Call endings: one goodbye via endCall, then a padded hang-up we control
+### ADR-10: Call endings: the goodbye in full, ~1.5 s of silence, then a hang-up we control
 
 - **Context.**
-  - **Round 1 (Oct 21).** The model said its own goodbye, then Vapi's goodbye was cut off mid-word ("Take").
-  - **Round 2, live evidence.** **The recording had the full goodbye, but on the phone it was cut off at hang-up.** `npm run call-report` showed why: on every call, the `endCall` result (the hang-up) landed **0.15–0.67 s before** the goodbye audio's `endTime`. The carrier then dropped whatever audio was still in flight.
-  - So: recording complete, phone path clipped. The fix is tail padding, not wording.
+  - Round 1: the model said its own goodbye, then Vapi's was cut off mid-word.
+  - Round 2: the recording had the full goodbye but the phone clipped it, because Vapi hung up 0.15–0.67 s before the audio ended and the carrier dropped the rest. **Recording complete, phone path clipped → tail padding.**
+  - Round 3 (Oct 21 morning, call `01a15e9b`, Vapi's own call log): the goodbye now plays in full on the phone. Its order was already right: it started 266 ms after `endCall`, about 1.2 s after the caller finished, as on any turn. But the line dropped **3.1 s** after the last word, not 1.5 s:
+    - the 1.5 s wait was counted from when the hang-up request *reached us* (~0.4–0.6 s after Vapi sent it);
+    - Vapi then took ~1.2 s to tear the call down after our end-call request.
+  - Note: the "3436 ms" next to `endCall` in call-report is the tool's duration, which includes the spoken goodbye because the goodbye is blocking. It isn't silence before the goodbye.
 - **Decision.**
-  1. **One goodbye.** The model never says goodbye itself. It calls `endCall`, whose `request-start` message is the closing line ("Thanks for calling Summit Air. Take care, and goodbye for now."). `endCallPhrases: ["goodbye for now"]` is a backstop if the model ever speaks the line itself. That phrase appears nowhere else (tested).
-  2. **Tail padding on every ending path.**
-     - The assistant requests `serverMessages: ["phone-call-control"]`, so Vapi delegates hang-up (and forwarding) to our events endpoint instead of hanging up itself (docs.vapi.ai/server-url/events, "Phone Call Control").
-     - `src/server/vapi/call-control.ts` answers immediately, waits `HANGUP_TAIL_MS` (default **1500 ms**), then POSTs `{"type":"end-call"}` to the call's `monitor.controlUrl` (live call control). It retries once on failure.
-     - 1.5 s covers the measured 0.67 s early hang-up plus ~0.8 s of silence for the carrier.
-     - Every ending (normal goodbye, safety stop after the caller acknowledges, commercial decline, non-service call, abusive caller, end-call phrase) produces the same Vapi hang-up request, so all of them get the same padding. A test composes every model variant × voice × target and asserts each delegates hang-up the same way.
-     - Delegated forwarding is handled too (`{"type":"transfer","destination":…}`), so transfers keep working when `ON_CALL_TRANSFER_NUMBER` is set.
-  3. **Why not SSML.**
-     - Vapi keeps `<break>` tags, but the current voice (Vapi Emma v2, possibly xAI-backed) uses different pause markup, and no provider documents that a *trailing* break produces real audio rather than being trimmed.
-     - The control-URL route is provider-independent, so it also survives a voice switch.
+  1. **One goodbye.** The model never says goodbye; it calls `endCall`, whose blocking `request-start` message is the closing line. `endCallPhrases: ["goodbye for now"]` is the backstop.
+  2. **Server-timed hang-up** (`src/server/vapi/call-control.ts`). Vapi delegates hang-up and forwarding to `/api/vapi/events` (`serverMessages: ["phone-call-control"]`); we end the call with `{"type":"end-call"}` to `call.monitor.controlUrl`.
+     - The wait is **anchored to the end of the goodbye**: the later of Vapi's `timestamp` on the request (sent as the blocking goodbye stops) and the goodbye's own `endTime` in the live artifact.
+     - We send end-call at `goodbyeEnd + HANGUP_TAIL_MS (1500) − measured teardown (1200)`, so the line drops ~1.5 s after the last word.
+     - **The farewell is never delayed:** Vapi speaks it before asking us to hang up, and we only ever delay the hang-up. If a request arrives while the goodbye is still playing, the anchor moves to its end, so it can't be cut. Tests cover each ordering case.
+  3. **Every ending path is the same.** Goodbye, safety stop, commercial decline, non-service call, abusive caller and end-call phrase all produce the same Vapi hang-up request. A test checks every model × voice × target × endpointing combination delegates it.
+- **Failsafe** (calls now end only when our server says so):
+  - **(a)** We answer `phone-call-control` only *after* the end-call succeeded. It's tried 3 times, 300 ms then 800 ms apart.
+  - **(b)** If all attempts fail, or there's no control URL, or this process dies mid-wait, Vapi gets a 502 or a timeout. `assistant.server.backoffPlan` (exponential, 3 retries from 1 s) then re-delivers the request to us. Re-delivery is harmless for every message type we handle.
+  - **(c)** `maxDurationSeconds: 600` caps a call that still never ends. Whether Vapi's own max-duration cutoff is itself delegated isn't documented; if it is, (b) is the guard.
+  - **(d)** In practice the caller hangs up after the goodbye anyway.
+  - Failed attempts are logged as `call_control` with `ok:false`.
 - **Tradeoff.**
-  - The hang-up now depends on our server. If the events endpoint is down, Vapi won't hang up, and the call lasts until the caller hangs up (they will, after the goodbye) or `maxDurationSeconds` (900).
-  - Each call ends ~1.5 s later. That is billed time, and it's silent.
-  - The combination of the two documented pieces (phone-call-control, then a control-URL end-call) isn't described as a single recipe in Vapi's docs. Verify on the first live call: `endedReason` and the phone should both show a clean, complete goodbye.
+  - The hang-up depends on our server, mitigated by (a)–(c).
+  - The teardown estimate (1.2 s) comes from one call. `npm run call-report` now reads Vapi's log and prints "line torn down N ms after the last word", so it can be re-measured on every call.
 
 ### ADR-11: Turn-taking and latency, measured
 
-- **Context.** Median caller-stop → Ava-start was **2.03 s** on the "Conservative" LiveKit config (p95 3.18 s), and 1.65 s across the three latest calls (p95 3.5 s). Vapi's per-turn breakdown (`npm run call-report`) put the time here:
-  - **Endpointing:** p50 727 ms, p95 2250 ms. The floor is the waitFunction's 700 ms constant, and 1.5 s entries came from the post-question rule. Before that change it was 101 ms with cut-ins. **Confirmed** as the main regression.
-  - **Transcriber:** p50 300–500 ms, but p95 2.7–3.7 s and max 5 s on nova-3, on both configs. **Confirmed** as the tail.
-  - **Model (gpt-4.1 time to first token):** p50 ~515–600 ms, p95 ~0.8–1.0 s. **Confirmed** as a steady cost.
-  - **Voice:** p50 ~230 ms, p95 ~270 ms. **Refuted** as a meaningful cause. The `minCharacters: 30` chunk wait was small too, but it's lowered anyway.
-  - **Tool turns:** the filler starts 1.0–1.35 s after the model's tool call, and Vapi sees results 1.0–2.5 s after the call while our handler takes 58–324 ms. That is overhead outside our code (network, Replit edge, Vapi), so this round doesn't change it beyond shorter fillers.
-- **Decision.**
-  - **End of turn: Deepgram Flux** (`flux-general-en`). Flux detects end of turn from audio and text together, replacing both LiveKit endpointing and the nova-3 finalization tail. Deepgram quotes ~260 ms EOT p50.
-    - `eotThreshold: 0.7` is Deepgram's default and low-latency value. 0.5–0.6 is "aggressive" and risks cut-ins.
-    - `eotTimeoutMs: 3000` is in the docs' "fast" band.
-    - Per Vapi's docs, `smartEndpointingPlan`, `customEndpointingRules` and `transcriptionEndpointingPlan` don't apply with Flux, so they're removed. The dry run reports them while the live assistant still has them.
-    - The 1.5 s post-question wait is gone: the numbers showed only cost, and Flux's model handles mid-number pauses.
-  - **`waitSeconds: 0.3`**, the low end of Vapi's customer-service range (0.3–0.5). Try 0.2 if test calls show no cut-ins.
-  - **Speech start:** `chunkPlan.minCharacters: 5` (was 30), and the prompt opens most replies with a 1–3 word sentence ("Got it.") so audio starts on it.
-  - **Model:** `promptCacheRetention: "24h"` keeps the ~4,300-token prompt prefix cached between sparse calls; in-memory caching expires in minutes. The prompt keeps all per-call text last (98% cacheable prefix).
-  - **A/B variants** (`npm run vapi:sync -- --variant …`):
-    - `gpt-4.1` (default)
-    - `gpt-4.1-mini`
-    - `gpt-5.4-mini` with `reasoningEffort: "none"`, the newest small model, as an experiment, because Vapi publishes no tool-reliability data per model
-    - `gpt-4.1-nova3`: the previous transcriber plus LiveKit's "Normal" curve, a fallback if Flux mis-hears names or cuts in
-  - **Expected budget with the default:** ~0.3 s EOT + 0.3 s wait + ~0.4–0.5 s TTFT (cached) + ~0.23 s voice ≈ **1.1–1.3 s**. Reaching the < 1.0 s median target likely needs `gpt-4.1-mini` or `waitSeconds 0.2`. That's what the A/B is for.
-- **Tradeoff.**
-  - Flux's keyterm support is documented by Deepgram, but Vapi doesn't document forwarding `keyterm` to Flux. Check the first transcript for brand and street names, and fall back to `gpt-4.1-nova3` if they're wrong.
-  - Smaller models may follow the long prompt less reliably. Run the evals before keeping one.
+- **Measurements** (`npm run call-report`, waits = caller stops → Ava starts):
+
+  | Config | p50 / p95 |
+  |---|---|
+  | Oct 20 night, LiveKit "Conservative" | 2030 / 3180 ms |
+  | Oct 21 morning, Flux 0.7 / 3000 + wait 0.3 | **1504 / 2065 ms** |
+
+  Morning breakdown (p50): transcriber/EOT ~397 ms, model TTFT ~473 ms, voice ~253 ms, plus `waitSeconds`.
+- **Cut-ins, corrected.** call-report had Vapi's two interruption counters swapped. Per the spec, `numUserInterrupted` is "the user was interrupted by the assistant". So the morning call had **1 Ava cut-in** and **4 caller barge-ins**.
+  - The cut-in followed a complete question ("What'd you say?") that the caller then continued, exactly the case a higher end-of-turn confidence targets.
+  - All 4 barge-ins came during Ava turns of 8–14 s, fixed in the prompt: one or two short sentences, about 25 words, one-sentence recaps.
+- **Decision: two presets** (`--endpointing fast|safe`, `vapi/variants/endpointing/`). **`safe` is the default.**
+
+  | Preset | Flux `eotThreshold` | `eotTimeoutMs` | `waitSeconds` | Expected |
+  |---|---|---|---|---|
+  | `safe` (default) | **0.8** | **4000** | **0.2** | Deepgram: 0.8–0.9 = "fewer false positives, slightly increased latency". The extra 0.1 s of EOT certainty is roughly offset by 0.1 s less fixed wait, so the median should stay ~1.5 s with fewer cut-ins. 4 s lets callers pause mid-thought |
+  | `fast` | 0.7 | 3000 | 0.2 | The morning config minus 0.1 s of wait: lowest median, more cut-ins after complete sentences |
+
+  `waitSeconds` doesn't prevent cut-ins once Flux has decided the turn ended (the morning cut-in happened with 0.3), so both presets use 0.2.
+- **Flux keyterms are confirmed.** The call log shows Vapi's `wss://api.deepgram.com/v2/listen?model=flux-general-en…` URL carrying all 48 keyterms.
+- **Tool overhead** (Vapi's log, `serverMessage.requestSucceeded.latencyMs`). The tool-calls webhook took 984–1274 ms (p50 999 ms). Of that:
+  - **Writing the arguments isn't the cost:** 88 ms from first token to tool call.
+  - **Transport:** webhooks our handler answers instantly (`phone-call-control`, `status-update`) still took 560–664 ms. That's the Vapi → Replit edge (Google LB) → VM → back cost, outside our code.
+  - **Ours: ~0.4–0.7 s per tool call.** A production probe of `/api/health` showed one query taking 27 ms warm but 240–251 ms after more than 30 s idle: the Postgres pool closed idle connections after 30 s and reconnected. Tool calls in a phone call are often more than 30 s apart. **Fixed:** `idleTimeoutMillis` is now 10 minutes, with `keepAlive` and a pool `error` handler. Each tool runs several sequential ~27 ms queries (idempotency lookup, handler queries, invocation record), because the database isn't in the VM's region.
+  - **Vapi waits for the filler to finish speaking** before continuing (`tool.completed` = filler stop), so a fast tool still costs the length of its filler. Fillers are already 1–3 words.
+  - Our tool requests now log `received_at`, Vapi's `vapi_sent_at`, `inbound_ms` and `request_ms` (event `tools_request`) next to `tool_invocation`'s handler and DB split, so the next call can be decomposed exactly.
+  - **Remaining, infra:** co-locating the database with the VM, or moving both near Vapi (us-west-2), would cut the per-query and transport legs. Not changed in code.
+
+### ADR-12: Model: gpt-4.1 over gpt-4.1-mini
+
+- **Context.**
+  - The morning call's model time to first token was p50 ~473 ms on gpt-4.1. gpt-4.1-mini would save roughly 0.2 s per turn.
+  - Against that: the prompt carries ~20 behavioural rules the backend can't enforce (call order, verify-before-disclose wording, read-back, no invented facts, one outcome per call), and 7 tools with multi-step sequencing.
+  - Errors we've seen live are all instruction-following errors: re-asking verified data, invented policy, two outcomes on one call, parroting a misheard word. Those get more likely, not less, with a smaller model.
+- **Decision.** Keep **gpt-4.1** as the default (owner's call, Oct 21). Latency work goes into endpointing, turn length, the DB pool and caching instead. `gpt-4.1-mini` and `gpt-5.4-mini` remain `--variant`s for measured A/B tests, never silent switches.
+- **Tradeoff.** About 0.2 s per turn in exchange for accuracy on a call where a wrong booking or a missed safety cue costs far more.
 
 ## Data model (short)
 

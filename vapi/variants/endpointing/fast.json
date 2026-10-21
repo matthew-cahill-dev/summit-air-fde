@@ -1,0 +1,10 @@
+{
+  "_comments": "Lowest latency: the Oct 21 morning configuration minus 0.1 s of fixed wait. Flux eotThreshold 0.7 (Deepgram's default), eotTimeoutMs 3000 (docs' 'fast' band), waitSeconds 0.2. Expect a slightly lower median than 'safe' and more cut-ins when callers pause after a complete sentence.",
+  "transcriber": {
+    "eotThreshold": 0.7,
+    "eotTimeoutMs": 3000
+  },
+  "startSpeakingPlan": {
+    "waitSeconds": 0.2
+  }
+}

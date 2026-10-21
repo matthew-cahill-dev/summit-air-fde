@@ -76,6 +76,16 @@ Read-only (`GET /call`, `GET /call/{id}`). For each caller turn it prints:
 
 The console stores each call's median and p95 wait from the end-of-call report and shows them on the call page and as the Overview KPI "Median response time".
 
+### Before and after (one call per row, default config)
+
+| When | Config | Waits p50 / p95 | Ava cut-ins / caller barge-ins | Ending |
+|---|---|---|---|---|
+| Oct 20 night (`01a15cfc`) | LiveKit "Conservative" + 1.5 s digit rule, nova-3 | 2030 / 3180 ms | — | goodbye clipped on the phone |
+| Oct 21 morning (`01a15e9b`) | Flux 0.7 / 3000, wait 0.3 | **1504 / 2065 ms** | 1 / 4 | full goodbye; line dropped 3.1 s after it |
+| After this batch | Flux 0.8 / 4000 (`safe`), wait 0.2, 10-min DB pool idle, short turns | TBD | TBD | target: line drops ~1.5 s after the goodbye |
+
+call-report now also reads Vapi's per-call log (`artifact.presignedLogUrl`). For each tool it prints the webhook round trip as Vapi measured it, plus the filler's speech window. For the ending it prints when the goodbye started and stopped and when the line was actually torn down. Until Oct 21 the interruption line had Vapi's two counters swapped; it now reads "Ava cut in on the caller N×; caller barged in on Ava M×".
+
 ### Baseline before the Oct 21 latency fix (3 live calls)
 
 | Call (Vapi ID prefix, config) | Waits p50 / p95 | Vapi endpointing p50 / p95 | Transcriber p50 / p95 | Model (TTFT) p50 / p95 | Voice p50 / p95 |
@@ -112,6 +122,11 @@ Evidence is quoted from real call transcripts and production tool logs. **Status
 | L13 | Long pauses before Ava answers: waits p50 **2.03 s** / p95 3.18 s on the "Conservative" endpointing config | Root causes from `call-report`: endpointing p50 727 ms (700 ms curve floor + 1.5 s rule), transcriber p95 2.7 s (nova-3), model TTFT ~0.5 s. Now Deepgram Flux end-of-turn, `waitSeconds` 0.3, no post-question wait, `minCharacters` 5 + short opener sentence, 24 h prompt cache, shorter fillers, model A/B variants | `vapi-config`: "turn-taking: Deepgram Flux…"; `variants` |
 | L14 | Goodbye still cut off on the phone, although **the recording has the full goodbye** | Recording complete, phone path clipped → tail padding. `call-report` showed the hang-up 0.15–0.67 s before the goodbye audio ended. Now `phone-call-control`: we wait 1.5 s, then end the call via `monitor.controlUrl`, on every ending path | `call-control` (8 tests, incl. "every ending path uses the same padded hang-up") |
 | L15 | Filler "One sec, let me pull up your account" played before verification, even for callers with no account | Fillers are now 1–3 words and never mention an account | `vapi-config`: "has request-start filler…" |
+| L16 | Call ended with ~3 s of silence after the goodbye. Separately, the goodbye seemed to come only after the caller's "Yeah." | Evidence (recording and Vapi call log): the goodbye started 266 ms after `endCall`, 1.2 s after the caller finished; the "Yeah." was a 109 ms fragment the report grouped the goodbye under; the 3436 ms in the report was `endCall`'s duration including the spoken goodbye. The real defect was the tail: 3.1 s, because the 1.5 s wait started when the request reached us and Vapi takes ~1.2 s to tear down. The hang-up wait is now anchored to the end of the goodbye minus the measured teardown, so the line drops ~1.5 s after the last word. Answer only after the end-call succeeds, 3 attempts, Vapi re-delivery (`backoffPlan`), `maxDurationSeconds` 600. call-report shows the ending timing from Vapi's log | `call-control` ("ending order…", "hang-up failsafe", "events endpoint"); `morning-call-fixes` (log analysis) |
+| L17 | "Ava interrupted the caller 4 times" | The report had Vapi's counters swapped: really 1 Ava cut-in (after "What'd you say?", a complete question the caller continued) and 4 caller barge-ins, all during 8–14 s Ava turns. Fixed the label; default endpointing is now `safe` (Flux 0.8 / 4000, wait 0.2); prompt turns are capped at ~25 words with one-sentence recaps | `variants` (presets); `vapi-config` ("keeps turns short") |
+| L18 | "make sure" transcribed as "Mercury"; Ava repeated "Mercury" back and needed 4 turns to recover | Not a transcriber or keyterm problem (transcriber unchanged). Prompt: if a word doesn't make sense in context, never repeat it or guess; ask "Sorry, I didn't catch that, could you say it again?" | `vapi-config` ("clarifies a word…") |
+| L19 | One call created a callback AND a booking; asking for "8:30" also went to a callback | Prompt: one outcome per call; for an urgent call with nothing same-day, offer the earliest window and log an expedite callback only if the caller asks. An exact time is explained as a window and saved as `arrival_preference` in the technician notes: at booking, or by calling `book_appointment` again for the same window, which updates that appointment (no second booking). Callbacks on a call that already booked are flagged so the caller hears what they're for | `morning-call-fixes` ("exact arrival times…", "one outcome per call"); `vapi-config` |
+| L20 | Tools took 1.0–2.5 s as Vapi measured them, vs 60–320 ms in our handler | Vapi's log: the webhook round trip was 984–1274 ms, of which ~0.56–0.66 s is transport (even instant replies take that). Ours: a measured +215 ms DB reconnect whenever more than 30 s had passed since the last query, plus sequential ~27 ms queries. Fixed: the pool keeps connections for 10 minutes. Now logged per request: `received_at`, `vapi_sent_at`, `inbound_ms`, `request_ms` | `morning-call-fixes` ("tool overhead…") |
 | L12 | Greeting transcribed as "This is Eva" | "Ayva" spelling in the greeting and a TTS replacement; brand respellings; "Ava" and neighborhoods added to keyterms | `vapi-config`: "assistant: greeting, …" |
 
 ### Test plan for the Oct 21 latency, goodbye and voice fixes (run in this order)
@@ -128,6 +143,16 @@ Before the calls: deploy (README), `npm run vapi:sync`, then `npm run vapi:sync 
 | 6 | `npm run vapi:sync -- --target s2s` (creates the S2S assistant; never touches the phone number) | Dashboard Talk, or a second number ([S2S_EXPERIMENT.md](S2S_EXPERIMENT.md)) | Fill the side-by-side checklist |
 
 Afterwards: `npm run vapi:sync` (no flags) returns the phone assistant to the chosen defaults.
+
+### Test plan for the Oct 21 morning fixes (3 calls)
+
+Before: deploy (README; no migration), `npm run vapi:sync -- --dry-run`, then `npm run vapi:sync`. After each call: `npm run call-report -- latest`.
+
+| # | Before the call | Call | Pass if |
+|---|---|---|---|
+| 1 | `npm run vapi:sync` (defaults: gpt-4.1, Emma, `safe`) | As Priya, AC out + grandmother. When offered a window, ask "can they come at 8:30?", accept, then "that's everything" | Waits p50 ≤ ~1.5 s, p95 < 2.1 s. 0 Ava cut-ins. No Ava turn longer than ~2 sentences. No callback created (check `/dispatch`); the appointment's notes say "Arrival preference: 8:30". Ending line: goodbye starts < 0.5 s after endCall and **line torn down ~1.3–1.8 s after the last word**. Tool webhooks in the log section faster than this morning's 984–1274 ms |
+| 2 | `npm run vapi:sync -- --voice xai-liora` | Short routine call (Lena, tune-up), then goodbye | "Ava" sounds like AY-vuh; Liora voice p50 in the report close to Emma's ~250 ms; goodbye complete and the same ~1.5 s tail |
+| 3 | `npm run vapi:sync` (back to the defaults) | Cut-in stress: pause 2–3 s mid-sentence ("My AC… [pause] …stopped this morning"), ask a complete question then keep talking ("What did you say? [pause] I mean the time"), and mumble one word | 0 Ava cut-ins in the report. A misheard word gets "Sorry, I didn't catch that…", never repeated back. If cut-ins remain, try `--endpointing safe` vs `fast` side by side |
 
 ### Call log (fill in)
 

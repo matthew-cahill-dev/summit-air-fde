@@ -1,0 +1,10 @@
+{
+  "_comments": "xAI 'Liora', copied exactly from the sandbox assistant Riley (59f064d3-…, published v2; read-only GET, Oct 21, 2026): {provider: 'xai', voiceId: 'liora', language: 'auto'}. Vapi's xAI page documents only eve, ara, rex, sal and leo; the API spec says cloned or other voice IDs are accepted, and Riley publishes and speaks with 'liora', so it works but isn't in Vapi's documented list. No speed is set, matching Riley (Vapi's xAI default is 1.1; range 0.7-1.5). Uses Vapi's built-in xAI integration (no xAI key needed, per Vapi's xAI page); Vapi documents no xAI price or latency. Kept from vapi/assistant.json: voice.chunkPlan (5-character first chunk, and formatPlan respelling 'Ava' as 'Ayva' before the text reaches xAI). Vapi-voice-only fields (version, speed) are removed. Call endings are provider-independent (phone-call-control), so the goodbye and the padded hang-up work unchanged.",
+  "voice": {
+    "provider": "xai",
+    "voiceId": "liora",
+    "language": "auto",
+    "version": null,
+    "speed": null
+  }
+}

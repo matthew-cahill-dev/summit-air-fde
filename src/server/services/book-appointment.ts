@@ -6,12 +6,12 @@ import { normalizePhoneE164 } from "@/server/lib/phone";
 import { spokenWindow } from "@/server/lib/time";
 import type { BookingAddress, CustomerRow } from "@/server/repositories";
 import { earliestBookableStart } from "@/server/scheduling/availability";
-import { buildTechnicianNotes } from "@/server/scheduling/technician-notes";
+import { buildTechnicianNotes, type OnSiteContact } from "@/server/scheduling/technician-notes";
 import { propertyKind } from "@/server/triage/property";
 import { VULNERABLE_OCCUPANTS } from "@/server/triage/rules";
 import { defineTool, type ToolContext, type ToolOutcome } from "@/server/vapi/types";
 import { findOfferableSlots, isActiveMember } from "./availability";
-import { intakeDetails, intakeRecord, technicianIntakeShape } from "./intake";
+import { intakeRecord, technicianIntakeShape } from "./intake";
 import { zipSchema } from "./triage-issue";
 
 export const bookAppointmentSchema = z
@@ -41,6 +41,8 @@ export const bookAppointmentSchema = z
     ...technicianIntakeShape,
     access_notes: optionalArg(z.string().trim().min(1)),
     vulnerable_occupants: z.array(z.enum(VULNERABLE_OCCUPANTS)).default([]),
+    // "Can they come at 8:30?": a preference noted for the technician, never a promise or a callback.
+    arrival_preference: optionalArg(z.string().trim().min(1)),
   })
   .superRefine((v, ctx) => {
     if (!v.address_id && !v.address) {
@@ -95,6 +97,24 @@ export function shouldOfferMembership(i: { isMember: boolean; urgency: string; s
 const MEMBERSHIP_SAY =
   ` After the recap, and only once: mention in one sentence that ${BUSINESS.facts.membershipPitch} Ask if they'd like the office to follow up about it. ` +
   "If yes, call create_callback_request with reason other and details 'Interested in Comfort Club membership'. If no, drop it.";
+
+/**
+ * A repeat book_appointment for a window the caller already holds adds details instead of
+ * replacing them: new non-empty values win, lists are combined, and blanks keep what's stored.
+ */
+export function mergeIntake(prev: Record<string, unknown> | null, next: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = { ...(prev ?? {}) };
+  for (const [k, v] of Object.entries(next)) {
+    const blank = v === null || v === undefined || v === "" || (Array.isArray(v) && v.length === 0);
+    if (blank) continue;
+    const before = out[k];
+    out[k] = Array.isArray(v) && Array.isArray(before) ? [...new Map([...before, ...v].map((x) => [JSON.stringify(x), x])).values()] : v;
+  }
+  return out;
+}
+
+const strOr = (v: unknown): string | null => (typeof v === "string" && v.trim() ? v : null);
+const strList = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : []);
 
 const confirmationCode = (appointmentId: string) => `SA-${appointmentId.replace(/-/g, "").slice(0, 6).toUpperCase()}`;
 
@@ -220,9 +240,49 @@ export const bookAppointmentTool = defineTool({
         }
 
         const isMember = await tx.hasActiveMembership(customer.id);
-        // Idempotent: the same customer already holds this window.
+        const newIntake: Record<string, unknown> = {
+          property_kind: property,
+          issue_summary: args.issue_summary,
+          symptoms: args.symptoms,
+          ...intakeRecord(args),
+          vulnerable_occupants: args.vulnerable_occupants,
+          access_notes: address.accessNotes,
+          arrival_preference: args.arrival_preference ?? null,
+          caller_confirmed: true,
+        };
+        const notesFor = (intake: Record<string, unknown>) =>
+          buildTechnicianNotes({
+            property,
+            urgency: args.urgency,
+            serviceType: args.service_type,
+            customerName: `${customer.firstName} ${customer.lastName}`,
+            isMember,
+            phoneE164: phoneE164 ?? customer.phoneE164,
+            address,
+            windowLabel: spokenWindow(slot.startsAt, slot.endsAt, ctx.settings.timeZone),
+            issueSummary: strOr(intake.issue_summary) ?? args.issue_summary,
+            symptoms: strList(intake.symptoms),
+            onset: strOr(intake.onset),
+            equipment: strOr(intake.equipment),
+            triedSteps: strList(intake.tried_steps),
+            errorCode: strOr(intake.error_code),
+            pets: strOr(intake.pets),
+            onSiteContact: (intake.on_site_contact as OnSiteContact | null) ?? null,
+            vulnerableOccupants: strList(intake.vulnerable_occupants),
+            arrivalPreference: strOr(intake.arrival_preference),
+            accessNotes: address.accessNotes,
+            vapiCallId: ctx.callId,
+          });
+
+        // Same customer, same window: no second booking. Details added since (an arrival
+        // preference, pets, a code) update this appointment's notes instead of needing a callback.
         const existing = await tx.findAppointment(customer.id, slot.id);
-        if (existing?.status === "confirmed") return { appointmentId: existing.id, already: true, slot, address, customer, isMember };
+        if (existing?.status === "confirmed") {
+          const merged = mergeIntake(existing.intake, newIntake);
+          const changed = JSON.stringify(merged) !== JSON.stringify(existing.intake ?? {});
+          if (changed) await tx.updateAppointmentDetails(existing.id, { intake: merged, technicianNotes: notesFor(merged) });
+          return { appointmentId: existing.id, already: true, detailsUpdated: changed, slot, address, customer, isMember };
+        }
 
         const claimed = await tx.claimSeat(slot.id, {
           isMember,
@@ -232,31 +292,6 @@ export const bookAppointmentTool = defineTool({
         });
         if (!claimed) throw new BookingRejected("slot_taken", slot.county);
 
-        const intake = {
-          property_kind: property,
-          issue_summary: args.issue_summary,
-          symptoms: args.symptoms,
-          ...intakeRecord(args),
-          vulnerable_occupants: args.vulnerable_occupants,
-          access_notes: address.accessNotes,
-          caller_confirmed: true,
-        };
-        const technicianNotes = buildTechnicianNotes({
-          property,
-          urgency: args.urgency,
-          serviceType: args.service_type,
-          customerName: `${customer.firstName} ${customer.lastName}`,
-          isMember,
-          phoneE164: phoneE164 ?? customer.phoneE164,
-          address,
-          windowLabel: spokenWindow(slot.startsAt, slot.endsAt, ctx.settings.timeZone),
-          issueSummary: args.issue_summary,
-          symptoms: args.symptoms,
-          ...intakeDetails(args),
-          vulnerableOccupants: args.vulnerable_occupants,
-          accessNotes: address.accessNotes,
-          vapiCallId: ctx.callId,
-        });
         const appt = await tx.insertAppointment({
           slotId: slot.id,
           customerId: customer.id,
@@ -265,11 +300,11 @@ export const bookAppointmentTool = defineTool({
           urgency: args.urgency,
           issueSummary: args.issue_summary,
           symptoms: args.symptoms,
-          intake,
-          technicianNotes,
+          intake: newIntake,
+          technicianNotes: notesFor(newIntake),
           vapiCallId: ctx.callId,
         });
-        return { appointmentId: appt.id, already: false, slot, address, customer, isMember };
+        return { appointmentId: appt.id, already: false, detailsUpdated: false, slot, address, customer, isMember };
       });
 
       const window = spokenWindow(booked.slot.startsAt, booked.slot.endsAt, ctx.settings.timeZone, ctx.now);
@@ -295,11 +330,13 @@ export const bookAppointmentTool = defineTool({
           window,
           address: { line1: booked.address.line1, unit: booked.address.unit, zip: booked.address.zip },
           offer_membership: offerMembership,
+          details_updated: booked.detailsUpdated,
         },
-        say:
-          `The booking is confirmed. Recap it: ${window}, at ${booked.address.line1}${booked.address.unit ? `, unit ${booked.address.unit}` : ""}.` +
-          (offerMembership ? MEMBERSHIP_SAY : "") +
-          " Then ask if there's anything else.",
+        say: booked.detailsUpdated
+          ? "Same booking, no second appointment: the new detail is now in the technician's notes. Say so in one short sentence (e.g. you've noted they'd like around eight thirty, though it's a window). No callback is needed for this."
+          : `The booking is confirmed. Recap it in one short sentence: ${window}, at ${booked.address.line1}${booked.address.unit ? `, unit ${booked.address.unit}` : ""}.` +
+            (offerMembership ? MEMBERSHIP_SAY : "") +
+            " Then ask if there's anything else.",
       };
     } catch (err) {
       if (err instanceof BookingRejected) return rejected(err, args, ctx, slotCounty, resolvedCustomerId);

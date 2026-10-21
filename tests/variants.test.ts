@@ -2,7 +2,7 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { buildDesiredAssistant, renderSystemPrompt, type JsonObject, type SyncEnv } from "@/vapi-sync/render";
-import { applyOverlay, composeAssistant, DEFAULT_SELECTION, getPath, MAIN_TARGET, parseTarget } from "@/vapi-sync/variants";
+import { applyOverlay, composeAssistant, DEFAULT_SELECTION, defaultSelection, getPath, MAIN_TARGET, parseTarget } from "@/vapi-sync/variants";
 
 const VAPI = join(process.cwd(), "vapi");
 const read = (p: string) => JSON.parse(readFileSync(p, "utf8")) as JsonObject;
@@ -13,6 +13,7 @@ const files = (dir: string) =>
   existsSync(join(VAPI, dir)) ? readdirSync(join(VAPI, dir)).filter((f) => f.endsWith(".json")).map((f) => f.replace(/\.json$/, "")) : [];
 const models = files("variants/model");
 const voices = files("variants/voice");
+const endpointings = files("variants/endpointing");
 const targets = files("targets");
 
 describe("applyOverlay", () => {
@@ -31,15 +32,83 @@ describe("applyOverlay", () => {
     expect(getPath({ startSpeakingPlan: { smartEndpointingPlan: { provider: "livekit" } } }, removed[0])).toEqual({ provider: "livekit" });
   });
 
-  it("the default selection is assistant.json unchanged", () => {
-    expect(DEFAULT_SELECTION).toEqual({ variant: "gpt-4.1", voice: "emma", target: "main" });
+  it("the default selection comes from assistant.json _defaults, and composing it changes nothing", () => {
+    expect(DEFAULT_SELECTION).toEqual({ variant: "gpt-4.1", voice: "emma", endpointing: "safe", target: "main" });
+    const defaults = defaultSelection(base);
+    expect(defaults).toEqual({ variant: "gpt-4.1", voice: "emma", endpointing: "safe", target: "main" });
+    // Every default names an existing overlay file.
+    expect(models).toContain(defaults.variant);
+    expect(voices).toContain(defaults.voice);
+    expect(endpointings).toContain(defaults.endpointing);
     const { assistant, removed } = composeAssistant(base, {
-      variant: read(join(VAPI, "variants/model/gpt-4.1.json")),
-      voice: read(join(VAPI, "variants/voice/emma.json")),
+      variant: read(join(VAPI, `variants/model/${defaults.variant}.json`)),
+      voice: read(join(VAPI, `variants/voice/${defaults.voice}.json`)),
+      endpointing: read(join(VAPI, `variants/endpointing/${defaults.endpointing}.json`)),
       target: MAIN_TARGET.overlay,
     });
-    expect(assistant).toEqual(base);
+    expect(assistant).toEqual(base); // assistant.json is written with the default preset's values
     expect(removed).toEqual([]);
+  });
+
+  it("falls back to DEFAULT_SELECTION when _defaults is missing or partial", () => {
+    expect(defaultSelection({})).toEqual(DEFAULT_SELECTION);
+    expect(defaultSelection({ _defaults: { voice: "xai-liora" } })).toEqual({ ...DEFAULT_SELECTION, voice: "xai-liora" });
+  });
+});
+
+describe("endpointing presets (--endpointing fast|safe)", () => {
+  const preset = (name: string) => composeAssistant(base, { variant: {}, voice: {}, endpointing: read(join(VAPI, `variants/endpointing/${name}.json`)), target: {} }).assistant;
+
+  it("exist as fast and safe, with safe the default", () => {
+    expect(endpointings.sort()).toEqual(["fast", "safe"]);
+    expect(defaultSelection(base).endpointing).toBe("safe");
+  });
+
+  it("safe trades a little speed for fewer cut-ins: higher Flux confidence and a longer silence backstop", () => {
+    const fast = preset("fast");
+    const safe = preset("safe");
+    expect(fast.transcriber).toMatchObject({ model: "flux-general-en", eotThreshold: 0.7, eotTimeoutMs: 3000 });
+    expect(safe.transcriber).toMatchObject({ model: "flux-general-en", eotThreshold: 0.8, eotTimeoutMs: 4000 });
+    expect(fast.startSpeakingPlan).toEqual({ waitSeconds: 0.2 });
+    expect(safe.startSpeakingPlan).toEqual({ waitSeconds: 0.2 });
+    for (const p of [fast, safe]) {
+      const t = p.transcriber as JsonObject;
+      expect(t.eotThreshold as number).toBeGreaterThanOrEqual(0.5); // Vapi's range
+      expect(t.eotThreshold as number).toBeLessThanOrEqual(0.9);
+      expect(t.eotTimeoutMs as number).toBeGreaterThanOrEqual(500);
+      expect(t.eotTimeoutMs as number).toBeLessThanOrEqual(10_000);
+    }
+  });
+
+  it("a pipeline variant can replace the transcriber over a preset (nova-3 gets no Flux fields)", () => {
+    const { assistant } = composeAssistant(base, {
+      variant: read(join(VAPI, "variants/model/gpt-4.1-nova3.json")),
+      voice: {},
+      endpointing: read(join(VAPI, "variants/endpointing/safe.json")),
+      target: {},
+    });
+    expect(assistant.transcriber).toMatchObject({ model: "nova-3" });
+    expect(assistant.transcriber).not.toHaveProperty("eotThreshold");
+    expect(assistant.startSpeakingPlan).toMatchObject({ waitSeconds: 0.4, smartEndpointingPlan: { provider: "livekit" } });
+  });
+});
+
+describe("xai-liora voice (copied from the sandbox assistant Riley)", () => {
+  const { assistant, removed } = composeAssistant(base, { variant: {}, voice: read(join(VAPI, "variants/voice/xai-liora.json")), target: {} });
+  const voice = assistant.voice as JsonObject;
+
+  it("is exactly Riley's voice object plus our chunkPlan", () => {
+    const { chunkPlan, ...rest } = voice;
+    expect(rest).toEqual({ provider: "xai", voiceId: "liora", language: "auto" });
+    expect(chunkPlan).toEqual((base.voice as JsonObject).chunkPlan);
+    expect(removed).toEqual(expect.arrayContaining(["voice.version", "voice.speed"]));
+  });
+
+  it("keeps the Ayva respelling and a short first chunk", () => {
+    const plan = voice.chunkPlan as JsonObject;
+    expect(plan).toMatchObject({ enabled: true, minCharacters: 5 });
+    const [ava] = (plan.formatPlan as JsonObject).replacements as Array<{ regex: string; value: string }>;
+    expect("This is Ava".replace(new RegExp(ava.regex), ava.value)).toBe("This is Ayva");
   });
 });
 
@@ -68,7 +137,7 @@ describe.each(models.flatMap((variant) => voices.map((voice) => [variant, voice]
     expect(model.toolIds).toEqual(["t1"]);
     expect(typeof model.model).toBe("string");
     expect((model.messages as JsonObject[])[0]).toEqual({ role: "system", content: "PROMPT" });
-    expect(built.server).toEqual(base.server === undefined ? undefined : { url: "https://summit.example.app/api/vapi/events", credentialId: "cred-123" });
+    expect(built.server).toMatchObject({ url: "https://summit.example.app/api/vapi/events", credentialId: "cred-123" });
     expect(built.endCallPhrases).toEqual(base.endCallPhrases);
     expect((model.tools as JsonObject[]).find((t) => t.type === "endCall")).toEqual((base.model as JsonObject).tools && ((base.model as JsonObject).tools as JsonObject[]).find((t) => t.type === "endCall"));
   });
@@ -104,7 +173,7 @@ describe("the S2S target (a separate assistant)", () => {
   });
 
   it("shares the tools' server, the events URL, the call ending and the padded hang-up with main", () => {
-    expect(built.server).toEqual({ url: "https://summit.example.app/api/vapi/events", credentialId: "cred-123" });
+    expect(built.server).toMatchObject({ url: "https://summit.example.app/api/vapi/events", credentialId: "cred-123" });
     expect(built.serverMessages).toContain("phone-call-control");
     expect(built.endCallPhrases).toEqual(base.endCallPhrases);
     expect(((built.model as JsonObject).tools as JsonObject[])[0]).toMatchObject({ type: "endCall" });

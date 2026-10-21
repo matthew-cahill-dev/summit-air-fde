@@ -31,6 +31,10 @@ async function readJson(request: Request): Promise<unknown> {
 }
 
 export async function handleToolsRequest(request: Request, deps: VapiHttpDeps): Promise<Response> {
+  // Request timing, to split Vapi's measured webhook time (call-report) into inbound delay,
+  // our total request time and the return trip. Vapi stamps message.timestamp when it sends.
+  const receivedAt = Date.now();
+  const startedAt = performance.now();
   if (!isAuthorizedBearer(request.headers.get("authorization"), deps.secret)) {
     logEvent("vapi_auth_rejected", { route: "tools" });
     return unauthorized();
@@ -44,7 +48,26 @@ export async function handleToolsRequest(request: Request, deps: VapiHttpDeps): 
     settings: deps.settings,
     now: deps.now,
   });
+  logEvent("tools_request", requestTiming(body, receivedAt, startedAt));
   return Response.json(response);
+}
+
+/**
+ * received_at: when our handler got the request; vapi_sent_at: Vapi's message.timestamp;
+ * inbound_ms: the difference (network + TLS + Replit edge; clocks are NTP-synced, so ±tens of ms);
+ * request_ms: our whole handling time, auth to response.
+ */
+export function requestTiming(body: unknown, receivedAt: number, startedAt: number) {
+  const message = getMessage(body);
+  const sentAt = typeof message?.timestamp === "number" ? message.timestamp : null;
+  const call = message && typeof message.call === "object" && message.call !== null ? (message.call as Record<string, unknown>) : null;
+  return {
+    callId: typeof call?.id === "string" ? call.id : null,
+    received_at: new Date(receivedAt).toISOString(),
+    vapi_sent_at: sentAt === null ? null : new Date(sentAt).toISOString(),
+    inbound_ms: sentAt === null ? null : receivedAt - sentAt,
+    request_ms: Math.round(performance.now() - startedAt),
+  };
 }
 
 let warming: Promise<void> | null = null;
@@ -82,10 +105,18 @@ export async function handleEventsRequest(
 
   const message = getMessage(body);
   if (message?.type === "phone-call-control") {
-    // Hang-up and forwarding are delegated to us: answer now, act after the tail (see call-control.ts).
+    // Hang-up and forwarding are delegated to us (see call-control.ts). We answer only once Vapi
+    // accepted the end-call/transfer: if it failed (or this process dies mid-wait), Vapi gets a 5xx
+    // or a timeout and re-delivers the request (assistant.server.backoffPlan), so a call can't be
+    // left open by one lost request. The goodbye has already played; this only times the hang-up.
     const outcome = handlePhoneCallControl(message, deps.callControl ?? defaultCallControlDeps());
-    if (outcome.handled !== "ignored") void outcome.done;
-    return Response.json({ ok: true, handled: outcome.handled });
+    if (outcome.handled === "ignored") {
+      // Without a control URL nobody can end the call: report failure so Vapi retries rather than assume it's done.
+      const failed = outcome.reason === "no control URL";
+      return Response.json({ ok: !failed, handled: "ignored", reason: outcome.reason }, { status: failed ? 502 : 200 });
+    }
+    const ok = await outcome.done;
+    return Response.json({ ok, handled: outcome.handled }, { status: ok ? 200 : 502 });
   }
   if (message?.type === "status-update") {
     // Keep-warm: the call just connected, so wake the database during the greeting

@@ -66,10 +66,16 @@ export const createCallbackRequestTool = defineTool({
         }))
       : { ...(await ctx.repos.callbacks.create({ ...input, vapiCallId: null })), updated: false };
 
+    // One outcome per call: a callback on top of a booking must be for something the booking
+    // doesn't cover, and the caller should hear what it's for.
+    const callHasBooking = ctx.callId ? await ctx.repos.scheduling.hasConfirmedAppointmentForCall(ctx.callId) : false;
     return {
       ok: true,
-      data: { callback_id: id, status: "open", updated, callback_phone: phoneE164 },
+      data: { callback_id: id, status: "open", updated, callback_phone: phoneE164, call_has_booking: callHasBooking },
       say:
+        (callHasBooking
+          ? "This call already has a confirmed booking. Tell the caller in one sentence what the office will call about (only what the booking doesn't cover). "
+          : "") +
         (updated
           ? "The existing callback request for this call was updated (still one request). Confirm the change briefly."
           : `The callback request is logged. Tell the caller the office will call back during office hours (${BUSINESS.facts.officeHours}). Don't promise an exact time.`) +

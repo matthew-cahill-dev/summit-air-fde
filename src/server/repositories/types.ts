@@ -195,7 +195,12 @@ export interface BookingTx {
   findAddresses(customerId: string): Promise<BookingAddress[]>;
   insertAddress(input: Omit<BookingAddress, "id"> & { customerId: string }): Promise<BookingAddress>;
   updateAccessNotes(addressId: string, accessNotes: string): Promise<void>;
-  findAppointment(customerId: string, slotId: string): Promise<{ id: string; status: "confirmed" | "cancelled" } | null>;
+  findAppointment(
+    customerId: string,
+    slotId: string,
+  ): Promise<{ id: string; status: "confirmed" | "cancelled"; intake: Record<string, unknown> | null } | null>;
+  /** A detail added after booking (e.g. an arrival preference): new intake and technician notes, same appointment. */
+  updateAppointmentDetails(id: string, input: { intake: Record<string, unknown>; technicianNotes: string }): Promise<void>;
   /** Atomic: UPDATE ... SET booked = booked + 1 WHERE booked < capacity (minus reserved) RETURNING. */
   claimSeat(slotId: string, rules: ClaimRules): Promise<boolean>;
   insertAppointment(input: {
@@ -218,6 +223,8 @@ export interface SchedulingRepository {
   /** Runs `fn` in one transaction; anything thrown rolls the whole booking back. */
   runBooking<T>(fn: (tx: BookingTx) => Promise<T>): Promise<T>;
   findConfirmedAppointment(customerId: string, slotId: string): Promise<{ id: string } | null>;
+  /** Whether this call already booked a (confirmed) appointment. */
+  hasConfirmedAppointmentForCall(vapiCallId: string): Promise<boolean>;
 }
 
 export interface HealthRepository {

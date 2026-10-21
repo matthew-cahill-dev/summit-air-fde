@@ -17,7 +17,8 @@
     "start:deploy": "npm run db:migrate && npm run start",
     "vapi:sync": "tsc -p tsconfig.scripts.json && node .scripts-dist/scripts/sync-vapi.js",
     "evals": "tsc -p tsconfig.scripts.json && node .scripts-dist/scripts/run-evals.js",
-    "call-report": "tsc -p tsconfig.scripts.json && node .scripts-dist/scripts/call-report.js"
+    "call-report": "tsc -p tsconfig.scripts.json && node .scripts-dist/scripts/call-report.js",
+    "vapi:set-default": "tsc -p tsconfig.scripts.json && node .scripts-dist/scripts/vapi-set-default.js"
   },
   "dependencies": {
     "@base-ui/react": "^1.9.0",

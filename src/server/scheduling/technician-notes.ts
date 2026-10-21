@@ -14,6 +14,8 @@ export type IntakeDetails = {
   vulnerableOccupants?: string[];
   pets?: string | null;
   onSiteContact?: OnSiteContact | null;
+  /** An exact time the caller asked for ("around 8:30"); a preference inside the booked window. */
+  arrivalPreference?: string | null;
 };
 
 export type TechnicianNotesInput = IntakeDetails & {
@@ -71,6 +73,9 @@ export function intakeSentences(i: IntakeDetails): string[] {
       : null,
     i.pets ? `Pets: ${sentence(i.pets)}` : null,
     i.onSiteContact ? `On-site contact: ${describeContact(i.onSiteContact)}.` : null,
+    i.arrivalPreference
+      ? `Arrival preference: ${i.arrivalPreference.trim().replace(/[.!?]$/, "")} if possible (inside the booked window; not promised, the caller knows it's a window).`
+      : null,
   ].filter((s): s is string => s !== null);
 }
 

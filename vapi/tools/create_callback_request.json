@@ -3,7 +3,7 @@
   "async": false,
   "function": {
     "name": "create_callback_request",
-    "description": "Ask the office to call the caller back: a tool failed, they want a person and transfer isn't available, they want to reschedule or cancel, they speak another language, a building-wide system needs office review, they're out of area but think we misheard, or the call can't be finished. One request per call: calling again on the same call updates it (e.g. to add a preferred time).",
+    "description": "Ask the office to call the caller back: a tool failed, they want a person and transfer isn't available, they want to reschedule or cancel, they speak another language, a building-wide system needs office review, they're out of area but think we misheard, or the call can't be finished. NOT for things a booking covers: if this call already booked, use it only when the caller explicitly asks for something the booking doesn't cover. Never for an exact arrival time (use book_appointment's arrival_preference). One request per call: calling again on the same call updates it.",
     "parameters": {
       "type": "object",
       "properties": {

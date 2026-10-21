@@ -2,8 +2,10 @@
 //   --offline  render the config locally and print it (no API key or network needed)
 //   --dry-run  read current Vapi state and print a diff; change nothing
 //   (default)  upsert tools by name, update the assistant (publishes a new version), print the version
-//   --variant  model variant from vapi/variants/model/<name>.json (default gpt-4.1)
-//   --voice    voice variant from vapi/variants/voice/<name>.json (default emma)
+//   --variant  model variant from vapi/variants/model/<name>.json
+//   --voice    voice variant from vapi/variants/voice/<name>.json
+//   --endpointing  end-of-turn preset from vapi/variants/endpointing/<name>.json (fast | safe)
+//   Defaults for all three: vapi/assistant.json `_defaults` (set with `npm run vapi:set-default`).
 //   --target   main (default: VAPI_ASSISTANT_ID, the assistant on the phone number) or a file in
 //              vapi/targets/ (e.g. s2s: its own assistant id env var; created on first live sync).
 //   Each run applies exactly the flags given, so a plain sync goes back to the defaults.
@@ -18,7 +20,7 @@ import {
   type SyncEnv,
 } from "../src/vapi-sync/render";
 import { syncVapi } from "../src/vapi-sync/sync";
-import { composeAssistant, DEFAULT_SELECTION, getPath, MAIN_TARGET, parseTarget, type Selection, type TargetConfig } from "../src/vapi-sync/variants";
+import { composeAssistant, defaultSelection, getPath, MAIN_TARGET, parseTarget, type Selection, type TargetConfig } from "../src/vapi-sync/variants";
 
 const VAPI_DIR = join(process.cwd(), "vapi");
 
@@ -32,12 +34,12 @@ function env(name: string, required: boolean): string | undefined {
   return v || undefined;
 }
 
-function overlayFile(kind: "model" | "voice", name: string): JsonObject {
+function overlayFile(kind: "model" | "voice" | "endpointing", name: string): JsonObject {
   const dir = join(VAPI_DIR, "variants", kind);
   const path = join(dir, `${name}.json`);
   if (!existsSync(path)) {
     const names = readdirSync(dir).filter((f) => f.endsWith(".json")).map((f) => f.replace(/\.json$/, ""));
-    throw new Error(`Unknown ${kind === "model" ? "--variant" : "--voice"} "${name}". Available: ${names.join(", ")}`);
+    throw new Error(`Unknown ${kind === "model" ? "--variant" : `--${kind}`} "${name}". Available: ${names.join(", ")}`);
   }
   return readJson(path);
 }
@@ -60,10 +62,12 @@ function flagValue(argv: string[], name: string): string | undefined {
 async function main() {
   const argv = process.argv.slice(2);
   const args = new Set(argv);
+  const defaults = defaultSelection(readJson(join(VAPI_DIR, "assistant.json")));
   const selection: Selection = {
-    variant: flagValue(argv, "--variant") ?? DEFAULT_SELECTION.variant,
-    voice: flagValue(argv, "--voice") ?? DEFAULT_SELECTION.voice,
-    target: flagValue(argv, "--target") ?? DEFAULT_SELECTION.target,
+    variant: flagValue(argv, "--variant") ?? defaults.variant,
+    voice: flagValue(argv, "--voice") ?? defaults.voice,
+    endpointing: flagValue(argv, "--endpointing") ?? defaults.endpointing,
+    target: flagValue(argv, "--target") ?? defaults.target,
   };
   const target = targetConfig(selection.target);
   const offline = args.has("--offline");
@@ -103,10 +107,14 @@ async function main() {
   const composed = composeAssistant(assistantFile, {
     variant: overlayFile("model", selection.variant),
     voice: overlayFile("voice", selection.voice),
+    endpointing: overlayFile("endpointing", selection.endpointing),
     target: target.overlay,
   });
   const buildAssistant = (toolIds: string[]) => buildDesiredAssistant(composed.assistant, prompt, toolIds, syncEnv);
-  console.log(`Selection: --target ${selection.target} --variant ${selection.variant} --voice ${selection.voice}`);
+  console.log(
+    `Selection: --target ${selection.target} --variant ${selection.variant} --voice ${selection.voice} --endpointing ${selection.endpointing}` +
+      ` (defaults: ${defaults.variant} / ${defaults.voice} / ${defaults.endpointing})`,
+  );
 
   console.log(
     `Transfer tool: ${syncEnv.ON_CALL_TRANSFER_NUMBER ? "attached" : "not attached (ON_CALL_TRANSFER_NUMBER unset; prompt falls back to callbacks)"}`,

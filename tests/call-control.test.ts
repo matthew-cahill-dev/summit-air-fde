@@ -3,7 +3,15 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { DEFAULT_HANGUP_TAIL_MS, handlePhoneCallControl, type CallControlDeps } from "@/server/vapi/call-control";
+import {
+  DEFAULT_HANGUP_TAIL_MS,
+  EXPECTED_TEARDOWN_MS,
+  farewellEndAt,
+  handlePhoneCallControl,
+  hangupDelayMs,
+  RETRY_DELAYS_MS,
+  type CallControlDeps,
+} from "@/server/vapi/call-control";
 import { handleEventsRequest } from "@/server/vapi/http";
 import { buildDesiredAssistant, renderSystemPrompt, type JsonObject } from "@/vapi-sync/render";
 import { composeAssistant, MAIN_TARGET, parseTarget } from "@/vapi-sync/variants";
@@ -11,14 +19,16 @@ import { post, TEST_SECRET, testRepos } from "./helpers";
 
 const CONTROL = "https://phone-call-websocket.aws-us-west-2-backend-production1.vapi.ai/call-123/control";
 
-function fakeControl(opts: { failFirst?: boolean } = {}) {
+function fakeControl(opts: { failFirst?: number; now?: number } = {}) {
   const events: string[] = [];
-  let failed = false;
+  let failures = opts.failFirst ?? 0;
   const deps: CallControlDeps = {
     tailMs: DEFAULT_HANGUP_TAIL_MS,
+    teardownMs: EXPECTED_TEARDOWN_MS,
+    now: () => opts.now ?? NOW,
     async post(url, body) {
-      if (opts.failFirst && !failed) {
-        failed = true;
+      if (failures > 0) {
+        failures--;
         events.push(`post-failed ${String(body.type)}`);
         throw new Error("HTTP 502");
       }
@@ -31,23 +41,58 @@ function fakeControl(opts: { failFirst?: boolean } = {}) {
   return { deps, events };
 }
 
+const NOW = 1_792_589_000_000;
 const hangUp = (over: JsonObject = {}) => ({ type: "phone-call-control", request: "hang-up", call: { id: "call-123", monitor: { controlUrl: CONTROL } }, ...over });
 
-describe("handlePhoneCallControl", () => {
-  it("hang-up: waits the tail (1.5 s by default), then ends the call via the control URL", async () => {
-    const { deps, events } = fakeControl();
-    const out = handlePhoneCallControl(hangUp(), deps);
-    expect(out.handled).toBe("hang-up");
-    expect(out.handled !== "ignored" && (await out.done)).toBe(true);
-    expect(events).toEqual(["sleep 1500", 'post controlUrl {"type":"end-call"}']);
-    expect(DEFAULT_HANGUP_TAIL_MS).toBeGreaterThanOrEqual(1000); // covers the measured 0.67 s early hang-up + carrier tail
+describe("ending order: goodbye in full → ~1.5 s of silence → hang-up", () => {
+  // Measured on call 01a15e9b: Vapi sends the hang-up request as the (blocking) goodbye stops; it
+  // reached us ~0.3-0.6 s later; Vapi tore the call down ~1.2 s after our end-call. A fixed 1.5 s
+  // wait after receipt gave ~3.1 s of silence. Now the wait is anchored to the end of the goodbye.
+
+  it("anchors on Vapi's send time: a request that arrives 0.5 s late gets end-call right away", () => {
+    const sentAtGoodbyeEnd = NOW - 500;
+    const delay = hangupDelayMs(hangUp({ timestamp: sentAtGoodbyeEnd }), { tailMs: 1500, teardownMs: 1200 }, NOW);
+    expect(delay).toBe(0); // 1500 - 1200 - 500 < 0 → hang up now; teardown lands ~1.7 s after the last word
   });
 
-  it("retries the end-call once if the control URL fails", async () => {
-    const { deps, events } = fakeControl({ failFirst: true });
-    const out = handlePhoneCallControl(hangUp(), deps);
+  it("never cuts a goodbye that's still playing: anchors on its endTime from the live artifact", () => {
+    const artifact = { messages: [{ role: "user", time: NOW - 4000 }, { role: "bot", time: NOW - 300, endTime: NOW + 2400, message: "Thanks for calling…" }] };
+    const delay = hangupDelayMs(hangUp({ timestamp: NOW - 50, artifact }), { tailMs: 1500, teardownMs: 1200 }, NOW);
+    expect(delay).toBe(2400 + 1500 - 1200); // goodbye ends in 2.4 s; line drops ~1.5 s after that
+  });
+
+  it("estimates a still-playing goodbye with no endTime from its words", () => {
+    const artifact = { messages: [{ role: "bot", time: NOW, message: "Thanks for calling Summit Air. Take care, and goodbye for now." }] };
+    expect(farewellEndAt(hangUp({ artifact }), NOW)).toBe(NOW + 11 * 300);
+  });
+
+  it("ignores implausible anchors (clock skew, stale redelivery) and falls back to now + tail - teardown", () => {
+    expect(hangupDelayMs(hangUp({ timestamp: NOW - 60_000 }), { tailMs: 1500, teardownMs: 1200 }, NOW)).toBe(300);
+    expect(hangupDelayMs(hangUp(), { tailMs: 1500, teardownMs: 1200 }, NOW)).toBe(300);
+  });
+
+  it("the handler sends end-call after the computed delay and only then reports done", async () => {
+    const { deps, events } = fakeControl();
+    const out = handlePhoneCallControl(hangUp({ timestamp: NOW }), deps);
+    expect(out).toMatchObject({ handled: "hang-up", delayMs: 300 });
     expect(out.handled !== "ignored" && (await out.done)).toBe(true);
-    expect(events).toEqual(["sleep 1500", "post-failed end-call", "sleep 500", 'post controlUrl {"type":"end-call"}']);
+    expect(events).toEqual(["sleep 300", 'post controlUrl {"type":"end-call"}']);
+  });
+});
+
+describe("hang-up failsafe", () => {
+  it("retries the end-call (3 attempts, 300 ms then 800 ms apart)", async () => {
+    const { deps, events } = fakeControl({ failFirst: 2 });
+    const out = handlePhoneCallControl(hangUp({ timestamp: NOW - 1000 }), deps);
+    expect(out.handled !== "ignored" && (await out.done)).toBe(true);
+    expect(events).toEqual(["post-failed end-call", "sleep 300", "post-failed end-call", "sleep 800", 'post controlUrl {"type":"end-call"}']);
+    expect(RETRY_DELAYS_MS).toEqual([300, 800]);
+  });
+
+  it("reports failure when every attempt fails (the events endpoint then answers 502 so Vapi re-delivers)", async () => {
+    const { deps } = fakeControl({ failFirst: 3 });
+    const out = handlePhoneCallControl(hangUp({ timestamp: NOW - 1000 }), deps);
+    expect(out.handled !== "ignored" && (await out.done)).toBe(false);
   });
 
   it("forward: transfers right away (delegated forwarding keeps transfers working)", async () => {
@@ -67,22 +112,20 @@ describe("handlePhoneCallControl", () => {
 });
 
 describe("events endpoint", () => {
-  it("answers phone-call-control at once and ends the call after the tail", async () => {
+  const send = (message: JsonObject, callControl: CallControlDeps) =>
+    handleEventsRequest(post("/api/vapi/events", { message }, `Bearer ${TEST_SECRET}`), { secret: TEST_SECRET, repos: testRepos, callControl });
+
+  it("answers phone-call-control only after the end-call went through (so a crash means Vapi retries)", async () => {
     const { deps, events } = fakeControl();
-    let release!: () => void;
-    const gate = new Promise<void>((r) => (release = r));
-    const slow: CallControlDeps = { ...deps, sleep: async (ms) => (events.push(`sleep ${ms}`), gate) };
-    const res = await handleEventsRequest(post("/api/vapi/events", { message: hangUp() }, `Bearer ${TEST_SECRET}`), {
-      secret: TEST_SECRET,
-      repos: testRepos,
-      callControl: slow,
-    });
+    const res = await send(hangUp({ timestamp: NOW - 400 }), deps);
+    expect(events).toEqual(['post controlUrl {"type":"end-call"}']); // already sent before we answered
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ ok: true, handled: "hang-up" });
-    expect(events).toEqual(["sleep 1500"]); // responded before hanging up
-    release();
-    await new Promise((r) => setTimeout(r, 0));
-    expect(events).toEqual(["sleep 1500", 'post controlUrl {"type":"end-call"}']);
+  });
+
+  it("answers 502 when the end-call failed every attempt, or there's no control URL", async () => {
+    expect((await send(hangUp({ timestamp: NOW }), fakeControl({ failFirst: 3 }).deps)).status).toBe(502);
+    expect((await send({ type: "phone-call-control", request: "hang-up", call: { id: "x" } }, fakeControl().deps)).status).toBe(502);
   });
 
   it("requires the bearer secret like every other event", async () => {

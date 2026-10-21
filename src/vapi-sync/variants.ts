@@ -62,18 +62,29 @@ export function parseTarget(name: string, raw: unknown): TargetConfig {
   };
 }
 
-export type Selection = { variant: string; voice: string; target: string };
+export type Selection = { variant: string; voice: string; endpointing: string; target: string };
 
-export const DEFAULT_SELECTION: Selection = { variant: "gpt-4.1", voice: "emma", target: "main" };
+/** Fallback when assistant.json has no _defaults block. */
+export const DEFAULT_SELECTION: Selection = { variant: "gpt-4.1", voice: "emma", endpointing: "safe", target: "main" };
 
-/** Apply model variant, then voice, then target, in that order (the target wins). */
+/** The combination a plain `vapi:sync` publishes: assistant.json's `_defaults`, else DEFAULT_SELECTION. */
+export function defaultSelection(assistantFile: JsonObject): Selection {
+  const d = isObj(assistantFile._defaults) ? assistantFile._defaults : {};
+  const pick = (k: "variant" | "voice" | "endpointing") => (typeof d[k] === "string" && d[k] ? (d[k] as string) : DEFAULT_SELECTION[k]);
+  return { variant: pick("variant"), voice: pick("voice"), endpointing: pick("endpointing"), target: "main" };
+}
+
+/**
+ * Apply the endpointing preset, then the model/pipeline variant (which may replace the transcriber,
+ * e.g. gpt-4.1-nova3), then the voice, then the target. Later layers win.
+ */
 export function composeAssistant(
   base: JsonObject,
-  layers: { variant: Overlay; voice: Overlay; target: Overlay },
+  layers: { variant: Overlay; voice: Overlay; endpointing?: Overlay; target: Overlay },
 ): { assistant: JsonObject; removed: string[] } {
   let current = base;
   const removed: string[] = [];
-  for (const layer of [layers.variant, layers.voice, layers.target]) {
+  for (const layer of [layers.endpointing ?? {}, layers.variant, layers.voice, layers.target]) {
     const out = applyOverlay(current, layer);
     current = out.result;
     removed.push(...out.removed);

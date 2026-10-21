@@ -3,7 +3,7 @@
   "async": false,
   "function": {
     "name": "book_appointment",
-    "description": "Book an arrival window. ONLY call after reading back the window, address and problem and hearing the caller say yes; then set caller_confirmed to true. For a verified caller pass customer_id and address_id from lookup_customer and leave out name, phone and address (they come from the account). Otherwise pass first_name, last_name and address. Returns booked:true, or ok:false with reason slot_taken and alternatives.",
+    "description": "Book an arrival window. ONLY call after reading back the window, address and problem and hearing the caller say yes; then set caller_confirmed to true. For a verified caller pass customer_id and address_id from lookup_customer and leave out name, phone and address (they come from the account). Otherwise pass first_name, last_name and address. Returns booked:true, or ok:false with reason slot_taken and alternatives. Calling it again for a window the caller already holds never double-books; it adds the new details to that appointment's notes.",
     "parameters": {
       "type": "object",
       "properties": {
@@ -155,6 +155,10 @@
             ]
           },
           "description": "Vulnerable people in the home. Empty array if none."
+        },
+        "arrival_preference": {
+          "type": "string",
+          "description": "Only if the caller asked for an exact time inside the window, e.g. 'around 8:30 AM'. Noted for the technician, never promised. To add it (or any detail) after booking, call book_appointment again with the same slot_id: it updates the same appointment."
         }
       },
       "required": [

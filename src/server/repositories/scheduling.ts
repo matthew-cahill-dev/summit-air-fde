@@ -87,11 +87,15 @@ function bookingTx(tx: Tx): BookingTx {
 
     async findAppointment(customerId, slotId) {
       const [row] = await tx
-        .select({ id: appointments.id, status: appointments.status })
+        .select({ id: appointments.id, status: appointments.status, intake: appointments.intake })
         .from(appointments)
         .where(and(eq(appointments.customerId, customerId), eq(appointments.slotId, slotId)))
         .limit(1);
-      return row ?? null;
+      return row ? { ...row, intake: (row.intake ?? null) as Record<string, unknown> | null } : null;
+    },
+
+    async updateAppointmentDetails(id, input) {
+      await tx.update(appointments).set({ intake: input.intake, technicianNotes: input.technicianNotes }).where(eq(appointments.id, id));
     },
 
     async claimSeat(slotId, rules) {
@@ -142,6 +146,15 @@ export function createSchedulingRepository(db: Db): SchedulingRepository {
 
     runBooking(fn) {
       return db.transaction((tx) => fn(bookingTx(tx)));
+    },
+
+    async hasConfirmedAppointmentForCall(vapiCallId) {
+      const [row] = await db
+        .select({ id: appointments.id })
+        .from(appointments)
+        .where(and(eq(appointments.vapiCallId, vapiCallId), eq(appointments.status, "confirmed")))
+        .limit(1);
+      return Boolean(row);
     },
 
     async findConfirmedAppointment(customerId, slotId) {

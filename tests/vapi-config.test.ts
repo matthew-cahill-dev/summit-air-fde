@@ -236,11 +236,11 @@ describe("persona, call flow and failure handling (live-call fixes)", () => {
     expect(assistantFile.backgroundSound).toBe("off"); // Vapi's phone default is "office"
   });
 
-  it("turn-taking: Deepgram Flux end-of-turn, no dead endpointing config, low wait", () => {
-    expect(assistantFile.transcriber).toMatchObject({ provider: "deepgram", model: "flux-general-en", language: "en", eotThreshold: 0.7, eotTimeoutMs: 3000 });
+  it("turn-taking: Deepgram Flux end-of-turn ('safe' preset values), no dead endpointing config", () => {
+    expect(assistantFile.transcriber).toMatchObject({ provider: "deepgram", model: "flux-general-en", language: "en", eotThreshold: 0.8, eotTimeoutMs: 4000 });
     const plan = assistantFile.startSpeakingPlan as JsonObject;
     // Vapi: don't set smartEndpointingPlan with Flux; custom rules and transcriptionEndpointingPlan are ignored.
-    expect(plan).toEqual({ waitSeconds: 0.3 });
+    expect(plan).toEqual({ waitSeconds: 0.2 });
     expect(assistantFile._removedFromLive).toEqual([
       "startSpeakingPlan.smartEndpointingPlan",
       "startSpeakingPlan.customEndpointingRules",
@@ -278,9 +278,13 @@ describe("assistant rendering", () => {
   it("fills prompt, sorted tool ids, events server and strips _comments", () => {
     const a = buildDesiredAssistant(assistantFile, "PROMPT ${NOT_A_VAR}", ["b", "a"], ENV);
     expect(a).not.toHaveProperty("_comments");
-    expect(a.server).toEqual({ url: "https://summit.example.app/api/vapi/events", credentialId: "cred-123" });
+    expect(a.server).toMatchObject({ url: "https://summit.example.app/api/vapi/events", credentialId: "cred-123" });
     expect(a.serverMessages).toEqual(["end-of-call-report", "status-update", "phone-call-control"]);
     expect(a.monitorPlan).toEqual({ controlEnabled: true }); // the control URL the padded hang-up uses
+    // Hang-up failsafe: Vapi re-delivers a failed phone-call-control (or any message); max 10-minute calls.
+    expect((a.server as JsonObject).backoffPlan).toEqual({ type: "exponential", maxRetries: 3, baseDelaySeconds: 1 });
+    expect(a.maxDurationSeconds).toBe(600);
+    expect(a).not.toHaveProperty("_defaults");
     expect(a).not.toHaveProperty("_removedFromLive");
     const model = a.model as JsonObject;
     expect(model).toMatchObject({ provider: "openai", model: "gpt-4.1", toolIds: ["a", "b"] });
@@ -377,5 +381,27 @@ describe("M5 prompt rules: requirements and the unexpected", () => {
   it("corrections after the recap are recapped again before booking", () => {
     expect(off).toContain("If they correct anything after the recap");
     expect(off).toContain("get a fresh yes before you book. Never book on the old details.");
+  });
+});
+
+describe("Oct 21 morning call fixes (prompt)", () => {
+  const p = renderSystemPrompt(template, { transferAvailable: false, timeZone: "America/New_York" });
+
+  it("clarifies a word that doesn't fit instead of repeating it (live: 'make sure' heard as 'Mercury')", () => {
+    expect(p).toContain("If a word or phrase doesn't make sense in context, you probably misheard it. Never repeat it back or guess what it means.");
+    expect(p).toContain('"Sorry, I didn\'t catch that, could you say it again?"');
+  });
+
+  it("keeps turns short (live: 8-14 s turns drew 4 barge-ins)", () => {
+    expect(p).toContain("one or two short sentences per turn (about 25 words at most)");
+    expect(p).toContain("A recap is one sentence.");
+  });
+
+  it("one outcome per call; expedite only on request; exact times become a note, never a callback", () => {
+    expect(p).toContain("Once a booking is confirmed, don't create a callback unless the caller explicitly asks for something the booking doesn't cover");
+    expect(p).toContain("Don't offer to have the office try for sooner; log an expedite callback");
+    expect(p).toContain("only if the caller asks for sooner");
+    expect(p).toContain("call book_appointment again with the same slot_id and arrival_preference");
+    expect(p).toContain("Never a callback for this.");
   });
 });

@@ -37,7 +37,13 @@ export type CallReport = {
   turns: Turn[];
   vapiLatencies: TurnLatencyRow[];
   vapiAverages: Record<string, number | null>;
-  interruptions: { user: number | null; assistant: number | null };
+  /**
+   * Vapi's counters (spec): numUserInterrupted = "times the user was interrupted by the assistant"
+   * (Ava cut in); numAssistantInterrupted = "times the assistant was interrupted by the user" (barge-in).
+   */
+  interruptions: { avaCutIn: number | null; callerBargedIn: number | null };
+  /** Timings from Vapi's per-call log (artifact.presignedLogUrl), when it was fetched. */
+  log: LogAnalysis | null;
   lastAssistantMessage: string | null;
   recordingUrl: string | null;
   /** Response waits (non-negative gaps only); negative gaps are overlaps (someone barged in). */
@@ -175,7 +181,8 @@ export function buildCallReport(call: JsonObject): CallReport {
     turns,
     vapiLatencies,
     vapiAverages: averages,
-    interruptions: { user: num(perf?.numUserInterrupted), assistant: num(perf?.numAssistantInterrupted) },
+    interruptions: { avaCutIn: num(perf?.numUserInterrupted), callerBargedIn: num(perf?.numAssistantInterrupted) },
+    log: null,
     lastAssistantMessage: bots.length ? str(bots[bots.length - 1].message) : null,
     recordingUrl: str(artifact.recordingUrl) ?? str(mono?.combinedUrl) ?? str(call.recordingUrl),
     summary: {
@@ -218,8 +225,106 @@ export function formatCallReport(r: CallReport): string {
   }
   const avg = Object.entries(r.vapiAverages).filter(([, v]) => v !== null);
   if (avg.length) lines.push(`  Vapi averages: ${avg.map(([k, v]) => `${k.replace("LatencyAverage", "")}=${Math.round(v!)}ms`).join("  ")}`);
-  lines.push(`  Interruptions: caller interrupted Ava ${r.interruptions.user ?? "?"}x, Ava interrupted caller ${r.interruptions.assistant ?? "?"}x`);
+  lines.push(`  Interruptions: Ava cut in on the caller ${r.interruptions.avaCutIn ?? "?"}x; caller barged in on Ava ${r.interruptions.callerBargedIn ?? "?"}x`);
+  if (r.log) lines.push(...formatLogAnalysis(r.log));
   lines.push(`  Last Ava message: ${r.lastAssistantMessage ? JSON.stringify(r.lastAssistantMessage) : "-"}`);
   lines.push(`  Recording: ${r.recordingUrl ?? "-"}`);
   return lines.join("\n");
+}
+
+// ---------------------------------------------------------------------------
+// Vapi's per-call log (gzip NDJSON at artifact.presignedLogUrl). Each row: { time (epoch ms), body,
+// attributes: { category, event, ... } }. Read for what the message list can't show: how long each
+// webhook took as Vapi saw it, and when the line was really torn down after the goodbye.
+
+export type LogRow = { time: number; body?: string; attributes?: JsonObject };
+
+export type WebhookTiming = { messageType: string; at: number; latencyMs: number | null; statusCode: number | null; url: string | null };
+
+export type ToolSpan = {
+  names: string[];
+  /** assistant.tool.started → assistant.tool.completed (Vapi waits for the filler to finish speaking). */
+  totalMs: number | null;
+  /** The tool-calls webhook round trip as Vapi measured it (Vapi → our server → Vapi). */
+  webhookMs: number | null;
+  /** The filler's speech: started / stopped, ms after the tool started. */
+  fillerStartMs: number | null;
+  fillerStopMs: number | null;
+};
+
+export type EndingTiming = {
+  /** endCall started → goodbye audio started. */
+  goodbyeStartMs: number | null;
+  goodbyeDurationMs: number | null;
+  /** Goodbye stopped → phone-call-control hang-up request acknowledged by our server. */
+  hangupAckAfterGoodbyeMs: number | null;
+  /** Goodbye stopped → Vapi tore the call down (stream cleanup): the silence the caller heard. */
+  silentTailMs: number | null;
+};
+
+export type LogAnalysis = { webhooks: WebhookTiming[]; tools: ToolSpan[]; ending: EndingTiming | null };
+
+const ev = (r: LogRow) => String(r.attributes?.event ?? "");
+
+export function analyzeLog(rowsIn: LogRow[]): LogAnalysis {
+  const rows = [...rowsIn].filter((r) => typeof r.time === "number").sort((a, b) => a.time - b.time);
+  const webhooks: WebhookTiming[] = rows
+    .filter((r) => ev(r) === "serverMessage.requestSucceeded" || ev(r) === "serverMessage.requestFailed")
+    .map((r) => ({
+      messageType: String(r.attributes?.messageType ?? "?"),
+      at: r.time,
+      latencyMs: num(r.attributes?.latencyMs),
+      statusCode: num(r.attributes?.statusCode),
+      url: str(r.attributes?.url),
+    }));
+
+  const tools: ToolSpan[] = [];
+  let ending: EndingTiming | null = null;
+  rows.forEach((r, i) => {
+    if (ev(r) !== "assistant.tool.started") return;
+    const names = Array.isArray(r.attributes?.toolNames) ? (r.attributes!.toolNames as string[]) : [];
+    const after = rows.slice(i + 1);
+    const completed = after.find((x) => ev(x) === "assistant.tool.completed");
+    const until = completed?.time ?? Infinity;
+    const speechStart = after.find((x) => ev(x) === "pipeline.botSpeechStarted" && x.time <= until);
+    const speechStop = after.find((x) => ev(x) === "pipeline.botSpeechStopped" && x.time <= until + 5);
+    const hook = after.find((x) => ev(x).startsWith("serverMessage.request") && x.attributes?.messageType === "tool-calls" && x.time <= until + 5);
+    tools.push({
+      names,
+      totalMs: completed ? completed.time - r.time : null,
+      webhookMs: num(hook?.attributes?.latencyMs),
+      fillerStartMs: speechStart ? speechStart.time - r.time : null,
+      fillerStopMs: speechStop ? speechStop.time - r.time : null,
+    });
+    if (names.includes("endCall")) {
+      const control = after.find((x) => ev(x).startsWith("serverMessage.request") && x.attributes?.messageType === "phone-call-control");
+      const cleanup = after.find((x) => /\.cleanup$/.test(ev(x)));
+      const stop = speechStop?.time ?? null;
+      ending = {
+        goodbyeStartMs: speechStart ? speechStart.time - r.time : null,
+        goodbyeDurationMs: speechStart && speechStop ? speechStop.time - speechStart.time : null,
+        hangupAckAfterGoodbyeMs: control && stop !== null ? control.time - stop : null,
+        silentTailMs: cleanup && stop !== null ? cleanup.time - stop : null,
+      };
+    }
+  });
+  return { webhooks, tools, ending };
+}
+
+function formatLogAnalysis(a: LogAnalysis): string[] {
+  const lines = ["", "  From Vapi's call log:"];
+  for (const t of a.tools.filter((x) => !x.names.includes("endCall"))) {
+    lines.push(
+      `    ${t.names.join(",").padEnd(24)} webhook (Vapi → our server → Vapi) ${ms(t.webhookMs).trim().padStart(7)} | filler ${ms(t.fillerStartMs).trim()}–${ms(t.fillerStopMs).trim()} | tool done ${ms(t.totalMs).trim()}`,
+    );
+  }
+  const hooks = a.webhooks.filter((w) => w.messageType === "tool-calls").map((w) => w.latencyMs).filter((v): v is number => v !== null);
+  if (hooks.length) lines.push(`    tool-calls webhooks: ${fmtStats(stats(hooks))}`);
+  const e = a.ending;
+  if (e) {
+    lines.push(
+      `    Ending: goodbye starts ${ms(e.goodbyeStartMs).trim()} after endCall, lasts ${ms(e.goodbyeDurationMs).trim()}; hang-up request acknowledged ${ms(e.hangupAckAfterGoodbyeMs).trim()} after it; line torn down ${ms(e.silentTailMs).trim()} after the last word`,
+    );
+  }
+  return lines;
 }
