@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { BUSINESS } from "@/config/business";
+import { BOROUGH, BUSINESS, coverageOf, type County } from "@/config/business";
 import { logEvent } from "@/server/lib/log";
 import { optionalArg } from "@/server/lib/optional-arg";
 import { normalizePhoneE164 } from "@/server/lib/phone";
@@ -62,7 +62,9 @@ class BookingRejected extends Error {
       | "address_not_found"
       | "slot_wrong_area"
       | "residential_only"
-      | "missing_name",
+      | "missing_name"
+      | "coverage_check"
+      | "not_served",
     readonly county: string | null = null,
   ) {
     super(code);
@@ -116,6 +118,18 @@ export function mergeIntake(prev: Record<string, unknown> | null, next: Record<s
 const strOr = (v: unknown): string | null => (typeof v === "string" && v.trim() ? v : null);
 const strList = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : []);
 
+/** Bronx / Staten Island: never booked; the office confirms coverage first. */
+function coverageCheckOutcome(borough: string | null): ToolOutcome {
+  const where = borough ?? "that borough";
+  return {
+    ok: false,
+    errorCode: "coverage_check",
+    message: `Coverage for ${where} isn't confirmed`,
+    say: `Don't book. Say: "Let me have our office confirm whether we can cover that address." Then call create_callback_request with reason other and details starting "coverage check: ${where}". Don't give a reason or say we don't serve it.`,
+    data: { coverage_check: true, borough },
+  };
+}
+
 const confirmationCode = (appointmentId: string) => `SA-${appointmentId.replace(/-/g, "").slice(0, 6).toUpperCase()}`;
 
 function isUniqueViolation(err: unknown): boolean {
@@ -164,6 +178,8 @@ export const bookAppointmentTool = defineTool({
     let newAddressCounty: string | null = null;
     if (!args.address_id && args.address) {
       const zipRow = await ctx.repos.serviceArea.findZip(args.address.zip);
+      const cov = coverageOf(zipRow);
+      if (cov.coverage === "coverage_check") return coverageCheckOutcome(cov.borough);
       if (!zipRow?.active) {
         return {
           ok: false,
@@ -233,6 +249,12 @@ export const bookAppointmentTool = defineTool({
             }));
         }
         if (address.propertyType === "commercial" && BUSINESS.residentialOnly) throw new BookingRejected("residential_only");
+        // An address on file outside the served counties (e.g. Staten Island) is never booked,
+        // even if an old arrival window for that county still exists.
+        if (!address.county || !(BUSINESS.serviceCounties as readonly string[]).includes(address.county)) {
+          const coverageCheck = Boolean(address.county && (BUSINESS.coverageCheckCounties as readonly string[]).includes(address.county));
+          throw new BookingRejected(coverageCheck ? "coverage_check" : "not_served", address.county);
+        }
         if (address.county !== slot.county) throw new BookingRejected("slot_wrong_area", address.county);
         if (args.access_notes && args.access_notes !== address.accessNotes) {
           await tx.updateAccessNotes(address.id, args.access_notes);
@@ -390,6 +412,15 @@ async function rejected(
         errorCode: "residential_only",
         message: "That address is a commercial property.",
         say: "Explain Summit Air only services homes.",
+      };
+    case "coverage_check":
+      return coverageCheckOutcome(err.county ? (BOROUGH[err.county as County] ?? err.county) : null);
+    case "not_served":
+      return {
+        ok: false,
+        errorCode: "out_of_area",
+        message: "That address is outside the service area.",
+        say: `Confirm the address. If it's right, explain we only serve homes in ${BUSINESS.facts.serviceArea}.`,
       };
     case "missing_name": {
       const missing = [!args.first_name && "first_name", !args.last_name && "last_name"].filter((f): f is string => Boolean(f));

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { BUSINESS } from "@/config/business";
+import { BUSINESS, coverageOf } from "@/config/business";
 import { logEvent } from "@/server/lib/log";
 import { optionalArg } from "@/server/lib/optional-arg";
 import { todayInZone } from "@/server/lib/time";
@@ -35,6 +35,7 @@ const SAFETY_SAY =
   "Give the gas and carbon monoxide safety instructions now: leave the home with everyone, don't touch switches or flames, don't use a phone inside, and call 911 from outside. Do not book an appointment. Say clearly that Summit Air has NOT contacted 911, the fire department or the gas utility; the caller must call 911 themselves.";
 
 export const OFFICE_REVIEW_CALLBACK = { reason: "other", details: "multi-unit/central system, office to review" } as const;
+export const coverageCheckCallback = (borough: string) => ({ reason: "other", details: `coverage check: ${borough}` }) as const;
 
 async function recordSafetyStop(args: TriageArgs, decision: TriageDecision, ctx: ToolContext): Promise<boolean> {
   try {
@@ -60,7 +61,14 @@ export const triageIssueTool = defineTool({
   schema: triageIssueSchema,
   async handler(args, ctx): Promise<ToolOutcome> {
     const zipRow = await ctx.repos.serviceArea.findZip(args.zip);
-    const area = { zip: args.zip, inArea: Boolean(zipRow?.active), county: zipRow?.active ? zipRow.county : null };
+    const cov = coverageOf(zipRow);
+    const area = {
+      zip: args.zip,
+      inArea: cov.coverage === "in_area",
+      county: cov.coverage === "in_area" ? cov.county : null,
+      coverage: cov.coverage,
+      borough: cov.borough,
+    };
     const decision = triageRules(
       {
         issueType: args.issue_type,
@@ -81,6 +89,7 @@ export const triageIssueTool = defineTool({
       serviceable: decision.serviceable,
       ...(decision.notServiceableReason ? { not_serviceable_reason: decision.notServiceableReason } : {}),
       in_area: area.inArea,
+      coverage: cov.coverage,
       county: area.county,
     };
 
@@ -112,6 +121,18 @@ export const triageIssueTool = defineTool({
             ? "Kindly explain Summit Air only services homes, then offer an office callback with referrals to commercial HVAC companies (create_callback_request, reason other, details 'commercial referral')."
             : "Kindly explain Summit Air only services homes, so they'll want a commercial HVAC company. Give no other reason (no licensing, insurance or policy talk), don't offer a referral or a callback, then thank them and end the call."
           : `Confirm the ZIP once. If it's right, explain we only serve ${BUSINESS.facts.serviceArea}. If anyone's health is at risk, they should call 911.`,
+      };
+    }
+
+    if (decision.nextAction === "office_review" && decision.notServiceableReason === "coverage_unconfirmed") {
+      const borough = cov.borough ?? cov.county ?? args.zip;
+      return {
+        ok: true,
+        data: { ...base, next_action: "office_review", coverage_check: true, borough, callback: coverageCheckCallback(borough) },
+        say:
+          `Don't book or offer times. Say: "Let me have our office confirm whether we can cover that address." Don't give a reason and don't say we don't serve ${borough}. ` +
+          `Get their name and best callback number, then call create_callback_request with reason other and details starting "coverage check: ${borough}", plus the address and the problem.` +
+          (decision.urgency === "emergency" || decision.urgency === "urgent" ? " If anyone's health is at risk before the office calls, they should call 911." : ""),
       };
     }
 

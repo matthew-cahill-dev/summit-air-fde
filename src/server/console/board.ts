@@ -34,6 +34,8 @@ export type BoardItem = {
   property: string | null;
   /** Callback: when the caller would like to be called, in their words. */
   preferredTime: string | null;
+  /** Callback: a Bronx / Staten Island address the office must confirm coverage for (the borough). */
+  coverageCheck: string | null;
   createdAt: Date;
   acknowledgedAt: Date | null;
   ageMs: number;
@@ -69,6 +71,7 @@ export function dispatchItem(d: BoardDispatchRow, now: Date): BoardItem {
     language: null,
     property: propertyText(d.intake?.property_kind, d.intake?.flags),
     preferredTime: null,
+    coverageCheck: null,
     createdAt: d.createdAt,
     acknowledgedAt: d.acknowledgedAt,
     ageMs,
@@ -83,12 +86,13 @@ export function callbackItem(c: BoardCallbackRow, now: Date): BoardItem {
   const ageMs = now.getTime() - c.createdAt.getTime();
   const slaMinutes = BUSINESS.callbackRequestSlaMinutes;
   const reasonLabel = callbackReasonLabel(c.reason);
+  const coverageCheck = c.context?.kind === "coverage_check" ? (str(c.context?.borough) ?? "unknown borough") : null;
   return {
     kind: "callback",
     id: c.id,
     urgency: c.triageUrgency,
     status: "open",
-    title: `Callback · ${reasonLabel}`,
+    title: coverageCheck ? `Confirm coverage · ${coverageCheck}` : `Callback · ${reasonLabel}`,
     reasons: c.triageReasons,
     callerName: c.callerName,
     callerPhone: c.callerPhone,
@@ -99,6 +103,7 @@ export function callbackItem(c: BoardCallbackRow, now: Date): BoardItem {
     language: str(c.context?.language),
     property: propertyText(null, c.triageArgs),
     preferredTime: str(c.context?.preferred_callback_time),
+    coverageCheck,
     createdAt: c.createdAt,
     acknowledgedAt: null,
     ageMs,

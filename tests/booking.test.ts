@@ -163,7 +163,7 @@ describe("book_appointment", () => {
 
   it("rejects an out-of-area address before touching the slot", async () => {
     const slot = await makeSlot({ capacity: 3, booked: 0 });
-    const { payload } = await callTool("book_appointment", newCallerArgs(slot.id, "+17185550310", { address: { line1: "600 W 110th St", zip: "10025" } }));
+    const { payload } = await callTool("book_appointment", newCallerArgs(slot.id, "+17185550310", { address: { line1: "88 River St", zip: "07030" } }));
     expect(payload).toMatchObject({ ok: false, error_code: "out_of_area" });
   });
 });
@@ -185,7 +185,7 @@ describe("get_availability", () => {
   });
 
   it("morning preference only returns windows starting before noon", async () => {
-    const { payload } = await callTool("get_availability", { zip: "10314", urgency: "routine", preferred_window: "morning" });
+    const { payload } = await callTool("get_availability", { zip: "10024", urgency: "routine", preferred_window: "morning" });
     for (const s of payload.offered_slots as Array<{ starts_at: string }>) {
       const hour = Number(new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour: "numeric", hourCycle: "h23" }).format(new Date(s.starts_at)));
       expect(hour).toBeLessThan(12);
@@ -193,7 +193,7 @@ describe("get_availability", () => {
   });
 
   it("out of area is an error naming the reason", async () => {
-    expect((await callTool("get_availability", { zip: "10025", urgency: "routine" })).payload).toMatchObject({ ok: false, error_code: "out_of_area" });
+    expect((await callTool("get_availability", { zip: "07030", urgency: "routine" })).payload).toMatchObject({ ok: false, error_code: "out_of_area" });
   });
 });
 

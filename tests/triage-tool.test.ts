@@ -65,7 +65,7 @@ describe("triage_issue tool", () => {
   });
 
   it("out of area and commercial close without slots", async () => {
-    expect(await triage({ zip: "10025" })).toMatchObject({ serviceable: false, not_serviceable_reason: "out_of_area", next_action: "explain_and_close" });
+    expect(await triage({ zip: "07030" })).toMatchObject({ serviceable: false, not_serviceable_reason: "out_of_area", next_action: "explain_and_close" });
     expect(await triage({ property_type: "commercial", zip: "11201" })).toMatchObject({ not_serviceable_reason: "residential_only" });
   });
 

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { BUSINESS } from "@/config/business";
+import { BUSINESS, coverageOf } from "@/config/business";
 import { optionalArg } from "@/server/lib/optional-arg";
 import { defineTool, type ToolOutcome } from "@/server/vapi/types";
 
@@ -21,9 +21,10 @@ export function evaluateServiceArea(
   propertyType: PropertyType,
   residentialOnly: boolean = BUSINESS.residentialOnly,
 ): ToolOutcome {
-  const inArea = Boolean(zipRow?.active);
-  const county = inArea ? zipRow!.county : null;
-  const base = { zip, in_area: inArea, county };
+  const cov = coverageOf(zipRow);
+  const inArea = cov.coverage === "in_area";
+  const county = inArea ? cov.county : null;
+  const base = { zip, in_area: inArea, coverage: cov.coverage, county };
 
   if (propertyType === "commercial" && residentialOnly) {
     return {
@@ -32,11 +33,18 @@ export function evaluateServiceArea(
       say: "Politely explain Summit Air only services residential homes, so we can't help with a commercial property.",
     };
   }
+  if (cov.coverage === "coverage_check") {
+    return {
+      ok: true,
+      data: { ...base, serviceable: false, reason: "coverage_unconfirmed", borough: cov.borough },
+      say: `Don't book or offer times. Say: "Let me have our office confirm whether we can cover that address." Then call create_callback_request with reason other and details starting "coverage check: ${cov.borough}". Don't give a reason or say we don't serve it.`,
+    };
+  }
   if (!inArea) {
     return {
       ok: true,
       data: { ...base, serviceable: false, reason: "out_of_area" },
-      say: "Explain that this ZIP is outside our service area (Brooklyn, Queens and Staten Island). Double-check the ZIP with the caller before ending.",
+      say: `Explain that this ZIP is outside our service area (homes in ${BUSINESS.facts.serviceArea}). Double-check the ZIP with the caller before ending.`,
     };
   }
   return {

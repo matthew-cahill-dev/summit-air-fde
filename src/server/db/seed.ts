@@ -4,7 +4,7 @@
 // is replaced on every run, timed relative to now.
 // Keep this file free of path aliases: it is also compiled for the seed script.
 import { sql } from "drizzle-orm";
-import { BUSINESS, SERVICE_AREA_ZIPS, type County } from "../../config/business";
+import { BUSINESS, NYC_ZIPS, type County } from "../../config/business";
 import { nextBusinessDays, todayInZone, zonedTimeToUtc } from "../lib/time";
 import type { Db } from "./client";
 import {
@@ -34,8 +34,11 @@ export async function seed(
   opts: { timeZone: string; now?: Date; demoActivity?: boolean },
 ): Promise<SeedSummary> {
   return db.transaction(async (tx) => {
-    const zipRows = (Object.entries(SERVICE_AREA_ZIPS) as Array<[County, readonly string[]]>).flatMap(
-      ([county, zips]) => zips.map((zip) => ({ zip, county, active: true })),
+    // Every NYC residential ZIP; active = in a served county. Re-running after changing
+    // BUSINESS.serviceCounties re-flags existing rows (upsert below), so the change is one line.
+    const served = new Set<string>(BUSINESS.serviceCounties);
+    const zipRows = (Object.entries(NYC_ZIPS) as Array<[County, readonly string[]]>).flatMap(([county, zips]) =>
+      zips.map((zip) => ({ zip, county, active: served.has(county) })),
     );
     await tx
       .insert(serviceAreaZips)
@@ -79,7 +82,7 @@ export async function seed(
 
       for (const a of c.addresses) {
         const { equipment: equip, ...addr } = a;
-        const row = { ...addr, customerId: c.id, state: "NY", isDemoSeed: true };
+        const row = { ...addr, customerId: c.id, state: addr.state ?? "NY", isDemoSeed: true };
         await tx.insert(serviceAddresses).values(row).onConflictDoUpdate({ target: serviceAddresses.id, set: row });
         addressCount++;
         for (const e of equip) {

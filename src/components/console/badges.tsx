@@ -36,6 +36,7 @@ const OUTCOME_STYLE: Record<CallOutcome, string> = {
   safety_stop: "bg-safety-soft text-safety-ink ring-1 ring-inset ring-safety/25",
   booked: "bg-success-soft text-success-ink ring-1 ring-inset ring-success/25",
   priority_dispatch: "bg-emergency-soft text-emergency-ink ring-1 ring-inset ring-emergency/30",
+  coverage_check: "bg-primary/10 text-primary ring-1 ring-inset ring-primary/30",
   callback: "bg-secondary text-secondary-foreground",
   not_serviceable: "bg-transparent text-muted-foreground ring-1 ring-inset ring-border",
   incomplete: "bg-transparent text-muted-foreground ring-1 ring-inset ring-border",

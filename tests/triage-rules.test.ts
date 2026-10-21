@@ -3,7 +3,7 @@ import { triageRules, type TriageFlags } from "@/server/triage/rules";
 import type { CalendarDate } from "@/server/lib/time";
 
 const IN_AREA = { zip: "11372", inArea: true, county: "Queens" };
-const OUT_OF_AREA = { zip: "10025", inArea: false, county: null };
+const OUT_OF_AREA = { zip: "07030", inArea: false, county: null };
 
 const d = (month: number, day: number): CalendarDate => ({ year: 2026, month, day });
 const WINTER = d(1, 15); // heat season
@@ -86,7 +86,7 @@ describe("triageRules", () => {
   it("out-of-area keeps the urgency but closes", () => {
     const out = triageRules(flags({ issueType: "no_heat", vulnerableOccupants: ["infant"] }), OUT_OF_AREA, WINTER);
     expect(out).toMatchObject({ urgency: "emergency", nextAction: "explain_and_close", serviceable: false, notServiceableReason: "out_of_area" });
-    expect(out.reasons.at(-1)).toBe("ZIP 10025 is outside the service area");
+    expect(out.reasons.at(-1)).toBe("ZIP 07030 is outside the service area");
   });
 
   it("commercial reason", () => {

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { BUSINESS } from "@/config/business";
+import { BUSINESS, coverageOf } from "@/config/business";
 import { optionalArg } from "@/server/lib/optional-arg";
 import { normalizePhoneE164 } from "@/server/lib/phone";
 import { defineTool } from "@/server/vapi/types";
@@ -27,6 +27,13 @@ export function mergeDetails(previous: unknown, next: string): string {
   return `${prev} Update: ${next}`;
 }
 
+/** "coverage check: Staten Island, 88 Rockrose Ave" → "Staten Island"; null when it isn't a coverage check. */
+export function coverageCheckBorough(details: string): string | null {
+  const m = /^\s*coverage check\b\s*[:\-–]?\s*([^,.;(]*)/i.exec(details);
+  if (!m) return null;
+  return m[1].trim() || "unknown borough";
+}
+
 /** A specific reason replaces "other"; otherwise the first reason on the call stands. */
 export function mergeReason(previous: string | null, next: string): string {
   return !previous || previous === "other" ? next : previous;
@@ -45,7 +52,17 @@ export const createCallbackRequestTool = defineTool({
         data: { invalid_fields: [{ field: "phone", problem: "required" }] },
       };
     }
+    // A coverage check (Bronx / Staten Island): tagged so the board and calls list show it as one,
+    // from the details wording or, failing that, from this call's triage ZIP.
+    let coverageBorough = coverageCheckBorough(args.details);
+    if (!coverageBorough && ctx.callId) {
+      const triage = await ctx.repos.toolInvocations.latestOkArgs(ctx.callId, "triage_issue");
+      const zip = typeof triage?.zip === "string" ? triage.zip : null;
+      const cov = zip ? coverageOf(await ctx.repos.serviceArea.findZip(zip)) : null;
+      if (cov?.coverage === "coverage_check") coverageBorough = cov.borough;
+    }
     const extras = {
+      ...(coverageBorough ? { kind: "coverage_check", borough: coverageBorough } : {}),
       ...(args.language ? { language: args.language } : {}),
       ...(args.preferred_callback_time ? { preferred_callback_time: args.preferred_callback_time } : {}),
     };

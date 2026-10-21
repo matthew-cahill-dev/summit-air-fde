@@ -18,12 +18,13 @@ const GRACE = "00000000-0000-4000-8000-000000000009";
 const HECTOR = "00000000-0000-4000-8000-000000000010";
 const WEN = "00000000-0000-4000-8000-000000000011";
 const BEA = "00000000-0000-4000-8000-000000000012";
+const THEO = "00000000-0000-4000-8000-000000000015";
 
 const ADDR = {
   rosalind: "00000000-0000-4000-8001-000000000006",
-  graceSI: "00000000-0000-4000-8001-000000000009",
   graceQueens: "00000000-0000-4000-8001-000000000010",
   wen: "00000000-0000-4000-8001-000000000012",
+  theo: "00000000-0000-4000-8001-000000000016",
 };
 
 const id = (group: number, n: number) => `00000000-0000-4000-9${String(group).padStart(3, "0")}-${String(n).padStart(12, "0")}`;
@@ -177,25 +178,27 @@ export async function seedDemoActivity(tx: Tx, opts: { timeZone: string; now?: D
     ],
   });
 
-  // 4. Callback: urgent no heat but no windows in 48h (41 minutes ago).
+  // 4. Coverage check: Staten Island isn't a confirmed service county (41 minutes ago).
   addCall(4, {
     phone: "+17185550112",
     startedMinAgo: 41,
-    durationSec: 188,
+    durationSec: 154,
     summary:
-      "Bea Castellwood (member) has a heat pump blowing cold air at 312 Amboy Rd. Triaged urgent, but no Staten Island windows were open in the next 48 hours, so a callback was logged for the office to find the earliest slot.",
+      "Bea Castellwood has a heat pump blowing cold air at 312 Amboy Rd, Staten Island. Staten Island coverage isn't confirmed, so nothing was booked; a coverage-check callback was logged for the office.",
     transcript: [
       "AI: Hi, thanks for calling Summit Air! This is Ava, the virtual assistant. What's going on today?",
       "User: My heat pump is only blowing cold air.",
-      "AI: I'm sorry about that. Is anyone at home elderly, an infant, or someone with a medical condition?",
-      "User: No, just me.",
-      "AI: I'm not seeing any open windows in the next two days for your area. I'll have the office call you back to fit you in as early as possible.",
+      "AI: Oh no. Before anything else, do you smell gas, or is a carbon monoxide alarm going off?",
+      "User: No.",
+      "AI: Okay. What's the address where you need service?",
+      "User: 312 Amboy Road, Staten Island.",
+      "AI: Got it. Let me have our office confirm whether we can cover that address. They'll call you back at this number.",
       "User: Okay, thank you.",
     ].join("\n"),
     invocations: [
       { tool: "lookup_customer", args: { street_address: "312 Amboy Road" }, result: { found: true, verified: true, matched_by: "phone", customer_id: BEA, first_name: "Bea", is_member: true }, ms: 112, dbMs: 52, at: 17 },
-      { tool: "triage_issue", args: { issue_type: "no_heat", gas_smell: false, co_alarm: false, burning_smell_or_smoke: false, property_type: "residential", zip: "10306", customer_id: BEA }, result: { urgency: "urgent", reasons: ["No heat during heat season (Oct 1 to May 31)"], serviceable: true, in_area: true, county: "Richmond", next_action: "create_callback", offered_slots: [] }, ms: 158, dbMs: 74, at: 63 },
-      { tool: "create_callback_request", args: { reason: "other", details: "Heat pump blowing cold air; no windows in the next 48 hours. Wants the earliest visit.", caller_name: "Bea Castellwood" }, result: { callback_id: id(3, 1), status: "open" }, ms: 69, dbMs: 27, at: 150 },
+      { tool: "triage_issue", args: { issue_type: "no_heat", gas_smell: false, co_alarm: false, burning_smell_or_smoke: false, property_type: "residential", zip: "10306", customer_id: BEA }, result: { urgency: "urgent", reasons: ["No heat during heat season (Oct 1 to May 31)", "Coverage not confirmed for Staten Island: office to confirm"], serviceable: false, not_serviceable_reason: "coverage_unconfirmed", in_area: false, coverage: "coverage_check", county: null, next_action: "office_review", coverage_check: true, borough: "Staten Island", callback: { reason: "other", details: "coverage check: Staten Island" } }, ms: 158, dbMs: 74, at: 63 },
+      { tool: "create_callback_request", args: { reason: "other", details: "coverage check: Staten Island. Heat pump blowing cold air at 312 Amboy Rd.", caller_name: "Bea Castellwood" }, result: { callback_id: id(3, 1), status: "open" }, ms: 69, dbMs: 27, at: 130 },
     ],
   });
 
@@ -205,34 +208,34 @@ export async function seedDemoActivity(tx: Tx, opts: { timeZone: string; now?: D
     startedMinAgo: 95,
     durationSec: 122,
     summary:
-      "Grace Nakamori-Lowe asked about replacing the 2017 furnace at 45 Bayview Ter and wanted to speak with someone about pricing. Installation quotes aren't given by phone, so an office callback was logged.",
+      "Grace Nakamori-Lowe asked about replacing the 2020 mini-split at 108-20 71st Ave and wanted to speak with someone about pricing. Installation quotes aren't given by phone, so an office callback was logged.",
     transcript: [
       "AI: Hi, thanks for calling Summit Air! This is Ava, the virtual assistant. What's going on today?",
-      "User: I'm thinking about replacing my furnace. Can I get a price?",
+      "User: I'm thinking about replacing the mini-split in my rental. Can I get a price?",
       "AI: We don't quote replacements over the phone, but I can have someone from the office call you back to talk it through. Would that help?",
       "User: Yes, please have someone call me.",
     ].join("\n"),
     invocations: [
-      { tool: "create_callback_request", args: { reason: "human_requested", details: "Wants a furnace replacement quote for 45 Bayview Ter (2017 Goodman).", caller_name: "Grace Nakamori-Lowe" }, result: { callback_id: id(3, 2), status: "open" }, ms: 73, dbMs: 30, at: 88 },
+      { tool: "create_callback_request", args: { reason: "human_requested", details: "Wants a replacement quote for the mini-split at 108-20 71st Ave (2020 Fujitsu).", caller_name: "Grace Nakamori-Lowe" }, result: { callback_id: id(3, 2), status: "open" }, ms: 73, dbMs: 30, at: 88 },
     ],
   });
 
-  // 6. Not serviceable: Manhattan address (3h ago).
+  // 6. Not serviceable: outside NYC, Hoboken NJ (3h ago).
   addCall(6, {
-    phone: "+12125550108",
+    phone: "+12015550108",
     startedMinAgo: 184,
     durationSec: 97,
     summary:
-      "Jordan Pikesbury asked for AC service at 600 W 110th St, Manhattan (ZIP 10025). Outside the service area (Brooklyn, Queens, Staten Island); explained and closed politely.",
+      "Jordan Pikesbury asked for AC service at 88 River St, Hoboken, NJ (ZIP 07030). Outside the service area (homes in Brooklyn, Queens and Manhattan); explained and closed politely.",
     transcript: [
       "AI: Hi, thanks for calling Summit Air! This is Ava, the virtual assistant. What's going on today?",
-      "User: My AC is making a rattling noise. I'm on the Upper West Side.",
+      "User: My AC is making a rattling noise. I'm in Hoboken.",
       "AI: What's the ZIP code there?",
-      "User: 10025.",
-      "AI: I'm sorry, we only serve Brooklyn, Queens and Staten Island, so we can't send a technician to that address.",
+      "User: 07030.",
+      "AI: I'm sorry, we only serve homes in Brooklyn, Queens and Manhattan, so we can't send a technician to that address.",
     ].join("\n"),
     invocations: [
-      { tool: "triage_issue", args: { issue_type: "noise", gas_smell: false, co_alarm: false, burning_smell_or_smoke: false, property_type: "residential", zip: "10025" }, result: { urgency: "routine", reasons: ["Routine request: noise", "ZIP 10025 is outside the service area"], serviceable: false, not_serviceable_reason: "out_of_area", in_area: false, county: null, next_action: "explain_and_close" }, ms: 47, dbMs: 15, at: 49 },
+      { tool: "triage_issue", args: { issue_type: "noise", gas_smell: false, co_alarm: false, burning_smell_or_smoke: false, property_type: "residential", zip: "07030" }, result: { urgency: "routine", reasons: ["Routine request: noise", "ZIP 07030 is outside the service area"], serviceable: false, not_serviceable_reason: "out_of_area", in_area: false, coverage: "out_of_area", county: null, next_action: "explain_and_close" }, ms: 47, dbMs: 15, at: 49 },
     ],
   });
 
@@ -359,7 +362,7 @@ export async function seedDemoActivity(tx: Tx, opts: { timeZone: string; now?: D
       callerPhone: "+17185550112",
       callerName: "Bea Castellwood",
       reason: "other",
-      context: { details: "Heat pump blowing cold air; no windows in the next 48 hours. Wants the earliest visit.", address: { line1: "312 Amboy Rd", city: "Staten Island", zip: "10306", access_notes: "Dog in yard; please call on arrival." } },
+      context: { details: "coverage check: Staten Island. Heat pump blowing cold air at 312 Amboy Rd.", kind: "coverage_check", borough: "Staten Island", address: { line1: "312 Amboy Rd", city: "Staten Island", zip: "10306", access_notes: "Dog in yard; please call on arrival." } },
       status: "open",
       vapiCallId: callId(4),
       createdAt: ago(38),
@@ -370,7 +373,7 @@ export async function seedDemoActivity(tx: Tx, opts: { timeZone: string; now?: D
       callerPhone: "+17185550109",
       callerName: "Grace Nakamori-Lowe",
       reason: "human_requested",
-      context: { details: "Wants a furnace replacement quote for 45 Bayview Ter (2017 Goodman)." },
+      context: { details: "Wants a replacement quote for the mini-split at 108-20 71st Ave (2020 Fujitsu)." },
       status: "open",
       vapiCallId: callId(5),
       createdAt: ago(93),
@@ -386,8 +389,8 @@ export async function seedDemoActivity(tx: Tx, opts: { timeZone: string; now?: D
       notes: "Routine maintenance: annual furnace tune-up.\nEquipment on file: Rheem furnace (2013), Rheem central AC (2013).\nBooked by phone; customer verified by caller ID and street address." },
     { n: 2, customerId: ROSALIND, addressId: ADDR.rosalind, county: "Kings", day: 0, hour: 10, serviceType: "repair" as const, urgency: "urgent" as const, issue: "Water leaking under heat pump air handler", call: callId(8), createdAt: ago(49),
       notes: "URGENT: active leak under the heat pump air handler, puddle on the floor.\nEquipment on file: Bosch heat pump (2022).\nAccess: doorman building; check in at the front desk. Unit 3A." },
-    { n: 3, customerId: GRACE, addressId: ADDR.graceSI, county: "Richmond", day: 1, hour: 13, serviceType: "maintenance" as const, urgency: "routine" as const, issue: "Fall furnace and AC check", call: null, createdAt: ago(60 * 26),
-      notes: "Member (Comfort Club): seasonal check of Goodman furnace and central AC (2017).\nCustomer is also requesting a replacement quote; see open callback." },
+    { n: 3, customerId: THEO, addressId: ADDR.theo, county: "New York", day: 1, hour: 13, serviceType: "maintenance" as const, urgency: "routine" as const, issue: "Fall furnace tune-up and AC check", call: null, createdAt: ago(60 * 26),
+      notes: "Member (Comfort Club Plus): fall tune-up of the Carrier furnace and central AC (2016).\nAccess: townhouse; mechanical room in the basement, entrance under the stoop. Indoor cat; keep doors closed." },
     { n: 4, customerId: GRACE, addressId: ADDR.graceQueens, county: "Queens", day: 2, hour: 8, serviceType: "diagnostic" as const, urgency: "routine" as const, issue: "Mini-split clicking noise in bedroom", call: null, createdAt: ago(60 * 30),
       notes: "Diagnostic: intermittent clicking from the Fujitsu mini-split (2020) in the bedroom.\nAccess: rental unit 6D; call the tenant first, tenant will let the tech in." },
   ];

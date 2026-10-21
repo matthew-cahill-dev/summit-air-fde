@@ -3,7 +3,7 @@
   "async": false,
   "function": {
     "name": "check_service_area",
-    "description": "Check whether Summit Air services a ZIP code (homes in Brooklyn, Queens and Staten Island only). triage_issue already does this; use this only for a quick 'do you serve my area?' question.",
+    "description": "Check whether Summit Air services a ZIP code (homes in Brooklyn, Queens and Manhattan; Bronx and Staten Island addresses get an office coverage check). triage_issue already does this; use this only for a quick 'do you serve my area?' question.",
     "parameters": {
       "type": "object",
       "properties": {

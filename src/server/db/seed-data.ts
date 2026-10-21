@@ -19,6 +19,8 @@ export type SeedCustomer = {
     city: string;
     zip: string;
     county: string | null;
+    /** Defaults to NY. */
+    state?: string;
     propertyType: "residential" | "commercial";
     accessNotes: string | null;
     equipment: Array<{ id: string; kind: EquipmentKind; brand: string | null; installYear: number | null }>;
@@ -108,10 +110,10 @@ export const SEED_CUSTOMERS: SeedCustomer[] = [
     }],
   },
   {
-    // Out-of-area: Manhattan (New York County).
-    id: cid(8), firstName: "Jordan", lastName: "Pikesbury", phoneE164: "+12125550108", email: null,
+    // Out of area: Hoboken, NJ (not in NYC at all). Manhattan is in the service area since Oct 21, 2026.
+    id: cid(8), firstName: "Jordan", lastName: "Pikesbury", phoneE164: "+12015550108", email: null,
     addresses: [{
-      id: aid(8), line1: "600 W 110th St", unit: "4B", city: "New York", zip: "10025", county: "New York",
+      id: aid(8), line1: "88 River St", unit: "4B", city: "Hoboken", state: "NJ", zip: "07030", county: null,
       propertyType: "residential", accessNotes: null,
       equipment: [{ id: eid(12), kind: "other", brand: "Unknown", installYear: null }],
     }],
@@ -171,6 +173,30 @@ export const SEED_CUSTOMERS: SeedCustomer[] = [
       id: aid(14), line1: "211 Prospect Park W", unit: "2", city: "Brooklyn", zip: "11215", county: "Kings",
       propertyType: "residential", accessNotes: "Brownstone; garden-level door under the stoop.",
       equipment: [{ id: eid(20), kind: "boiler", brand: "Burnham", installYear: 2016 }],
+    }],
+  },
+  {
+    // Manhattan non-member: Upper West Side apartment with doorman / front-desk access.
+    id: cid(14), firstName: "Clara", lastName: "Vandermeer", phoneE164: "+12125550114", email: "clara.v@example.com",
+    addresses: [{
+      id: aid(15), line1: "250 W 85th St", unit: "7B", city: "New York", zip: "10024", county: "New York",
+      propertyType: "residential",
+      accessNotes: "Doorman building: check in at the front desk with ID and the doorman calls up. Service elevator at the back (9 AM to 5 PM).",
+      equipment: [{ id: eid(21), kind: "mini_split", brand: "Mitsubishi", installYear: 2020 }],
+    }],
+  },
+  {
+    // Manhattan active member: Gramercy townhouse, own furnace and central AC, upcoming tune-up.
+    id: cid(15), firstName: "Theo", lastName: "Ashgrove", phoneE164: "+16465550115", email: "theo.a@example.com",
+    membership: { id: mid(15), planName: "Comfort Club Plus", status: "active", startedOn: "2025-02-01", renewsOn: "2027-02-01" },
+    addresses: [{
+      id: aid(16), line1: "141 E 19th St", unit: null, city: "New York", zip: "10003", county: "New York",
+      propertyType: "residential",
+      accessNotes: "Townhouse. Mechanical room is in the basement: entrance under the stoop. Indoor cat; keep doors closed.",
+      equipment: [
+        { id: eid(22), kind: "furnace", brand: "Carrier", installYear: 2016 },
+        { id: eid(23), kind: "central_ac", brand: "Carrier", installYear: 2016 },
+      ],
     }],
   },
 ];

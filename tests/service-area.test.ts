@@ -24,8 +24,17 @@ describe("check_service_area", () => {
     });
   });
 
-  it("defaults to residential when property_type is omitted", async () => {
-    expect(await checkArea({ zip: "10314" })).toMatchObject({ in_area: true, county: "Richmond", serviceable: true });
+  it("defaults to residential when property_type is omitted (Manhattan is in area)", async () => {
+    expect(await checkArea({ zip: "10024" })).toMatchObject({ in_area: true, coverage: "in_area", county: "New York", serviceable: true });
+  });
+
+  it("Bronx and Staten Island are a coverage check, never 'we don't serve you'", async () => {
+    for (const [zip, borough] of [["10314", "Staten Island"], ["10463", "Bronx"]]) {
+      const out = await checkArea({ zip });
+      expect(out).toMatchObject({ ok: true, in_area: false, coverage: "coverage_check", serviceable: false, reason: "coverage_unconfirmed", borough });
+      expect(out.say).toContain("Let me have our office confirm whether we can cover that address.");
+      expect(out.say).toContain(`coverage check: ${borough}`);
+    }
   });
 
   it("commercial is not serviceable: residential_only", async () => {
@@ -38,8 +47,8 @@ describe("check_service_area", () => {
     });
   });
 
-  it("out of area (Manhattan)", async () => {
-    expect(await checkArea({ zip: "10025" })).toMatchObject({
+  it("out of area (outside NYC: Hoboken, NJ)", async () => {
+    expect(await checkArea({ zip: "07030" })).toMatchObject({
       ok: true,
       in_area: false,
       county: null,

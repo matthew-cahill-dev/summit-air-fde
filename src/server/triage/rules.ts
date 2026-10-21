@@ -40,7 +40,15 @@ export type TriageFlags = {
   centralMultiUnit?: boolean;
 };
 
-export type ServiceAreaInfo = { zip: string; inArea: boolean; county: string | null };
+export type ServiceAreaInfo = {
+  zip: string;
+  inArea: boolean;
+  county: string | null;
+  /** in_area / coverage_check (a NYC borough the office must confirm) / out_of_area. Defaults from inArea. */
+  coverage?: "in_area" | "coverage_check" | "out_of_area";
+  /** "Staten Island", "Bronx", … for the reason text. */
+  borough?: string | null;
+};
 
 export type TriageConfig = {
   heatSeason: Season;
@@ -66,7 +74,7 @@ export type TriageDecision = {
   reasons: string[];
   nextAction: NextAction;
   serviceable: boolean;
-  notServiceableReason?: "residential_only" | "out_of_area";
+  notServiceableReason?: "residential_only" | "out_of_area" | "coverage_unconfirmed";
 };
 
 const MONTH_ABBR = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -85,9 +93,16 @@ export function triageRules(
   const heatSeason = isInSeason(config.heatSeason, today.month, today.day);
   const coolingSeason = isInSeason(config.coolingSeason, today.month, today.day);
 
+  const coverage = area.coverage ?? (area.inArea ? "in_area" : "out_of_area");
   const commercial = flags.propertyType === "commercial" && config.residentialOnly;
-  const serviceable = !commercial && area.inArea;
-  const notServiceableReason = commercial ? "residential_only" : !area.inArea ? "out_of_area" : undefined;
+  const serviceable = !commercial && coverage === "in_area";
+  const notServiceableReason = commercial
+    ? "residential_only"
+    : coverage === "coverage_check"
+      ? "coverage_unconfirmed"
+      : coverage === "out_of_area"
+        ? "out_of_area"
+        : undefined;
 
   // 1. Safety stop overrides everything, including serviceability.
   if (flags.gasSmell) reasons.push("Caller reports a gas smell");
@@ -154,7 +169,12 @@ export function triageRules(
     reasons.push(`Routine request: ${flags.issueType.replace(/_/g, " ")}`);
   }
 
-  // 3. Serviceability decides whether we can act on it.
+  // 3. Serviceability decides whether we can act on it. A borough the office hasn't confirmed
+  // (Bronx, Staten Island) is never booked, whatever the urgency: the office confirms coverage first.
+  if (notServiceableReason === "coverage_unconfirmed") {
+    reasons.push(`Coverage not confirmed for ${area.borough ?? area.county ?? `ZIP ${area.zip}`}: office to confirm`);
+    return { urgency, reasons, nextAction: "office_review", serviceable, notServiceableReason };
+  }
   if (!serviceable) {
     reasons.push(
       notServiceableReason === "residential_only"

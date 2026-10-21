@@ -19,13 +19,13 @@ describe("POST /api/vapi/tools", () => {
         callId,
         calls: [
           { id: "obj", name: "check_service_area", arguments: { zip: "11215" } },
-          { id: "str", name: "check_service_area", arguments: '{"zip":"10301"}' },
+          { id: "str", name: "check_service_area", arguments: '{"zip":"10024"}' },
         ],
       }),
     );
     expect(results.map((r) => r.toolCallId)).toEqual(["obj", "str"]);
     expect(payloadOf(results[0])).toMatchObject({ ok: true, in_area: true, county: "Kings" });
-    expect(payloadOf(results[1])).toMatchObject({ ok: true, in_area: true, county: "Richmond" });
+    expect(payloadOf(results[1])).toMatchObject({ ok: true, in_area: true, county: "New York" });
   });
 
   it("returns exactly one of result/error per toolCallId, as single-line strings", async () => {

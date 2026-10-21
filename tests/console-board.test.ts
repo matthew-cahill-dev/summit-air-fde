@@ -221,7 +221,7 @@ describe("console repository against the seeded database", () => {
     const records = await repo().callRecords(calls.map((c) => c.vapiCallId));
     const summaries = calls.map((c) => summarizeCall(c, records, new Date()));
     expect(new Set(summaries.map((s) => s.outcome))).toEqual(
-      new Set(["booked", "priority_dispatch", "safety_stop", "callback", "not_serviceable", "incomplete"]),
+      new Set(["booked", "priority_dispatch", "safety_stop", "coverage_check", "callback", "not_serviceable", "incomplete"]),
     );
     expect(summaries.filter((s) => s.status !== "ended")).toEqual([]);
     expect(calls.every((c) => c.hasReport)).toBe(true);

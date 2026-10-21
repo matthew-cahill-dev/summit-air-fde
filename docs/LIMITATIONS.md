@@ -29,6 +29,10 @@ What this demo does not do, and the business assumptions the owner must confirm 
 - **Simulations are built but not yet run** against the live assistant (`npm run evals -- --confirm` spends Vapi credits, and the integration hasn't been exercised end to end yet).
 - **The live call log** in [TESTING.md](TESTING.md) is a template to fill in, not a record of results.
 
+**Service area**
+- Coverage is decided by ZIP, and a few ZIPs straddle boroughs (11385 Ridgewood is counted as Queens). Arrival windows from before the Oct 21 change stay in the table for Staten Island, but they can't be offered or booked: triage never offers them, and booking refuses any address outside the served counties.
+- Gas utility numbers are by borough: Con Edison for Manhattan and the Bronx; National Grid for Brooklyn, most of Queens and Staten Island. Parts of Queens are Con Edison, so Ava says "the company on their gas bill" when the caller isn't sure. 911 always comes first.
+
 **Deployment**
 - **Replit's schema diff can propose destructive DROPs.** On republish, Replit diffs the workspace (dev) database against production and applies the difference. If dev is behind `main`, that diff drops production columns. This happened once and was caught at review. The mitigation is procedural: run `git fetch origin && git reset --hard origin/main && npm ci && npm run db:migrate` in the Replit Shell before every republish, and stop if the publish dialog shows any `DROP` (README, "Deploying to Replit"). A real deployment would use a database the platform doesn't manage, with migrations run by CI (see ARCHITECTURE ADR-7).
 - **Vapi publishing.** Vapi's changelog (Aug 2026) says edits no longer go live until published. `vapi:sync` checks that the assistant version advanced and warns if it didn't; whether *tool* updates also need a separate publish hasn't been verified on a live sync yet.
@@ -47,6 +51,13 @@ What this demo does not do, and the business assumptions the owner must confirm 
 
 ## Owner to confirm
 
+- **Which three counties.** Summit Air said it serves "three counties" without naming them.
+  - **Assumption:** Kings (Brooklyn), Queens and New York (Manhattan). They are NYC's three most populous boroughs, and Manhattan is where Revin's reviewers will naturally test.
+  - **Behaviour for the other two:**
+    - Bronx and Staten Island are neither served nor ruled out. Ava says "Let me have our office confirm whether we can cover that address", logs a "coverage check: <borough>" callback (a **Coverage check** card on the board), and never books.
+    - Anywhere outside NYC is politely declined.
+  - **To confirm or change:** edit `serviceCounties` (and `coverageCheckCounties`) in `src/config/business.ts`, then run `npm run db:seed`, which re-flags the ZIP table, and `npm run vapi:sync`, which updates the spoken service area.
+
 - **Commercial referrals.** `commercialReferrals` is `false`. Today Ava tells a business caller, kindly, that Summit Air only services homes and they'll want a commercial HVAC company, then ends the call, with no referral and no callback. (Live, the model invented "only licensed for homes" and promised referral callbacks; both are now forbidden.) If the office does want to refer commercial callers, set `commercialReferrals: true` and Ava will offer an office callback with referrals instead.
 - **Callback SLA and office hours.** Callback requests are flagged overdue after 2 hours (`callbackRequestSlaMinutes`), counted around the clock: a request logged at 9 PM is "overdue" at 11 PM even though the office is closed. Callers hear "the office will call back during office hours (Monday to Friday 8 AM to 6 PM, and Saturday 9 AM to 2 PM)". Confirm the hours, the SLA, and whether the SLA should pause outside office hours.
 
@@ -58,7 +69,7 @@ Every value below is marked `ASSUMPTION` in code. Each one changes behavior in o
 |---|---|---|
 | Residential only | Commercial properties declined | Triage (`explain_and_close`), booking |
 | Commercial referrals | `false`: no referrals or referral callbacks | What Ava says to business callers (triage `say`, business facts) |
-| Service area | Brooklyn, Queens, Staten Island, by residential ZIP; 11385 (Ridgewood) counted as Queens | Triage, booking, availability |
+| Service area | Brooklyn, Queens and Manhattan (`serviceCounties`), by residential ZIP; 11385 (Ridgewood) counted as Queens. Bronx and Staten Island ZIPs are coverage checks (`coverageCheckCounties`); everything else is out of area | Triage, booking, availability, what Ava says |
 | Heat season | Oct 1 – May 31 | No-heat urgency |
 | Cooling season | Jun 1 – Sep 30 | No-AC urgency |
 | No-heat emergency temperature | Indoor ≤ 55°F, any season | Emergency |

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { BUSINESS } from "@/config/business";
+import { BUSINESS, coverageOf } from "@/config/business";
 import { optionalArg } from "@/server/lib/optional-arg";
 import { defineTool } from "@/server/vapi/types";
 import { findOfferableSlots, isActiveMember } from "./availability";
@@ -18,6 +18,15 @@ export const getAvailabilityTool = defineTool({
   schema: getAvailabilitySchema,
   async handler(args, ctx) {
     const zipRow = await ctx.repos.serviceArea.findZip(args.zip);
+    const cov = coverageOf(zipRow);
+    if (zipRow && cov.coverage === "coverage_check") {
+      return {
+        ok: false,
+        errorCode: "coverage_check",
+        message: `${cov.borough} coverage isn't confirmed`,
+        say: `Don't offer times. Say: "Let me have our office confirm whether we can cover that address." Then call create_callback_request with reason other and details starting "coverage check: ${cov.borough}".`,
+      };
+    }
     if (!zipRow?.active) {
       return {
         ok: false,

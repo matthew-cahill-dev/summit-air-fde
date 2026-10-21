@@ -2,7 +2,17 @@
 // Everything here is an ASSUMPTION for the demo until confirmed with the business.
 // Keep this file free of path aliases: it is also compiled for the seed script.
 
-export type County = "Kings" | "Queens" | "Richmond";
+/** NYC counties (boroughs) we know ZIPs for. Which are served is BUSINESS.serviceCounties. */
+export type County = "Kings" | "Queens" | "New York" | "Bronx" | "Richmond";
+
+/** How callers say each county. */
+export const BOROUGH: Record<County, string> = {
+  Kings: "Brooklyn",
+  Queens: "Queens",
+  "New York": "Manhattan",
+  Bronx: "Bronx",
+  Richmond: "Staten Island",
+};
 
 export type MonthDay = { month: number; day: number };
 export type Season = { start: MonthDay; end: MonthDay };
@@ -46,8 +56,15 @@ export const BUSINESS = {
   // callbacks as overdue; business hours aren't taken into account.
   callbackRequestSlaMinutes: 120,
 
-  // ASSUMPTION: we serve Brooklyn (Kings), Queens and Staten Island (Richmond).
-  serviceCounties: ["Kings", "Queens", "Richmond"] as const satisfies readonly County[],
+  // ASSUMPTION (owner to confirm): Summit Air said "three counties" without naming them. We assume
+  // Kings (Brooklyn), Queens and New York (Manhattan): NYC's three most populous boroughs, and where
+  // Revin's Manhattan-based reviewers will naturally test. Confirming the real three is a one-line
+  // change here plus `npm run db:seed` (which re-flags the ZIP table).
+  serviceCounties: ["Kings", "Queens", "New York"] as const satisfies readonly County[],
+
+  // ASSUMPTION: NYC boroughs we neither serve nor rule out. Calls there never book; triage returns
+  // office_review and Ava says the office will confirm coverage (a "coverage check" callback).
+  coverageCheckCounties: ["Bronx", "Richmond"] as const satisfies readonly County[],
 
   triage: {
     // ASSUMPTION: no heat with indoor temperature at or below this is an emergency in any season.
@@ -115,14 +132,16 @@ export const BUSINESS = {
     memberBenefits: "priority scheduling, and the diagnostic fee is waived",
     // ASSUMPTION: payment.
     payment: "Payment is due at the time of service by card or check.",
-    serviceArea: "Brooklyn, Queens and Staten Island",
+    serviceArea: "Brooklyn, Queens and Manhattan",
   },
 } as const;
 
-// ASSUMPTION: service area is defined by ZIP. These are residential USPS ZIPs
-// for each county (PO-box-only and unique-business ZIPs omitted). 11385
-// (Ridgewood) straddles Brooklyn/Queens and is assigned to Queens.
-export const SERVICE_AREA_ZIPS: Record<County, readonly string[]> = {
+// ASSUMPTION: the service area is defined by ZIP. These are the residential USPS ZIPs for each NYC
+// county (PO-box-only and unique-business ZIPs omitted). 11385 (Ridgewood) straddles
+// Brooklyn/Queens and is assigned to Queens. The seed marks a county's ZIPs active (in area) when
+// the county is in BUSINESS.serviceCounties; Bronx and Staten Island ZIPs are stored inactive and
+// mean "coverage check"; any ZIP not listed here is out of area.
+export const NYC_ZIPS: Record<County, readonly string[]> = {
   Kings: [
     "11201", "11203", "11204", "11205", "11206", "11207", "11208", "11209",
     "11210", "11211", "11212", "11213", "11214", "11215", "11216", "11217",
@@ -140,6 +159,20 @@ export const SERVICE_AREA_ZIPS: Record<County, readonly string[]> = {
     "11428", "11429", "11432", "11433", "11434", "11435", "11436", "11691",
     "11692", "11693", "11694", "11697",
   ],
+  "New York": [
+    "10001", "10002", "10003", "10004", "10005", "10006", "10007", "10009",
+    "10010", "10011", "10012", "10013", "10014", "10016", "10017", "10018",
+    "10019", "10021", "10022", "10023", "10024", "10025", "10026", "10027",
+    "10028", "10029", "10030", "10031", "10032", "10033", "10034", "10035",
+    "10036", "10037", "10038", "10039", "10040", "10044", "10065", "10069",
+    "10075", "10128", "10280", "10282",
+  ],
+  Bronx: [
+    "10451", "10452", "10453", "10454", "10455", "10456", "10457", "10458",
+    "10459", "10460", "10461", "10462", "10463", "10464", "10465", "10466",
+    "10467", "10468", "10469", "10470", "10471", "10472", "10473", "10474",
+    "10475",
+  ],
   Richmond: [
     "10301", "10302", "10303", "10304", "10305", "10306", "10307", "10308",
     "10309", "10310", "10312", "10314",
@@ -147,6 +180,20 @@ export const SERVICE_AREA_ZIPS: Record<County, readonly string[]> = {
 };
 
 /** True if the calendar date (month 1-based) falls inside `season`, which may wrap the new year. */
+export type Coverage = "in_area" | "coverage_check" | "out_of_area";
+
+/**
+ * Coverage for a ZIP row from service_area_zips (or null when the ZIP isn't stored): in area
+ * (active), a coverage check (a known NYC borough we neither serve nor rule out), or out of area.
+ */
+export function coverageOf(row: { county: string; active: boolean } | null): { coverage: Coverage; county: string | null; borough: string | null } {
+  if (!row) return { coverage: "out_of_area", county: null, borough: null };
+  const borough = row.county in BOROUGH ? BOROUGH[row.county as County] : null;
+  if (row.active) return { coverage: "in_area", county: row.county, borough };
+  if ((BUSINESS.coverageCheckCounties as readonly string[]).includes(row.county)) return { coverage: "coverage_check", county: row.county, borough };
+  return { coverage: "out_of_area", county: row.county, borough };
+}
+
 export function isInSeason(season: Season, month: number, day: number): boolean {
   const md = month * 100 + day;
   const start = season.start.month * 100 + season.start.day;

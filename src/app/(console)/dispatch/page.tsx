@@ -3,7 +3,7 @@ import Link from "next/link";
 import { Suspense } from "react";
 import { AlarmClockIcon, ArrowUpRightIcon, CheckCircle2Icon, ClockIcon, KeyRoundIcon, LanguagesIcon, MapPinIcon, PhoneIcon } from "lucide-react";
 import { CallbackActions, DispatchActions } from "@/components/console/board-actions";
-import { PropertyBadge, SeedTag, URGENCY_RAIL, UrgencyBadge, VulnerableList } from "@/components/console/badges";
+import { OutcomeBadge, PropertyBadge, SeedTag, URGENCY_RAIL, UrgencyBadge, VulnerableList } from "@/components/console/badges";
 import { FreshItem, FreshScope } from "@/components/console/live";
 import { EmptyState, ListSkeleton, PageHeader, PhoneLink } from "@/components/console/page";
 import { cn } from "@/lib/utils";
@@ -80,6 +80,7 @@ function BoardCard({ item, now, tz }: { item: BoardItem; now: Date; tz: string }
         <div className="min-w-0 space-y-2.5">
           <div className="flex flex-wrap items-center gap-2">
             <UrgencyBadge urgency={item.urgency} />
+            {item.coverageCheck && <OutcomeBadge outcome="coverage_check" />}
             <span className="font-medium">{item.title}</span>
             <PropertyBadge property={item.property} />
             <SeedTag show={item.isDemoSeed} />

@@ -16,6 +16,7 @@ export const CALL_OUTCOMES = [
   "safety_stop",
   "booked",
   "priority_dispatch",
+  "coverage_check",
   "callback",
   "not_serviceable",
   "incomplete",
@@ -26,6 +27,7 @@ export const OUTCOME_LABEL: Record<CallOutcome, string> = {
   safety_stop: "Safety stop",
   booked: "Booked",
   priority_dispatch: "Priority dispatch",
+  coverage_check: "Coverage check",
   callback: "Callback",
   not_serviceable: "Not serviceable",
   incomplete: "Incomplete",
@@ -42,15 +44,23 @@ type CallEvidence = {
   invocations: Pick<InvocationRow, "toolName" | "ok" | "result">[];
   appointments: Pick<CallAppointmentRow, "status">[];
   dispatches: Pick<CallDispatchRow, "urgency">[];
-  callbacks: Pick<CallCallbackRow, "status">[];
+  callbacks: Array<Pick<CallCallbackRow, "status"> & { context?: CallCallbackRow["context"] }>;
 };
 
 const okResults = (e: CallEvidence, tool: string) =>
   e.invocations.filter((i) => i.toolName === tool && i.ok).map((i) => i.result);
 
+/** A Bronx / Staten Island call the office must confirm: a tagged callback, or triage said so. */
+export function isCoverageCheck(e: Pick<CallEvidence, "invocations" | "callbacks">): boolean {
+  return (
+    e.callbacks.some((c) => c.context?.kind === "coverage_check") ||
+    okResults(e as CallEvidence, "triage_issue").some((r) => r.not_serviceable_reason === "coverage_unconfirmed" || r.coverage_check === true)
+  );
+}
+
 /**
  * Precedence, most significant first: safety stop > booked > priority dispatch >
- * callback > not serviceable > incomplete. Records are the source of truth; tool
+ * coverage check > callback > not serviceable > incomplete. Records are the source of truth; tool
  * results back them up (e.g. a safety stop whose dispatch row failed to save).
  */
 export function deriveOutcome(e: CallEvidence): CallOutcome {
@@ -70,6 +80,7 @@ export function deriveOutcome(e: CallEvidence): CallOutcome {
   if (e.dispatches.some((d) => d.urgency === "emergency") || okResults(e, "create_priority_dispatch").length > 0) {
     return "priority_dispatch";
   }
+  if (isCoverageCheck(e)) return "coverage_check";
   if (e.callbacks.length > 0 || okResults(e, "create_callback_request").length > 0) return "callback";
   if (
     triage.some((r) => r.next_action === "explain_and_close" || r.serviceable === false) ||
