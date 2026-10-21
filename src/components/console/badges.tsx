@@ -4,12 +4,14 @@ import { cn } from "@/lib/utils";
 import { URGENCY_LABEL, vulnerableLabel } from "@/server/console/format";
 import { OUTCOME_LABEL, type CallOutcome, type CallStatus } from "@/server/console/outcome";
 import type { Urgency } from "@/server/repositories";
+import { OUTCOME_TONE, TONE_BADGE, TONE_FILL, URGENCY_TONE } from "./tone";
 
 const URGENCY_STYLE: Record<Urgency, string> = {
+  // A safety stop is the one solid badge: it has to be impossible to miss.
   safety_stop: "bg-safety text-white dark:text-white",
-  emergency: "bg-emergency-soft text-emergency-ink ring-1 ring-inset ring-emergency/30",
-  urgent: "bg-urgent-soft text-urgent-ink ring-1 ring-inset ring-urgent/40",
-  routine: "bg-secondary text-secondary-foreground",
+  emergency: TONE_BADGE.emergency,
+  urgent: TONE_BADGE.urgent,
+  routine: TONE_BADGE.routine,
 };
 
 export function UrgencyBadge({ urgency, className }: { urgency: Urgency | null; className?: string }) {
@@ -25,34 +27,39 @@ export function UrgencyBadge({ urgency, className }: { urgency: Urgency | null; 
 
 /** Left rail color for board cards and timeline accents. */
 export const URGENCY_RAIL: Record<Urgency | "none", string> = {
-  safety_stop: "bg-safety",
-  emergency: "bg-emergency",
-  urgent: "bg-urgent",
-  routine: "bg-border",
-  none: "bg-border",
+  safety_stop: TONE_FILL[URGENCY_TONE.safety_stop],
+  emergency: TONE_FILL[URGENCY_TONE.emergency],
+  urgent: TONE_FILL[URGENCY_TONE.urgent],
+  routine: TONE_FILL[URGENCY_TONE.routine],
+  none: TONE_FILL.neutral,
 };
 
-const OUTCOME_STYLE: Record<CallOutcome, string> = {
-  safety_stop: "bg-safety-soft text-safety-ink ring-1 ring-inset ring-safety/25",
-  booked: "bg-success-soft text-success-ink ring-1 ring-inset ring-success/25",
-  priority_dispatch: "bg-emergency-soft text-emergency-ink ring-1 ring-inset ring-emergency/30",
-  coverage_check: "bg-primary/10 text-primary ring-1 ring-inset ring-primary/30",
-  callback: "bg-secondary text-secondary-foreground",
-  not_serviceable: "bg-transparent text-muted-foreground ring-1 ring-inset ring-border",
-  incomplete: "bg-transparent text-muted-foreground ring-1 ring-inset ring-border",
-};
+const OUTCOME_STYLE = Object.fromEntries(Object.entries(OUTCOME_TONE).map(([k, t]) => [k, TONE_BADGE[t]])) as Record<CallOutcome, string>;
+
+/** A pulsing green dot: something is happening right now. */
+export function LiveDot({ className }: { className?: string }) {
+  return (
+    <span className={cn("relative flex size-2", className)} aria-hidden>
+      <span className="animate-live absolute inline-flex size-full rounded-full bg-success" />
+      <span className="relative inline-flex size-2 rounded-full bg-success" />
+    </span>
+  );
+}
+
+export function LiveBadge({ label = "Live" }: { label?: string }) {
+  return (
+    <Badge className="gap-1.5 bg-success-soft text-success-ink ring-1 ring-inset ring-success/30">
+      <LiveDot className="size-1.5 [&>span]:size-1.5" />
+      {label}
+    </Badge>
+  );
+}
 
 export function OutcomeBadge({ outcome, status }: { outcome: CallOutcome; status?: CallStatus }) {
   if (status === "in_progress") {
     return (
       <span className="inline-flex items-center gap-1.5">
-        <Badge variant="outline" className="gap-1.5">
-          <span className="relative flex size-1.5">
-            <span className="absolute inline-flex size-full animate-ping rounded-full bg-success opacity-70 motion-reduce:hidden" />
-            <span className="relative inline-flex size-1.5 rounded-full bg-success" />
-          </span>
-          In progress
-        </Badge>
+        <LiveBadge />
         {outcome !== "incomplete" && <Badge className={OUTCOME_STYLE[outcome]}>{OUTCOME_LABEL[outcome]}</Badge>}
       </span>
     );
@@ -93,7 +100,7 @@ export function SeedTag({ show = true }: { show?: boolean }) {
 }
 
 export function MemberBadge() {
-  return <Badge className="bg-primary/8 text-foreground ring-1 ring-inset ring-foreground/10 dark:bg-primary/12">Member</Badge>;
+  return <Badge className="bg-brand-soft text-brand-ink ring-1 ring-inset ring-brand/30">Member</Badge>;
 }
 
 export function VulnerableList({ items }: { items: string[] }) {

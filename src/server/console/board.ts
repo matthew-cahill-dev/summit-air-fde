@@ -129,3 +129,37 @@ export function buildBoard(rows: { dispatches: BoardDispatchRow[]; callbacks: Bo
     (a, b) => rank(a.urgency) - rank(b.urgency) || a.createdAt.getTime() - b.createdAt.getTime() || a.id.localeCompare(b.id),
   );
 }
+
+export type BoardSummary = { open: number; overdue: number; safety: number; emergencies: number; coverage: number; callbacks: number };
+
+/** The summary bar above the board. */
+export function boardSummary(items: BoardItem[]): BoardSummary {
+  return {
+    open: items.length,
+    overdue: items.filter((i) => i.overdue).length,
+    safety: items.filter((i) => i.urgency === "safety_stop").length,
+    emergencies: items.filter((i) => i.urgency === "emergency").length,
+    coverage: items.filter((i) => i.coverageCheck !== null).length,
+    callbacks: items.filter((i) => i.kind === "callback").length,
+  };
+}
+
+export type BoardGroup = { key: Urgency | "other"; label: string; items: BoardItem[] };
+
+const GROUP_LABEL: Record<Urgency | "other", string> = {
+  safety_stop: "Safety stops",
+  emergency: "Emergencies",
+  urgent: "Urgent",
+  routine: "Routine",
+  other: "Callbacks and follow-ups",
+};
+
+/** Board items in urgency groups (most urgent first), keeping the board's order inside each. */
+export function groupBoard(items: BoardItem[]): BoardGroup[] {
+  const order: Array<Urgency | "other"> = ["safety_stop", "emergency", "urgent", "routine", "other"];
+  return order
+    .map((key) => ({ key, label: GROUP_LABEL[key], items: items.filter((i) => (i.urgency ?? "other") === key) }))
+    .filter((g) => g.items.length > 0);
+}
+
+export { slaCountdown, type SlaState } from "./sla";

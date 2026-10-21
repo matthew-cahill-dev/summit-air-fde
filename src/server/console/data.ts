@@ -1,7 +1,7 @@
 // Request-time data loaders for the console pages. Each one re-checks the session
 // (the proxy is the first gate, this is the second) and honors the "hide seed" preference.
 import { cookies } from "next/headers";
-import { redirect } from "next/navigation";
+import { redirect, unstable_rethrow } from "next/navigation";
 import { connection } from "next/server";
 import { getEnv } from "@/lib/env";
 import { SESSION_COOKIE, verifySessionToken } from "@/server/auth/session";
@@ -47,7 +47,15 @@ export async function loadCalls(limit = 100) {
   const { repo, includeSeed, now, tz } = await consoleContext();
   const calls = await repo.recentCalls({ includeSeed, limit });
   const records = await repo.callRecords(calls.map((c) => c.vapiCallId));
-  return { calls: calls.map((c) => summarizeCall(c, records, now)), now, tz };
+  return {
+    calls: calls.map((c) => ({
+      ...summarizeCall(c, records, now),
+      durationMs: c.startedAt && c.endedAt ? c.endedAt.getTime() - c.startedAt.getTime() : null,
+      responseP50Ms: c.responseP50Ms ?? null,
+    })),
+    now,
+    tz,
+  };
 }
 
 export async function loadCall(vapiCallId: string) {
@@ -76,9 +84,34 @@ export async function loadOverview() {
   const today = todayInZone(tz, now);
   const from = zonedTimeToUtc(today, 0, 0, tz);
   const to = zonedTimeToUtc(addDays(today, 1), 0, 0, tz);
-  const [stats, activity] = await Promise.all([
+  const [stats, activity, series, recent] = await Promise.all([
     repo.overviewStats({ includeSeed, from, to }),
     repo.recentActivity({ includeSeed, limit: 25 }),
+    repo.dailySeries({ includeSeed, to: now, days: 7, tz }),
+    repo.recentCalls({ includeSeed, limit: 200 }),
   ]);
-  return { stats, activity, now, tz };
+  // Today's outcome mix, from the same summaries the calls list uses.
+  const todays = recent.filter((c) => {
+    const at = c.startedAt ?? c.firstActivityAt ?? c.endedAt;
+    return at !== null && at >= from && at < to;
+  });
+  const records = await repo.callRecords(todays.map((c) => c.vapiCallId));
+  const outcomes = todays.map((c) => summarizeCall(c, records, now).outcome);
+  return { stats, activity, series, outcomes, now, tz };
+}
+
+/** Sidebar counts. Errors never break the shell: they show as no badge. */
+export async function loadNavCounts() {
+  try {
+    const { repo, includeSeed, now, tz } = await consoleContext();
+    return await repo.navCounts({ includeSeed, from: zonedTimeToUtc(todayInZone(tz, now), 0, 0, tz) });
+  } catch (err) {
+    unstable_rethrow(err); // redirects and dynamic-rendering signals pass through
+    return null;
+  }
+}
+
+export async function loadCallMessages(vapiCallId: string) {
+  const { repo } = await consoleContext();
+  return repo.callMessages(vapiCallId);
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import { useSyncExternalStore } from "react";
-import { MonitorIcon, MoonIcon, SunIcon } from "lucide-react";
+import { MonitorIcon, MoonIcon, PresentationIcon, SunIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -10,7 +10,8 @@ import {
   DropdownMenuRadioItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { THEME_STORAGE_KEY as KEY } from "./theme-script";
+import { cn } from "@/lib/utils";
+import { THEME_STORAGE_KEY as KEY, PRESENT_COOKIE } from "./theme-script";
 
 type Theme = "light" | "dark" | "system";
 
@@ -79,5 +80,55 @@ export function ThemeMenu() {
         </DropdownMenuRadioGroup>
       </DropdownMenuContent>
     </DropdownMenu>
+  );
+}
+
+/** Header icon button: flips light ⇄ dark (from "system", to the opposite of what's showing). */
+export function ThemeToggle() {
+  const theme = useSyncExternalStore(subscribe, readTheme, () => "system" as Theme);
+  const label = theme === "dark" ? "Switch to light theme" : theme === "light" ? "Switch to dark theme" : "Switch theme";
+  return (
+    <Button
+      variant="ghost"
+      size="icon-sm"
+      aria-label={label}
+      title={label}
+      onClick={() => setTheme(document.documentElement.classList.contains("dark") ? "light" : "dark")}
+    >
+      <SunIcon className="hidden dark:block" />
+      <MoonIcon className="dark:hidden" />
+    </Button>
+  );
+}
+
+// --- Presentation mode -----------------------------------------------------------
+const presentListeners = new Set<() => void>();
+const readPresent = () => document.documentElement.dataset.present === "1";
+const subscribePresent = (cb: () => void) => {
+  presentListeners.add(cb);
+  return () => presentListeners.delete(cb);
+};
+
+export function setPresentation(on: boolean) {
+  if (on) document.documentElement.dataset.present = "1";
+  else delete document.documentElement.dataset.present;
+  document.cookie = `${PRESENT_COOKIE}=${on ? "1" : "0"}; path=/; max-age=${60 * 60 * 24 * 365}; samesite=lax`;
+  presentListeners.forEach((l) => l());
+}
+
+export function PresentationToggle() {
+  const on = useSyncExternalStore(subscribePresent, readPresent, () => false);
+  return (
+    <Button
+      variant={on ? "secondary" : "ghost"}
+      size="sm"
+      aria-pressed={on}
+      onClick={() => setPresentation(!on)}
+      title="Presentation mode: larger type, less chrome, for screen sharing"
+      className={cn("gap-1.5", on && "text-brand-ink")}
+    >
+      <PresentationIcon />
+      <span className="hidden lg:inline">{on ? "Presenting" : "Present"}</span>
+    </Button>
   );
 }

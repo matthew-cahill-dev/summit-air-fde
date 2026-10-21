@@ -1,6 +1,7 @@
 // Read-only queries for the operations console. Raw SQL where joins, laterals or
 // percentiles are clearer than the query builder; every value is a bound parameter.
 import { sql, type SQL } from "drizzle-orm";
+import { BUSINESS } from "@/config/business";
 import type { Db } from "@/server/db/client";
 import type {
   ActivityRow,
@@ -15,6 +16,7 @@ import type {
   InvocationRow,
   JsonObject,
   OverviewStats,
+  TranscriptMessage,
   UpcomingAppointmentRow,
   Urgency,
 } from "./types";
@@ -44,6 +46,7 @@ function mapCallActivity(r: Row): CallActivityRow {
     firstActivityAt: dateOrNull(r.first_at),
     lastActivityAt: dateOrNull(r.last_at),
     isDemoSeed: Boolean(r.is_demo_seed),
+    responseP50Ms: numOrNull(r.response_p50_ms),
   };
 }
 
@@ -263,7 +266,8 @@ export function createConsoleRepository(db: Db): ConsoleRepository {
                ${fullName("c.first_name", "c.last_name")} as customer_name, c.phone_e164,
                exists (select 1 from memberships m where m.customer_id = c.id and m.status = 'active') as is_member,
                ad.line1, ad.unit, ad.city, ad.zip, ad.access_notes,
-               a.service_type, a.urgency, a.issue_summary, a.technician_notes, a.vapi_call_id, a.is_demo_seed
+               a.service_type, a.urgency, a.issue_summary, a.technician_notes, a.vapi_call_id, a.is_demo_seed,
+               a.intake->>'arrival_preference' as arrival_preference
           from appointments a
           join appointment_slots s on s.id = a.slot_id
           join customers c on c.id = a.customer_id
@@ -292,6 +296,7 @@ export function createConsoleRepository(db: Db): ConsoleRepository {
           urgency: r.urgency as Urgency,
           issueSummary: strOrNull(r.issue_summary),
           technicianNotes: strOrNull(r.technician_notes),
+          arrivalPreference: strOrNull(r.arrival_preference),
           vapiCallId: strOrNull(r.vapi_call_id),
           isDemoSeed: Boolean(r.is_demo_seed),
         }),
@@ -357,6 +362,85 @@ export function createConsoleRepository(db: Db): ConsoleRepository {
         responseCalls: num(r.response_calls),
       };
       return stats;
+    },
+
+    async navCounts({ includeSeed, from }) {
+      const slaDispatch = BUSINESS.priorityDispatchCallbackSlaMinutes;
+      const slaCallback = BUSINESS.callbackRequestSlaMinutes;
+      const [r] = await rows(
+        db,
+        sql`
+        select
+          (select count(*) from dispatch_requests where status in ('open', 'acknowledged') and (${includeSeed} or not is_demo_seed))
+          + (select count(*) from callback_requests where status = 'open' and (${includeSeed} or not is_demo_seed)) as open_board,
+          (select count(*) from dispatch_requests
+            where status = 'open' and (${includeSeed} or not is_demo_seed)
+              and (urgency = 'safety_stop' or created_at < now() - make_interval(mins => ${slaDispatch})))
+          + (select count(*) from callback_requests
+            where status = 'open' and (${includeSeed} or not is_demo_seed) and created_at < now() - make_interval(mins => ${slaCallback})) as hot,
+          (select count(*) from (
+             select vapi_call_id from calls where coalesce(started_at, ended_at) >= ${from} and (${includeSeed} or not is_demo_seed)
+             union
+             select vapi_call_id from tool_invocations where vapi_call_id is not null and created_at >= ${from} and (${includeSeed} or not is_demo_seed)
+           ) x) as calls_today`,
+      );
+      return { openBoard: num(r?.open_board), overdueOrSafety: num(r?.hot), callsToday: num(r?.calls_today) };
+    },
+
+    async callMessages(vapiCallId) {
+      const [r] = await rows(
+        db,
+        sql`select coalesce(raw_report->'artifact'->'messages', raw_report->'call'->'artifact'->'messages', raw_report->'messages') as messages
+              from calls where vapi_call_id = ${vapiCallId} limit 1`,
+      );
+      const list = Array.isArray(r?.messages) ? (r.messages as JsonObject[]) : [];
+      const out: TranscriptMessage[] = [];
+      for (const m of list) {
+        const text = typeof m.message === "string" ? m.message.trim() : "";
+        const at = typeof m.time === "number" ? new Date(m.time) : null;
+        if (!text || !at) continue;
+        if (m.role === "user") out.push({ role: "caller", text, at });
+        else if (m.role === "bot" || m.role === "assistant") out.push({ role: "ava", text, at });
+      }
+      return out;
+    },
+
+    async dailySeries({ includeSeed, to, days, tz }) {
+      const result = await rows(
+        db,
+        sql`
+        with d as (
+          select generate_series(
+            (date_trunc('day', ${to}::timestamptz at time zone ${tz}) - make_interval(days => ${days - 1}))::date,
+            (date_trunc('day', ${to}::timestamptz at time zone ${tz}))::date,
+            interval '1 day')::date as day
+        ), c as (
+          select (coalesce(started_at, ended_at) at time zone ${tz})::date as day, count(*) as calls,
+                 percentile_cont(0.5) within group (order by response_p50_ms) as median_ms
+            from calls where coalesce(started_at, ended_at) is not null and (${includeSeed} or not is_demo_seed) group by 1
+        ), a as (
+          select (created_at at time zone ${tz})::date as day, count(*) as n
+            from appointments where status = 'confirmed' and (${includeSeed} or not is_demo_seed) group by 1
+        ), p as (
+          select (created_at at time zone ${tz})::date as day, count(*) as n
+            from dispatch_requests where (${includeSeed} or not is_demo_seed) group by 1
+        ), t as (
+          select (created_at at time zone ${tz})::date as day, percentile_cont(0.95) within group (order by latency_ms) as p95
+            from tool_invocations where (${includeSeed} or not is_demo_seed) group by 1
+        )
+        select to_char(d.day, 'YYYY-MM-DD') as day, coalesce(c.calls, 0) as calls, coalesce(a.n, 0) as bookings,
+               coalesce(p.n, 0) as priority, c.median_ms, t.p95
+          from d left join c using (day) left join a using (day) left join p using (day) left join t using (day)
+         order by d.day`,
+      );
+      return result.map((r) => ({
+        day: String(r.day),
+        calls: num(r.calls),
+        bookings: num(r.bookings),
+        priorityRequests: num(r.priority),
+        medianResponseMs: r.median_ms === null ? null : Math.round(num(r.median_ms)),
+        p95ToolMs: r.p95 === null ? null : Math.round(num(r.p95)),
+      }));
     },
 
     async recentActivity({ includeSeed, limit }) {

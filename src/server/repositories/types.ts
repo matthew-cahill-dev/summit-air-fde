@@ -305,6 +305,8 @@ export type BoardCallbackRow = {
 /** One call: an end-of-call report, tool activity, or both. */
 export type CallActivityRow = {
   vapiCallId: string;
+  /** Caller stop → assistant start median, from the end-of-call report (null before it arrives). */
+  responseP50Ms?: number | null;
   startedAt: Date | null;
   endedAt: Date | null;
   endedReason: string | null;
@@ -393,6 +395,8 @@ export type UpcomingAppointmentRow = {
   urgency: Urgency;
   issueSummary: string | null;
   technicianNotes: string | null;
+  /** "around 8:30 AM": the caller's preferred arrival inside the window, when they gave one. */
+  arrivalPreference: string | null;
   vapiCallId: string | null;
   isDemoSeed: boolean;
 };
@@ -448,4 +452,24 @@ export interface ConsoleRepository {
   /** Counts for [from, to); open counts are current regardless of the range. */
   overviewStats(opts: { includeSeed: boolean; from: Date; to: Date }): Promise<OverviewStats>;
   recentActivity(opts: { includeSeed: boolean; limit: number }): Promise<ActivityRow[]>;
+  /** Sidebar badges: open board items and calls since `from`. */
+  navCounts(opts: { includeSeed: boolean; from: Date }): Promise<NavCounts>;
+  /** Caller and Ava lines with timestamps, from the stored end-of-call report (empty before it arrives). */
+  callMessages(vapiCallId: string): Promise<TranscriptMessage[]>;
+  /** Per local day (oldest first) for the last `days` days up to `to`: the overview sparklines. */
+  dailySeries(opts: { includeSeed: boolean; to: Date; days: number; tz: string }): Promise<DailyPoint[]>;
 }
+
+export type NavCounts = { openBoard: number; overdueOrSafety: number; callsToday: number };
+
+export type TranscriptMessage = { role: "caller" | "ava"; text: string; at: Date };
+
+export type DailyPoint = {
+  /** "2026-10-21" in the console's time zone. */
+  day: string;
+  calls: number;
+  bookings: number;
+  priorityRequests: number;
+  medianResponseMs: number | null;
+  p95ToolMs: number | null;
+};
