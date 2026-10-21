@@ -272,7 +272,7 @@ Short ADRs. Each one gives the context, the decision, and what it costs.
 
 ### ADR-14: Prompt caching: a stable prefix
 
-- **Context.** The system prompt is about 3,100 words. Re-processing it on every turn adds model latency and cost.
+- **Context.** The system prompt is about 3,700 words (~5,500 tokens). Re-processing it on every turn adds model latency and cost.
 - **Decision.**
   - **Stable prefix:** the template keeps everything that varies per call (Vapi Liquid `{{ }}` and `{% %}`: date, time, caller ID status) in the **last** section, "This call". Everything above is an identical prefix on every call, so OpenAI's automatic prompt caching applies.
   - **Retention:** `promptCacheRetention: "24h"` in `vapi/assistant.json` keeps it warm between calls.

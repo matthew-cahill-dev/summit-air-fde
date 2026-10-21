@@ -48,9 +48,9 @@ Never reassign the published number (347) 719-8328.
 
 1. **Dashboard "Talk" button** (no phone): open the S2S assistant in the Vapi dashboard and talk in the browser. Good for a first check, but browser audio isn't the phone path.
 2. **A second Vapi number:**
-   - Vapi gives one free US number per account, and you already use it.
+   - Vapi gives one free US number per account, and it serves the published line.
    - On a plan with more numbers, create one for the S2S assistant: `POST /phone-number {"provider":"vapi","numberDesiredAreaCode":"347","assistantId":"<VAPI_S2S_ASSISTANT_ID>"}` (or Phone Numbers → Create in the dashboard).
-   - It's inbound-only, so call it from your phone.
+   - It's inbound-only, so call it from any phone.
 3. **Not recommended: traffic splitting.** `POST /traffic-allocations` splits calls between *versions of one assistant*, and is sticky by caller number. The S2S assistant is a different assistant, and a split would expose real callers to the experiment.
 
 ## Side-by-side checklist

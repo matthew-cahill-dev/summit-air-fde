@@ -32,3 +32,5 @@ Ava, Summit Air's AI phone agent, and the operations console, as submitted.
 - Latency of p50 ~1.46 s / p95 ~2.05 s, caller stops → Ava starts.
 
 ## After submission
+
+- Docs consistency pass (no behavior changes).
