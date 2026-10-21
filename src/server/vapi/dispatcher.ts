@@ -193,6 +193,7 @@ async function invokeOne(
       ok: outcome.ok,
       result: payload,
       latencyMs,
+      dbMs: Math.round(clock.dbMs),
     });
     // A concurrent duplicate may have won the insert; answer consistently with it.
     payload = saved.result;

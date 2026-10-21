@@ -2,7 +2,7 @@
 
 Summit Air is a fictional residential HVAC company serving Brooklyn, Queens and Staten Island. This app is the backend for its AI phone agent. **Vapi** handles the voice call and calls our authenticated HTTP tools. This **Next.js** app owns every business rule and all Postgres persistence.
 
-Status (M2): full call workflow. A call can identify the caller (caller ID or last name, verified by the street address the caller says), triage the issue deterministically, offer and book arrival windows atomically, log priority dispatches and callbacks, transfer to on-call, and save the end-of-call report. Vapi config (prompt, tools, assistant) is code in `vapi/`, synced with `npm run vapi:sync`.
+Status (M4): full call workflow plus a staff operations console. A call can identify the caller (caller ID or last name, verified by the street address the caller says), triage the issue deterministically, offer and book arrival windows atomically, log priority dispatches and callbacks, transfer to on-call, and save the end-of-call report. Staff work the results in a password-protected console (dispatch board, calls, appointments, overview). Vapi config (prompt, tools, assistant) is code in `vapi/`, synced with `npm run vapi:sync`.
 
 ## Setup (local)
 
@@ -14,7 +14,7 @@ createdb summit_air_dev          # tests create summit_air_test automatically
 cp .env.example .env             # then set VAPI_TOOL_SECRET and DASHBOARD_PASSWORD
 npm run db:migrate
 npm run db:seed
-npm run dev                      # http://localhost:3000, /api/health
+npm run dev                      # http://localhost:3000 (console login), /api/health
 ```
 
 ## Environment variables
@@ -25,7 +25,7 @@ Validated with Zod in `src/lib/env.ts`. The server exits at boot if any are inva
 |---|---|---|
 | `DATABASE_URL` | yes | `postgres://…` |
 | `VAPI_TOOL_SECRET` | yes | 16+ chars. Vapi sends it as `Authorization: Bearer …` |
-| `DASHBOARD_PASSWORD` | yes | 8+ chars, for the future staff dashboard |
+| `DASHBOARD_PASSWORD` | yes | 8+ chars. The operations console password. Session cookies are signed with a key derived from it, so changing it signs everyone out |
 | `APP_URL` | yes | Public base URL, e.g. `https://summit-air.replit.app` |
 | `APP_TIMEZONE` | no | Default `America/New_York` |
 | `ON_CALL_TRANSFER_NUMBER` | no | E.164. Set = triage offers transfer and `vapi:sync` attaches `transfer_to_on_call`. Unset = callbacks only |
@@ -44,8 +44,8 @@ Validated with Zod in `src/lib/env.ts`. The server exits at boot if any are inva
 | `lint` / `typecheck` / `test` | ESLint / `next typegen && tsc` / Vitest |
 | `db:generate` | drizzle-kit: generate SQL migration from `src/server/db/schema.ts` into `drizzle/` |
 | `db:migrate` | Apply migrations (plain Node + drizzle-orm migrator, advisory-locked) |
-| `db:seed` | Idempotent fictional demo data: 13 customers, ZIPs, 10 business days of slots |
-| `db:reset-test` | Deletes everything calls created and keeps seed data: calls, tool_invocations, appointments (seats given back to their slots), dispatch and callback requests, and non-seed customers/addresses/memberships. Prints counts. Dry run unless `-- --confirm`. Runs against `DATABASE_URL`, so on Replit it cleans production |
+| `db:seed` | Idempotent fictional demo data: 13 customers, ZIPs, 10 business days of slots, and demo call activity for the console (9 ended calls covering every outcome, 1 in progress, board items, 4 upcoming appointments). Demo activity is replaced on each run, timed relative to now |
+| `db:reset-test` | Deletes everything calls created and keeps seed data (including the demo call activity): calls, tool_invocations, appointments (seats given back to their slots), dispatch and callback requests, and non-seed customers/addresses/memberships. Prints counts. Dry run unless `-- --confirm`. Runs against `DATABASE_URL`, so on Replit it cleans production |
 | `vapi:sync` | Upsert Vapi tools by name, update + publish the assistant, print the version. `-- --dry-run` diffs only; `-- --offline` renders locally without an API key |
 
 ## Architecture
@@ -114,7 +114,28 @@ Slot selection (`src/server/scheduling/availability.ts`) is pure. It enforces le
 **Events and config.**
 
 - `POST /api/vapi/events` upserts `end-of-call-report` into `calls`.
-- Business assumptions (service ZIPs, heat season, SLA, residential-only) live in `src/config/business.ts`.
+- **Keep-warm.** The assistant also sends `status-update`. On status `in-progress` (the call just connected) the events handler starts a non-blocking `select 1` and answers at once, so a suspended production database wakes up during the greeting instead of on the first tool call. Only one ping runs at a time; other statuses are ignored without touching the database.
+- Business assumptions (service ZIPs, heat season, SLAs, residential-only) live in `src/config/business.ts`.
+
+**Schema changes.** Migrations must be idempotent (`ADD COLUMN IF NOT EXISTS`, `CREATE INDEX IF NOT EXISTS`): Replit applies its own schema diff to the production database before `db:migrate` runs, so a migration may find its columns already there. After `npm run db:generate`, edit the SQL to add `IF NOT EXISTS`.
+
+## Operations console (M4)
+
+Staff UI at `/` (redirects to `/dispatch`). Server components read through `src/server/repositories/console.ts` (read-only queries); derivations are pure functions in `src/server/console/` (board order and SLA, call outcome, display formatting). Pages poll every 5 seconds with `router.refresh()` while the tab is visible ("Live" in the header), and rows that arrive after a list was first seen fade in from a soft highlight. Times are shown in `APP_TIMEZONE` (America/New_York).
+
+| Page | What it shows |
+|---|---|
+| `/dispatch` | Priority board: open and acknowledged `dispatch_requests` plus open `callback_requests`, ordered safety stop → emergency → urgent → untriaged callbacks, oldest first. Each card has caller, phone, address with unit and access notes, vulnerable occupants, triage reasons, time waiting, and an overdue flag against the SLA (`priorityDispatchCallbackSlaMinutes` for dispatches until acknowledged, `callbackRequestSlaMinutes` for callbacks). Actions: Acknowledge, Resolve, Mark done |
+| `/calls` | Every call (end-of-call report and/or tool activity), newest first: time, caller, issue, urgency, outcome. "In progress" while there is tool activity but no report yet; "No report" if a call has been quiet for 20 minutes without one |
+| `/calls/[id]` | Tool timeline (tool, key args, ok/error, `latency_ms` total and `db_ms`), triage reasons, Vapi summary and transcript |
+| `/appointments` | Upcoming confirmed appointments grouped by day: window, customer and member badge, address and access notes, service type, urgency, technician notes |
+| `/overview` | Today's calls, bookings, priority requests, open callbacks, average and p95 tool latency, and a recent activity feed |
+
+**Call outcome** (`src/server/console/outcome.ts`), most significant first: safety stop (a `safety_stop` dispatch or safety triage) > booked (confirmed appointment) > priority dispatch (`emergency` dispatch) > callback > not serviceable (out of area or commercial) > incomplete. Records are the source of truth and successful tool results back them up.
+
+**Auth.** `src/proxy.ts` (Next 16's renamed middleware) requires a session on everything except `/login`, `/api/vapi/*` and `/api/health`, which keep their own auth. The session cookie (`sa_session`, httpOnly, Secure, SameSite=Lax, 12 hours) is an HMAC-SHA256-signed expiry; the key is derived from `DASHBOARD_PASSWORD` with HKDF. The password check is constant time, and failed logins are limited to 5 per client per 15 minutes (in memory, keyed on the proxy-appended `X-Forwarded-For` entry). Server Actions and data loaders re-check the session themselves rather than relying on the proxy matcher.
+
+**Seed data.** Demo rows carry `is_demo_seed` and show a "Seed" tag. The "Show seed data" switch in the header (a cookie) hides them from every page and KPI.
 
 ## Test personas (for reviewers calling from their own phones)
 

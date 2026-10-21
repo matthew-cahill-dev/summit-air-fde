@@ -1,4 +1,4 @@
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 import type { Db } from "@/server/db/client";
 import { dispatchRequests } from "@/server/db/schema";
 import type { DispatchRepository } from "./types";
@@ -26,6 +26,25 @@ export function createDispatchRepository(db: Db): DispatchRepository {
         )
         .orderBy(desc(dispatchRequests.createdAt))
         .limit(1);
+      return row ?? null;
+    },
+
+    async acknowledge(id, at) {
+      // Conditional update: a concurrent Resolve or a second click is a no-op, not a regression.
+      const [row] = await db
+        .update(dispatchRequests)
+        .set({ status: "acknowledged", acknowledgedAt: at })
+        .where(and(eq(dispatchRequests.id, id), eq(dispatchRequests.status, "open")))
+        .returning({ id: dispatchRequests.id, status: dispatchRequests.status });
+      return row ?? null;
+    },
+
+    async resolve(id, at) {
+      const [row] = await db
+        .update(dispatchRequests)
+        .set({ status: "resolved", resolvedAt: at })
+        .where(and(eq(dispatchRequests.id, id), inArray(dispatchRequests.status, ["open", "acknowledged"])))
+        .returning({ id: dispatchRequests.id, status: dispatchRequests.status });
       return row ?? null;
     },
   };

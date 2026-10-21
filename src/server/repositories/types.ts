@@ -77,6 +77,8 @@ export interface ToolInvocationRepository {
     ok: boolean;
     result: Record<string, unknown>;
     latencyMs: number;
+    /** The handler's repository time, for the console's call timeline. */
+    dbMs?: number;
   }): Promise<StoredInvocation>;
   /** Failed identity checks so far on this call (results with verification_failed: true). */
   countFailedVerifications(vapiCallId: string): Promise<number>;
@@ -107,6 +109,8 @@ export type SlotRow = {
 };
 
 export type Urgency = "safety_stop" | "emergency" | "urgent" | "routine";
+export type DispatchStatus = "open" | "acknowledged" | "resolved";
+export type CallbackStatus = "open" | "done";
 
 export type DispatchInput = {
   customerId: string | null;
@@ -123,6 +127,10 @@ export interface DispatchRepository {
   create(input: DispatchInput): Promise<{ id: string }>;
   /** An open dispatch of this urgency already recorded on this call (dedupe). */
   findOpenForCall(vapiCallId: string, urgency: Urgency): Promise<{ id: string } | null>;
+  /** open → acknowledged. Null when the request isn't open (already acknowledged, resolved or missing). */
+  acknowledge(id: string, at: Date): Promise<{ id: string; status: DispatchStatus } | null>;
+  /** open or acknowledged → resolved. Null when already resolved or missing. */
+  resolve(id: string, at: Date): Promise<{ id: string; status: DispatchStatus } | null>;
 }
 
 export type CallbackInput = {
@@ -135,6 +143,8 @@ export type CallbackInput = {
 
 export interface CallbackRepository {
   create(input: CallbackInput): Promise<{ id: string }>;
+  /** open → done. Null when already done or missing. */
+  markDone(id: string, at: Date): Promise<{ id: string; status: CallbackStatus } | null>;
 }
 
 export type BookingAddress = {
@@ -193,6 +203,11 @@ export interface SchedulingRepository {
   findConfirmedAppointment(customerId: string, slotId: string): Promise<{ id: string } | null>;
 }
 
+export interface HealthRepository {
+  /** `select 1`: wakes a suspended database and checks the connection. */
+  ping(): Promise<void>;
+}
+
 export type Repositories = {
   customers: CustomerRepository;
   serviceArea: ServiceAreaRepository;
@@ -201,4 +216,180 @@ export type Repositories = {
   scheduling: SchedulingRepository;
   dispatch: DispatchRepository;
   callbacks: CallbackRepository;
+  health: HealthRepository;
 };
+
+// ---------------------------------------------------------------------------
+// Operations console (M4): read-only queries. Rows are raw; the console services
+// in src/server/console/ derive outcomes, urgency order and display text.
+
+export type JsonObject = Record<string, unknown>;
+
+export type BoardDispatchRow = {
+  id: string;
+  urgency: Urgency;
+  reasons: string[];
+  status: DispatchStatus;
+  callerName: string | null;
+  callerPhone: string | null;
+  /** Free-form address captured on the call (line1, unit, city, zip, access_notes). */
+  address: JsonObject | null;
+  intake: JsonObject | null;
+  /** Name/phone of the linked customer record, if the caller was verified. */
+  customerName: string | null;
+  customerPhone: string | null;
+  createdAt: Date;
+  acknowledgedAt: Date | null;
+  vapiCallId: string | null;
+  isDemoSeed: boolean;
+};
+
+export type BoardCallbackRow = {
+  id: string;
+  reason: string | null;
+  context: JsonObject | null;
+  callerName: string | null;
+  callerPhone: string | null;
+  createdAt: Date;
+  vapiCallId: string | null;
+  isDemoSeed: boolean;
+  /** From the latest successful triage_issue on the same call, if any. */
+  triageUrgency: Urgency | null;
+  triageReasons: string[];
+};
+
+/** One call: an end-of-call report, tool activity, or both. */
+export type CallActivityRow = {
+  vapiCallId: string;
+  startedAt: Date | null;
+  endedAt: Date | null;
+  endedReason: string | null;
+  callerPhone: string | null;
+  summary: string | null;
+  hasReport: boolean;
+  firstActivityAt: Date | null;
+  lastActivityAt: Date | null;
+  isDemoSeed: boolean;
+};
+
+export type CallDetailRow = CallActivityRow & { transcript: string | null };
+
+export type InvocationRow = {
+  id: string;
+  vapiCallId: string;
+  toolName: string;
+  args: JsonObject | null;
+  result: JsonObject;
+  ok: boolean;
+  latencyMs: number;
+  dbMs: number | null;
+  createdAt: Date;
+};
+
+export type CallAppointmentRow = {
+  id: string;
+  vapiCallId: string;
+  status: "confirmed" | "cancelled";
+  urgency: Urgency;
+  issueSummary: string | null;
+  customerName: string;
+  customerPhone: string;
+  startsAt: Date;
+  endsAt: Date;
+};
+
+export type CallDispatchRow = {
+  id: string;
+  vapiCallId: string;
+  urgency: Urgency;
+  reasons: string[];
+  status: DispatchStatus;
+  callerName: string | null;
+  callerPhone: string | null;
+  intake: JsonObject | null;
+};
+
+export type CallCallbackRow = {
+  id: string;
+  vapiCallId: string;
+  reason: string | null;
+  status: CallbackStatus;
+  callerName: string | null;
+  callerPhone: string | null;
+  context: JsonObject | null;
+};
+
+export type CallRecords = {
+  invocations: InvocationRow[];
+  appointments: CallAppointmentRow[];
+  dispatches: CallDispatchRow[];
+  callbacks: CallCallbackRow[];
+};
+
+export type UpcomingAppointmentRow = {
+  id: string;
+  startsAt: Date;
+  endsAt: Date;
+  county: string;
+  customerName: string;
+  customerPhone: string;
+  isMember: boolean;
+  line1: string;
+  unit: string | null;
+  city: string;
+  zip: string;
+  accessNotes: string | null;
+  serviceType: "maintenance" | "repair" | "diagnostic";
+  urgency: Urgency;
+  issueSummary: string | null;
+  technicianNotes: string | null;
+  vapiCallId: string | null;
+  isDemoSeed: boolean;
+};
+
+export type OverviewStats = {
+  calls: number;
+  bookings: number;
+  priorityRequests: number;
+  openCallbacks: number;
+  openDispatches: number;
+  toolCalls: number;
+  toolErrors: number;
+  avgToolMs: number | null;
+  p95ToolMs: number | null;
+};
+
+export type ActivityKind =
+  | "call_ended"
+  | "booked"
+  | "dispatch_created"
+  | "dispatch_acknowledged"
+  | "dispatch_resolved"
+  | "callback_created"
+  | "callback_done";
+
+export type ActivityRow = {
+  at: Date;
+  kind: ActivityKind;
+  refId: string;
+  vapiCallId: string | null;
+  who: string | null;
+  detail: string | null;
+  urgency: Urgency | null;
+  isDemoSeed: boolean;
+};
+
+export interface ConsoleRepository {
+  /** Open and acknowledged dispatch requests, and open callbacks. Unsorted. */
+  board(opts: { includeSeed: boolean }): Promise<{ dispatches: BoardDispatchRow[]; callbacks: BoardCallbackRow[] }>;
+  /** Most recent calls first, by start time (or first tool call while a call is in progress). */
+  recentCalls(opts: { includeSeed: boolean; limit: number }): Promise<CallActivityRow[]>;
+  call(vapiCallId: string): Promise<CallDetailRow | null>;
+  /** Tool invocations (oldest first) and the records the calls created. */
+  callRecords(vapiCallIds: string[]): Promise<CallRecords>;
+  /** Confirmed appointments whose window hasn't ended before `from`, earliest first. */
+  upcomingAppointments(opts: { includeSeed: boolean; from: Date; limit: number }): Promise<UpcomingAppointmentRow[]>;
+  /** Counts for [from, to); open counts are current regardless of the range. */
+  overviewStats(opts: { includeSeed: boolean; from: Date; to: Date }): Promise<OverviewStats>;
+  recentActivity(opts: { includeSeed: boolean; limit: number }): Promise<ActivityRow[]>;
+}

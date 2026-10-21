@@ -19,6 +19,19 @@
   --color-sidebar-foreground: var(--sidebar-foreground);
   --color-sidebar: var(--sidebar);
   --color-chart-5: var(--chart-5);
+  --color-safety: var(--safety);
+  --color-safety-soft: var(--safety-soft);
+  --color-safety-ink: var(--safety-ink);
+  --color-emergency: var(--emergency);
+  --color-emergency-soft: var(--emergency-soft);
+  --color-emergency-ink: var(--emergency-ink);
+  --color-urgent: var(--urgent);
+  --color-urgent-soft: var(--urgent-soft);
+  --color-urgent-ink: var(--urgent-ink);
+  --color-success: var(--success);
+  --color-success-soft: var(--success-soft);
+  --color-success-ink: var(--success-ink);
+  --color-fresh: var(--fresh);
   --color-chart-4: var(--chart-4);
   --color-chart-3: var(--chart-3);
   --color-chart-2: var(--chart-2);
@@ -81,6 +94,20 @@
   --sidebar-accent-foreground: oklch(0.205 0 0);
   --sidebar-border: oklch(0.922 0 0);
   --sidebar-ring: oklch(0.708 0 0);
+  /* Operations console: urgency and state. Ink = text on the soft tint. */
+  --safety: oklch(0.577 0.215 27);
+  --safety-soft: oklch(0.97 0.018 27);
+  --safety-ink: oklch(0.48 0.17 27);
+  --emergency: oklch(0.66 0.17 47);
+  --emergency-soft: oklch(0.973 0.025 55);
+  --emergency-ink: oklch(0.5 0.14 45);
+  --urgent: oklch(0.77 0.15 80);
+  --urgent-soft: oklch(0.98 0.035 90);
+  --urgent-ink: oklch(0.5 0.1 70);
+  --success: oklch(0.62 0.13 155);
+  --success-soft: oklch(0.975 0.025 155);
+  --success-ink: oklch(0.45 0.1 155);
+  --fresh: oklch(0.94 0.045 250);
 }
 
 .dark {
@@ -115,6 +142,19 @@
   --sidebar-accent-foreground: oklch(0.985 0 0);
   --sidebar-border: oklch(1 0 0 / 10%);
   --sidebar-ring: oklch(0.556 0 0);
+  --safety: oklch(0.66 0.2 25);
+  --safety-soft: oklch(0.29 0.07 25);
+  --safety-ink: oklch(0.82 0.1 25);
+  --emergency: oklch(0.72 0.16 50);
+  --emergency-soft: oklch(0.29 0.06 50);
+  --emergency-ink: oklch(0.85 0.09 55);
+  --urgent: oklch(0.8 0.13 82);
+  --urgent-soft: oklch(0.29 0.05 82);
+  --urgent-ink: oklch(0.88 0.1 88);
+  --success: oklch(0.72 0.14 155);
+  --success-soft: oklch(0.28 0.05 155);
+  --success-ink: oklch(0.85 0.09 155);
+  --fresh: oklch(0.33 0.07 255);
 }
 
 @layer base {
@@ -126,5 +166,28 @@
   }
   html {
     @apply font-sans;
+  }
+}
+
+/* New rows fade in from a soft tint after a live refresh. */
+@keyframes fresh-row {
+  from {
+    background-color: var(--fresh);
+  }
+  to {
+    background-color: transparent;
+  }
+}
+
+@layer utilities {
+  .animate-fresh {
+    animation: fresh-row 4s ease-out;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-fresh {
+    animation: none;
+    outline: 2px solid var(--fresh);
   }
 }

@@ -42,7 +42,8 @@ describe("POST /api/vapi/events", () => {
   });
 
   it("ignores other message types with 200", async () => {
-    const res = await handleEventsRequest(post("/api/vapi/events", { message: { type: "status-update", status: "in-progress" } }), testDeps());
+    // status-update "in-progress" is the keep-warm trigger (tests/keep-warm.test.ts); other statuses are ignored.
+    const res = await handleEventsRequest(post("/api/vapi/events", { message: { type: "status-update", status: "ringing" } }), testDeps());
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ ok: true, ignored: "status-update" });
   });

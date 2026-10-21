@@ -46,6 +46,7 @@ export function createToolInvocationRepository(db: Db): ToolInvocationRepository
         ok: input.ok,
         result: input.result,
         latencyMs: input.latencyMs,
+        dbMs: input.dbMs ?? null,
       };
       const [written] = await db
         .insert(toolInvocations)
@@ -56,6 +57,7 @@ export function createToolInvocationRepository(db: Db): ToolInvocationRepository
             ok: sql`excluded.ok`,
             result: sql`excluded.result`,
             latencyMs: sql`excluded.latency_ms`,
+            dbMs: sql`excluded.db_ms`,
             createdAt: sql`now()`,
           },
           // Only a transient failure may be replaced by a retry.

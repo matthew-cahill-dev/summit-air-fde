@@ -4,7 +4,7 @@ import { isAuthorizedBearer } from "@/server/lib/auth";
 import { logEvent } from "@/server/lib/log";
 import type { Repositories } from "@/server/repositories";
 import { handleToolCalls } from "./dispatcher";
-import { describeEnvelopeShape } from "./envelope";
+import { describeEnvelopeShape, getMessage } from "./envelope";
 import { parseEndOfCallReport } from "./events";
 import type { ToolRegistry } from "./registry";
 import type { ToolSettings } from "./types";
@@ -44,6 +44,27 @@ export async function handleToolsRequest(request: Request, deps: VapiHttpDeps): 
   return Response.json(response);
 }
 
+let warming: Promise<void> | null = null;
+
+/**
+ * Fire-and-forget `select 1`. Returns false if a ping is already in flight (several
+ * calls starting together need only one). Failures are logged, never thrown.
+ */
+export function warmDatabase(ping: () => Promise<void>): boolean {
+  if (warming) return false;
+  const started = performance.now();
+  warming = Promise.resolve()
+    .then(ping)
+    .then(
+      () => logEvent("db_keep_warm", { ok: true, db_ms: Math.round(performance.now() - started) }),
+      (err) => logEvent("db_keep_warm", { ok: false, error: err instanceof Error ? err.message : String(err) }),
+    )
+    .finally(() => {
+      warming = null;
+    });
+  return true;
+}
+
 export async function handleEventsRequest(request: Request, deps: Pick<VapiHttpDeps, "secret" | "repos">): Promise<Response> {
   if (!isAuthorizedBearer(request.headers.get("authorization"), deps.secret)) {
     logEvent("vapi_auth_rejected", { route: "events" });
@@ -52,6 +73,17 @@ export async function handleEventsRequest(request: Request, deps: Pick<VapiHttpD
   const body = await readJson(request);
   const shape = describeEnvelopeShape(body);
   logEvent("vapi_envelope", { route: "events", ...shape });
+
+  const message = getMessage(body);
+  if (message?.type === "status-update") {
+    // Keep-warm: the call just connected, so wake the database during the greeting
+    // instead of on the first tool call. Never awaited; Vapi gets its 200 right away.
+    if (message.status === "in-progress") {
+      const started = warmDatabase(() => deps.repos().health.ping());
+      return Response.json({ ok: true, warming: started });
+    }
+    return Response.json({ ok: true, ignored: "status-update" });
+  }
 
   const report = parseEndOfCallReport(body);
   if (!report) return Response.json({ ok: true, ignored: shape.messageType ?? "unknown" });

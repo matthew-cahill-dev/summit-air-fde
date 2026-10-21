@@ -9,7 +9,8 @@
     "hooks": "Idle messages via customer.speech.timeout hooks (replaces the older messagePlan.idleMessages).",
     "analysisPlan": "Deprecated in the API but still works; feeds message.analysis.summary into our calls table. Migrate to structured outputs later.",
     "firstMessage": "Never personalized: callers aren't verified at greeting time. assistant-request (ASSISTANT_REQUEST_ENABLED) only sets caller_recognized, used by the prompt. Vapi has no first-message delay for inbound calls (checked Oct 2026), so the opening words 'Hi, thanks for calling' are deliberately skippable if the line clips them.",
-    "firstMessageInterruptionsEnabled": "false (Vapi's default): the caller's 'hello?' while the line connects doesn't cut the greeting off."
+    "firstMessageInterruptionsEnabled": "false (Vapi's default): the caller's 'hello?' while the line connects doesn't cut the greeting off.",
+    "serverMessages": "status-update is for keep-warm: on status 'in-progress' /api/vapi/events runs a non-blocking select 1 so a suspended production database wakes during the greeting, not on the first tool call. Other statuses are ignored."
   },
   "name": "Summit Air Virtual Assistant",
   "firstMessageMode": "assistant-speaks-first",
@@ -156,7 +157,8 @@
     "credentialId": "${VAPI_CREDENTIAL_ID}"
   },
   "serverMessages": [
-    "end-of-call-report"
+    "end-of-call-report",
+    "status-update"
   ],
   "analysisPlan": {
     "summaryPlan": {

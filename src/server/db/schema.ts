@@ -1,6 +1,6 @@
-// Full Summit Air schema. M1 only reads/writes customers, addresses,
-// memberships, equipment, service_area_zips, calls and tool_invocations;
-// the rest is designed now so later milestones don't need breaking migrations.
+// Full Summit Air schema. Every table is written by the call workflow (M1/M2)
+// and read by the operations console (M4). Changes must stay additive: Replit
+// applies its own schema diff before our migrator runs, so migrations use IF NOT EXISTS.
 // Keep this file free of path aliases: it is also compiled for the seed script.
 import { sql } from "drizzle-orm";
 import {
@@ -153,37 +153,59 @@ export const appointments = pgTable(
     status: appointmentStatusEnum("status").notNull().default("confirmed"),
     vapiCallId: text("vapi_call_id"),
     createdAt: createdAt(),
+    isDemoSeed: boolean("is_demo_seed").notNull().default(false),
   },
   (t) => [
     unique("appointments_customer_slot_key").on(t.customerId, t.slotId),
     index("appointments_slot_id_idx").on(t.slotId),
+    index("appointments_vapi_call_id_idx").on(t.vapiCallId),
   ],
 );
 
-export const dispatchRequests = pgTable("dispatch_requests", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  customerId: uuid("customer_id").references(() => customers.id),
-  callerPhone: text("caller_phone"),
-  callerName: text("caller_name"),
-  address: jsonb("address"),
-  urgency: urgencyEnum("urgency").notNull(),
-  reasons: text("reasons").array().notNull().default(sql`'{}'::text[]`),
-  intake: jsonb("intake"),
-  status: dispatchStatusEnum("status").notNull().default("open"),
-  vapiCallId: text("vapi_call_id"),
-  createdAt: createdAt(),
-});
+export const dispatchRequests = pgTable(
+  "dispatch_requests",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    customerId: uuid("customer_id").references(() => customers.id),
+    callerPhone: text("caller_phone"),
+    callerName: text("caller_name"),
+    address: jsonb("address"),
+    urgency: urgencyEnum("urgency").notNull(),
+    reasons: text("reasons").array().notNull().default(sql`'{}'::text[]`),
+    intake: jsonb("intake"),
+    status: dispatchStatusEnum("status").notNull().default("open"),
+    vapiCallId: text("vapi_call_id"),
+    createdAt: createdAt(),
+    // Set by the operations console (M4).
+    acknowledgedAt: timestamp("acknowledged_at", { withTimezone: true }),
+    resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+    isDemoSeed: boolean("is_demo_seed").notNull().default(false),
+  },
+  (t) => [
+    index("dispatch_requests_status_idx").on(t.status),
+    index("dispatch_requests_vapi_call_id_idx").on(t.vapiCallId),
+  ],
+);
 
-export const callbackRequests = pgTable("callback_requests", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  callerPhone: text("caller_phone"),
-  callerName: text("caller_name"),
-  reason: text("reason"),
-  context: jsonb("context"),
-  status: callbackStatusEnum("status").notNull().default("open"),
-  vapiCallId: text("vapi_call_id"),
-  createdAt: createdAt(),
-});
+export const callbackRequests = pgTable(
+  "callback_requests",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    callerPhone: text("caller_phone"),
+    callerName: text("caller_name"),
+    reason: text("reason"),
+    context: jsonb("context"),
+    status: callbackStatusEnum("status").notNull().default("open"),
+    vapiCallId: text("vapi_call_id"),
+    createdAt: createdAt(),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    isDemoSeed: boolean("is_demo_seed").notNull().default(false),
+  },
+  (t) => [
+    index("callback_requests_status_idx").on(t.status),
+    index("callback_requests_vapi_call_id_idx").on(t.vapiCallId),
+  ],
+);
 
 export const calls = pgTable("calls", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -197,6 +219,7 @@ export const calls = pgTable("calls", {
   disposition: text("disposition"),
   rawReport: jsonb("raw_report"),
   isTest: boolean("is_test").notNull().default(true),
+  isDemoSeed: boolean("is_demo_seed").notNull().default(false),
 });
 
 export const toolInvocations = pgTable(
@@ -210,7 +233,13 @@ export const toolInvocations = pgTable(
     result: jsonb("result").notNull(),
     ok: boolean("ok").notNull(),
     latencyMs: integer("latency_ms").notNull(),
+    // The handler's repository time (null for rows recorded before M4).
+    dbMs: integer("db_ms"),
     createdAt: createdAt(),
+    isDemoSeed: boolean("is_demo_seed").notNull().default(false),
   },
-  (t) => [index("tool_invocations_vapi_call_id_idx").on(t.vapiCallId)],
+  (t) => [
+    index("tool_invocations_vapi_call_id_idx").on(t.vapiCallId),
+    index("tool_invocations_created_at_idx").on(t.createdAt),
+  ],
 );

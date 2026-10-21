@@ -15,6 +15,13 @@
       "when": 1792537559732,
       "tag": "0001_m2_intake_and_name_lookup",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1792551542395,
+      "tag": "0002_m4_console",
+      "breakpoints": true
     }
   ]
 }

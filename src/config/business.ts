@@ -36,6 +36,11 @@ export const BUSINESS = {
   // ASSUMPTION: a priority-dispatch request gets a human callback within 15 minutes.
   priorityDispatchCallbackSlaMinutes: 15,
 
+  // ASSUMPTION: an office callback request (backend failure, out of area, human requested,
+  // incomplete call) should be returned within 2 hours. The console flags older open
+  // callbacks as overdue; business hours aren't taken into account.
+  callbackRequestSlaMinutes: 120,
+
   // ASSUMPTION: we serve Brooklyn (Kings), Queens and Staten Island (Richmond).
   serviceCounties: ["Kings", "Queens", "Richmond"] as const satisfies readonly County[],
 

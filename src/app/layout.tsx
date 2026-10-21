@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import { TooltipProvider } from "@/components/ui/tooltip";
+import { THEME_SCRIPT } from "@/components/console/theme-script";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -13,17 +15,25 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Summit Air",
-  description: "Summit Air virtual assistant backend",
+  title: { default: "Summit Air Operations", template: "%s · Summit Air Operations" },
+  description: "Summit Air operations console: dispatch board, calls, appointments.",
+  robots: { index: false, follow: false },
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
+    // The theme script sets the "dark" class before first paint, so the server markup differs.
     <html
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      suppressHydrationWarning
     >
-      <body className="min-h-full flex flex-col">{children}</body>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: THEME_SCRIPT }} />
+      </head>
+      <body className="min-h-full flex flex-col">
+        <TooltipProvider>{children}</TooltipProvider>
+      </body>
     </html>
   );
 }

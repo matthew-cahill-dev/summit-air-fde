@@ -3,6 +3,7 @@ import { createCallbackRepository } from "./callbacks";
 import { createCallRepository } from "./calls";
 import { createCustomerRepository } from "./customers";
 import { createDispatchRepository } from "./dispatch";
+import { createHealthRepository } from "./health";
 import { createSchedulingRepository } from "./scheduling";
 import { createServiceAreaRepository } from "./service-area";
 import { createToolInvocationRepository } from "./tool-invocations";
@@ -17,6 +18,7 @@ export function createRepositories(db: Db): Repositories {
     scheduling: createSchedulingRepository(db),
     dispatch: createDispatchRepository(db),
     callbacks: createCallbackRepository(db),
+    health: createHealthRepository(db),
   };
 }
 

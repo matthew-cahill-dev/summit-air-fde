@@ -200,7 +200,7 @@ describe("assistant rendering", () => {
     const a = buildDesiredAssistant(assistantFile, "PROMPT ${NOT_A_VAR}", ["b", "a"], ENV);
     expect(a).not.toHaveProperty("_comments");
     expect(a.server).toEqual({ url: "https://summit.example.app/api/vapi/events", credentialId: "cred-123" });
-    expect(a.serverMessages).toEqual(["end-of-call-report"]);
+    expect(a.serverMessages).toEqual(["end-of-call-report", "status-update"]);
     const model = a.model as JsonObject;
     expect(model).toMatchObject({ provider: "openai", model: "gpt-4.1", toolIds: ["a", "b"] });
     // The prompt text is inserted verbatim, never re-scanned for ${...}.

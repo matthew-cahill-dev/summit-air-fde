@@ -1,6 +1,7 @@
 // Idempotent demo seed. Safe to re-run: customers/addresses/memberships/equipment
 // are upserted by fixed ID, ZIPs by primary key, and slots by (county, starts_at)
-// with DO NOTHING so existing bookings are preserved.
+// with DO NOTHING so existing bookings are preserved. Demo call activity (seed-activity.ts)
+// is replaced on every run, timed relative to now.
 // Keep this file free of path aliases: it is also compiled for the seed script.
 import { sql } from "drizzle-orm";
 import { BUSINESS, SERVICE_AREA_ZIPS, type County } from "../../config/business";
@@ -14,6 +15,7 @@ import {
   serviceAddresses,
   serviceAreaZips,
 } from "./schema";
+import { seedDemoActivity, type ActivitySummary } from "./seed-activity";
 import { SEED_CUSTOMERS, SLOT_WINDOWS } from "./seed-data";
 
 export type SeedSummary = {
@@ -23,9 +25,14 @@ export type SeedSummary = {
   equipment: number;
   zips: number;
   slotsInserted: number;
+  /** Demo calls, board items and appointments for the console (replaced on every run). */
+  activity: ActivitySummary | null;
 };
 
-export async function seed(db: Db, opts: { timeZone: string; now?: Date }): Promise<SeedSummary> {
+export async function seed(
+  db: Db,
+  opts: { timeZone: string; now?: Date; demoActivity?: boolean },
+): Promise<SeedSummary> {
   return db.transaction(async (tx) => {
     const zipRows = (Object.entries(SERVICE_AREA_ZIPS) as Array<[County, readonly string[]]>).flatMap(
       ([county, zips]) => zips.map((zip) => ({ zip, county, active: true })),
@@ -111,6 +118,8 @@ export async function seed(db: Db, opts: { timeZone: string; now?: Date }): Prom
       .onConflictDoNothing({ target: [appointmentSlots.county, appointmentSlots.startsAt] })
       .returning({ id: appointmentSlots.id });
 
+    const activity = opts.demoActivity === false ? null : await seedDemoActivity(tx, opts);
+
     return {
       customers: SEED_CUSTOMERS.length,
       addresses: addressCount,
@@ -118,6 +127,7 @@ export async function seed(db: Db, opts: { timeZone: string; now?: Date }): Prom
       equipment: equipmentCount,
       zips: zipRows.length,
       slotsInserted: inserted.length,
+      activity,
     };
   });
 }
