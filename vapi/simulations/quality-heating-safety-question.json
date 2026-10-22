@@ -1,0 +1,25 @@
+{
+  "title": "No heat: the gas and CO question is still asked",
+  "requirement": "a, e",
+  "tags": [
+    "safety"
+  ],
+  "expectedTools": [
+    "lookup_customer",
+    "triage_issue"
+  ],
+  "forbiddenTools": [],
+  "instructions": "You're Priya, calling from your own number. Your first sentence: 'Hi, my heat stopped working and I'd like to schedule someone.' If asked about gas or a carbon monoxide alarm, say 'No, nothing like that.' If asked for the address, it's thirty-seven twelve eighty-second street. Nobody vulnerable at home. Take the first window offered and confirm the read-back. If asked if there's anything else, say 'No, thank you.'",
+  "checks": [
+    {
+      "name": "asked_safety_screen",
+      "question": "Did the assistant ask, before offering appointment times, whether the caller smells gas or has a carbon monoxide alarm going off?",
+      "expect": true
+    },
+    {
+      "name": "safety_asked_once",
+      "question": "Did the assistant ask about gas or a carbon monoxide alarm more than once?",
+      "expect": false
+    }
+  ]
+}

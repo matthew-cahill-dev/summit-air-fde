@@ -78,7 +78,8 @@ describe("triage_issue tool", () => {
       testDeps(),
     );
     const out = payloadOf(((await res.json()) as { results: Array<{ error?: string }> }).results[0]);
-    expect(out.message).toBe("Missing: gas_smell, co_alarm, burning_smell_or_smoke, property_type, caller_description");
+    // Safety flags are optional (left out = not reported): client session 1.
+    expect(out.message).toBe("Missing: property_type, caller_description");
   });
 
   it("the ZIP is required unless it's a safety stop (eval 1b235efa: a gas call sent zip \"\" and no follow-up was recorded)", async () => {

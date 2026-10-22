@@ -162,11 +162,10 @@ describe("triage_issue fails open on any emergency or safety sign; routine calls
     expect(await rowsFor(callId)).toHaveLength(1);
   });
 
-  it("routine validation is unchanged: no sign and no ZIP is still refused", async () => {
+  it("routine validation: no sign and no ZIP is still refused; an unmentioned safety flag no longer is (live call 01a1659e)", async () => {
     const { payload } = await callTool("triage_issue", { ...minimal, gas_smell: false, co_alarm: false, caller_description: "the heat is off" });
-    expect(payload).toMatchObject({ ok: false, error_code: "invalid_arguments", invalid_fields: [{ field: "burning_smell_or_smoke" }] });
-    const again = await callTool("triage_issue", { ...minimal, gas_smell: false, co_alarm: false, burning_smell_or_smoke: false, caller_description: "the heat is off" });
-    expect(again.payload).toMatchObject({ ok: false, error_code: "invalid_arguments", invalid_fields: [{ field: "zip" }] });
+    expect(payload).toMatchObject({ ok: false, error_code: "invalid_arguments", invalid_fields: [{ field: "zip" }] });
+    expect(JSON.stringify(payload)).not.toContain("burning_smell_or_smoke");
   });
 });
 

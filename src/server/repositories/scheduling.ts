@@ -81,6 +81,10 @@ function bookingTx(tx: Tx): BookingTx {
       return row as BookingAddress;
     },
 
+    async updateCustomerName(customerId, name) {
+      await tx.update(customers).set({ firstName: name.firstName, lastName: name.lastName }).where(eq(customers.id, customerId));
+    },
+
     async updateAccessNotes(addressId, accessNotes) {
       await tx.update(serviceAddresses).set({ accessNotes }).where(eq(serviceAddresses.id, addressId));
     },

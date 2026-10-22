@@ -59,7 +59,7 @@ sequenceDiagram
     V->>C: "Hi, thanks for calling Summit Air! This is Ava..."
     Note over V,T: status-update (in-progress) → /api/vapi/events runs a non-blocking select 1 to wake the DB
     C->>V: "My furnace needs a tune-up."
-    V->>C: Safety screen: gas smell or CO alarm?
+    V->>C: Heating call, so: gas smell or CO alarm?
     C->>V: "No."
     V->>T: lookup_customer {} (caller ID)
     T->>S: idempotency check, Zod
@@ -74,7 +74,7 @@ sequenceDiagram
     S->>S: safety matcher + triageRules() → routine, book_standard
     S->>DB: open slots in the county
     S-->>V: up to 3 offered_slots with spoken labels
-    V->>C: Offers a window, gathers technician intake one question at a time
+    V->>C: Offers a window, then one question: anything the technician should know?
     V->>C: Read-back: name, address, window, problem. "Does all of that sound right?"
     C->>V: "Yes."
     V->>T: book_appointment {slot_id, caller_confirmed: true, intake...}

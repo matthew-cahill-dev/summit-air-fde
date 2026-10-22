@@ -3,6 +3,7 @@
 // of confused and not making sense" was triaged as plain no-AC and booked). Pure and conservative:
 // fixed phrases, negation-aware ("no gas smell", "not having trouble breathing" don't match),
 // and only ever escalates. Used by triage_issue, book_appointment and the end-of-call check.
+// detectConcerns (below) is the one exception: softer words that only prompt a question.
 
 export type SignalKind = "medical" | "gas" | "co" | "smoke";
 export type Signals = Record<SignalKind, string[]>;
@@ -99,6 +100,35 @@ export function detectSignals(text: string | null | undefined): Signals {
 }
 
 export const hasSignals = (s: Signals) => s.medical.length + s.gas.length + s.co.length + s.smoke.length > 0;
+
+// Softer than a signal: words that MIGHT mean someone is unwell (client session, live call
+// 01a165a4: "Not doing too well tonight", "super hot", booked as routine no-AC with nobody ever
+// asked how they were). Never escalates on its own, since these are common on ordinary calls; triage
+// tells Ava to ask one question about it instead.
+const CONCERNS: RegExp[] = [
+  /\bnot (?:doing|feeling) (?:too |so |very )?(?:well|good|great)\b/i,
+  /\b(?:feel(?:s|ing)?|got|getting|gotten) (?:really |very |so |kind of |kinda )?(?:sick|unwell|ill|faint)\b/i,
+  /\b(?:can't|cannot|can not) (?:take|handle|stand) (?:the|this) (?:heat|cold)\b/i,
+  /\b(?:super|really|very|extremely|unbearably|dangerously|so) (?:hot|cold)\b/i,
+  /\b(?:overheat(?:ed|ing)|sweltering|boiling in here|freezing in here)\b/i,
+  /\b(?:headaches?|nause(?:a|ous))\b/i,
+];
+
+/** Possible distress in the caller's words, as their own phrases. Empty when none. */
+export function detectConcerns(text: string | null | undefined): string[] {
+  if (!text || !text.trim()) return [];
+  const out: string[] = [];
+  for (const re of CONCERNS) {
+    const hit = find(text, re)?.toLowerCase();
+    if (hit && !out.includes(hit)) out.push(hit);
+  }
+  return out;
+}
+
+/** A problem with fuel-burning heating equipment, the only kind on these calls that can make carbon monoxide. */
+export function involvesHeatingEquipment(issueType: string, text: string | null | undefined): boolean {
+  return issueType === "no_heat" || /\b(?:furnace|boiler|heater|heating|radiators?|pilot light|burner)\b/i.test(text ?? "");
+}
 
 /** The phrases as one list, most serious first ("gas: rotten eggs", "medical: confused"). */
 export function signalPhrases(s: Signals): string[] {

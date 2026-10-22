@@ -34,3 +34,4 @@ Ava, Summit Air's AI phone agent, and the operations console, as submitted.
 ## After submission
 
 - Docs consistency pass (no behavior changes).
+- Client session 1 fixes (live call `01a165a4`): an "anyone feeling unwell?" check when a caller might be unwell; the gas/CO question on heating calls only; one technician question instead of five; priority requests logged by triage, with the callback number confirmed instead of asked; emergencies skip the lookup gate; names spelled back, said back after booking, and correctable on the same call. 640 tests, 49 scenarios.

@@ -95,7 +95,7 @@ describe("lookup_customer must run before triage or an unverified booking (live 
 
   it("the prompt says it explicitly, and a lookup_required result isn't a tool failure", () => {
     const p = renderSystemPrompt(readFileSync(join(process.cwd(), "vapi/system-prompt.md"), "utf8"), { transferAvailable: false, timeZone: "America/New_York" });
-    expect(p).toContain("3. Right after the safety screen, call lookup_customer with no arguments (caller ID) before asking anything else.");
+    expect(p).toContain("3. Right after your first acknowledgment (and the safety check, if you asked one), call lookup_customer with no arguments (caller ID) before asking anything else.");
     expect(p).toContain("ok false with invalid_fields or error_code lookup_required: not a failure.");
   });
 
@@ -117,9 +117,11 @@ describe("lookup_customer must run before triage or an unverified booking (live 
   it("evals smoke 50e283bc: with no caller ID (or no account) the result says to ask whether they're an existing customer", async () => {
     const noId = await callTool("lookup_customer", {}, { callId: `call-${randomUUID()}` });
     expect(noId.payload).toMatchObject({ caller_id_unavailable: true });
-    expect(noId.payload.say).toContain("ask once, simply, whether they've used Summit Air before or are a Comfort Club member");
+    expect(noId.payload.say).toContain('confirm once with a quick yes or no: "Is this your first time calling Summit Air?" If they\'ve used Summit Air before or are a Comfort Club member');
     const noAccount = await callTool("lookup_customer", {}, { callId: `call-${randomUUID()}`, callerNumber: "+12125550177" });
-    expect(noAccount.payload.say).toContain("ask once, simply, whether they've used Summit Air before");
+    expect(noAccount.payload.say).toContain('"Is this your first time calling Summit Air?"');
+    // Client session 1: the caller talked past it, so it's asked once and dropped.
+    expect(noAccount.payload.say).toContain("If they talk past the question, don't ask it again.");
     // Following it: last name + street verifies the member who was booked as new in the smoke run.
     const dana = await callTool("lookup_customer", { last_name: "Quillfeather", street_address: "four twelve Seventh Avenue" }, { callId: `call-${randomUUID()}` });
     expect(dana.payload).toMatchObject({ verified: true, first_name: "Dana", is_member: true });

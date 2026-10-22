@@ -197,8 +197,14 @@ export function bookedSay(b: {
   window: string;
   address: { line1: string; unit: string | null };
   offerMembership: boolean;
+  /** The name an unverified caller gave, said back so a mishearing can be caught (client session 1). */
+  name?: string | null;
+  nameCorrected?: boolean;
 }): string {
   const where = `${b.address.line1}${b.address.unit ? `, unit ${b.address.unit}` : ""}`;
+  if (b.nameCorrected && b.name && !b.moved) {
+    return `Same booking, name fixed: it's now under ${b.name}. Confirm the name in one short sentence. Next: ask if there's anything else. ${DONT_REBOOK}`;
+  }
   if (b.detailsUpdated) {
     return "Same booking, no second appointment: the new detail is now in the technician's notes. Say so in one short sentence (e.g. you've noted they'd like around eight thirty, though it's a window). No callback is needed for this. Next: ask if there's anything else. " + DONT_REBOOK;
   }
@@ -206,7 +212,10 @@ export function bookedSay(b: {
   if (b.moved) {
     return `Changed, not added: their one booking is now ${b.window}, at ${where}, and the earlier window is released. Confirm the new window in one sentence. Next: ask if there's anything else. ${DONT_REBOOK}`;
   }
-  return `Booked. Recap it in one sentence: ${b.window}, at ${where}.` + (b.offerMembership ? MEMBERSHIP_SAY : "") + ` Next: ask if there's anything else. ${DONT_REBOOK}`;
+  const name = b.name
+    ? `, under the name ${b.name}. Say the name so they can catch a mistake; if they correct it, call book_appointment again with the same slot_id and the corrected name`
+    : "";
+  return `Booked. Recap it in one sentence: ${b.window}, at ${where}${name}.` + (b.offerMembership ? MEMBERSHIP_SAY : "") + ` Next: ask if there's anything else. ${DONT_REBOOK}`;
 }
 
 const confirmationCode = (appointmentId: string) => `SA-${appointmentId.replace(/-/g, "").slice(0, 6).toUpperCase()}`;
@@ -255,6 +264,12 @@ export const bookAppointmentTool = defineTool({
       };
     }
     const customerId = args.customer_id ?? (phoneE164 ? ctx.settings.demoCallerMap.get(phoneE164) : undefined);
+    // Customers this call created: a name the caller corrects after booking may replace theirs, and no one else's.
+    const createdThisCall =
+      !customerId && ctx.callId
+        ? new Set((await ctx.repos.toolInvocations.okResults(ctx.callId, "book_appointment")).filter((r) => r.new_customer === true).map((r) => r.customer_id))
+        : new Set<unknown>();
+    const statedName = !args.customer_id && args.first_name && args.last_name ? `${args.first_name} ${args.last_name}` : null;
     if (!customerId && !phoneE164) {
       return {
         ok: false,
@@ -287,6 +302,9 @@ export const bookAppointmentTool = defineTool({
 
     const cfg = BUSINESS.scheduling;
     let newCustomer = false;
+    let nameCorrected = false;
+    // An unverified caller's name that differs from the stored customer on this phone, kept on the visit, never on the account.
+    let otherStatedName: string | null = null;
     let slotCounty: string | null = null;
     let resolvedCustomerId: string | undefined = customerId;
 
@@ -314,6 +332,15 @@ export const bookAppointmentTool = defineTool({
               email: args.email ?? null,
             });
             newCustomer = true;
+          } else if (statedName && `${customer.firstName} ${customer.lastName}`.toLowerCase() !== statedName.toLowerCase()) {
+            if (createdThisCall.has(customer.id)) {
+              // Corrected after the recap (client session 1: the name was recorded wrong and never said back).
+              await tx.updateCustomerName(customer.id, { firstName: args.first_name!, lastName: args.last_name! });
+              customer = { ...customer, firstName: args.first_name!, lastName: args.last_name! };
+              nameCorrected = true;
+            } else {
+              otherStatedName = statedName;
+            }
           }
         }
         resolvedCustomerId = customer.id;
@@ -363,6 +390,7 @@ export const bookAppointmentTool = defineTool({
           vulnerable_occupants: args.vulnerable_occupants,
           access_notes: address.accessNotes,
           arrival_preference: args.arrival_preference ?? null,
+          ...(otherStatedName ? { caller_stated_name: otherStatedName } : {}),
           caller_confirmed: true,
         };
         const notesFor = (intake: Record<string, unknown>) =>
@@ -398,7 +426,8 @@ export const bookAppointmentTool = defineTool({
         if (existing?.status === "confirmed") {
           const merged = mergeIntake(existing.intake, newIntake);
           const changed = JSON.stringify(merged) !== JSON.stringify(existing.intake ?? {});
-          if (changed) await tx.updateAppointmentDetails(existing.id, { intake: merged, technicianNotes: notesFor(merged) });
+          // A corrected name changes the technician notes even when the intake didn't change.
+          if (changed || nameCorrected) await tx.updateAppointmentDetails(existing.id, { intake: merged, technicianNotes: notesFor(merged) });
           if (callAppt && callAppt.id !== existing.id) {
             await tx.cancelAppointment(callAppt.id);
             await tx.releaseSeat(callAppt.slotId);
@@ -442,7 +471,7 @@ export const bookAppointmentTool = defineTool({
       });
 
       const window = spokenWindow(booked.slot.startsAt, booked.slot.endsAt, ctx.settings.timeZone, ctx.now);
-      logEvent("appointment_booked", { callId: ctx.callId, already: booked.already, moved: booked.moved, newCustomer });
+      logEvent("appointment_booked", { callId: ctx.callId, already: booked.already, moved: booked.moved, newCustomer, nameCorrected, otherStatedName: Boolean(otherStatedName) });
       // A replay (already) or a change never re-offers: the caller heard it the first time.
       const offerMembership =
         !booked.already &&
@@ -467,8 +496,9 @@ export const bookAppointmentTool = defineTool({
           offer_membership: offerMembership,
           details_updated: booked.detailsUpdated,
           changed_window: booked.moved,
+          ...(nameCorrected ? { name_corrected: true } : {}),
         },
-        say: bookedSay({ ...booked, window, offerMembership }),
+        say: bookedSay({ ...booked, window, offerMembership, name: statedName, nameCorrected }),
       };
     } catch (err) {
       if (err instanceof BookingRejected) return rejected(err, args, ctx, slotCounty, resolvedCustomerId);

@@ -169,8 +169,8 @@ describe("persona, call flow and failure handling (live-call fixes)", () => {
     expect(p).toContain("Never parrot the caller");
     expect(p).toContain("Apologize at most once per problem");
     expect(p).toContain("After verification, use their first name once");
-    // Rhythm examples: discourse markers, safety screen, casual recap.
-    expect(p).toContain("Ava: Oh no. Before anything else, do you smell gas, or is a carbon monoxide alarm going off?");
+    // Rhythm examples: discourse markers, the heating-only safety question, casual recap.
+    expect(p).toContain("Ava: Oh no. Just to be safe, do you smell gas, or is a carbon monoxide alarm going off?");
     // Latency: a one-to-three-word opener is its own sentence, so TTS can start on it.
     expect(p).toContain('Start most replies with a one-to-three-word sentence of its own ("Got it." "Okay." "Oh no."');
     expect(p).toContain("Ava: Okay, so I've got you today between one and five at thirty-seven twelve eighty-second street, for the AC. Sound good?");
@@ -184,8 +184,8 @@ describe("persona, call flow and failure handling (live-call fixes)", () => {
       return i;
     };
     const order = [
-      at("2. Safety screen"),
-      at("3. Right after the safety screen, call lookup_customer with no arguments (caller ID) before asking anything else."),
+      at("2. Safety check, in the same turn as your first acknowledgment, only when it applies"),
+      at("3. Right after your first acknowledgment (and the safety check, if you asked one), call lookup_customer with no arguments (caller ID) before asking anything else."),
       at("4. From then on, follow the next step in each tool result's say. Ask technician questions only when a tool tells you to."),
       at("5. Before booking, recap as one casual sentence"),
     ];

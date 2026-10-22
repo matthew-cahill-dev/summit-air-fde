@@ -1,0 +1,33 @@
+{
+  "title": "AC out, no gas or CO question, few questions",
+  "requirement": "a, quality",
+  "tags": [
+    "quality"
+  ],
+  "expectedTools": [
+    "lookup_customer",
+    "triage_issue",
+    "book_appointment"
+  ],
+  "forbiddenTools": [
+    "create_callback_request"
+  ],
+  "instructions": "You're Sam Okafor, a new customer. Your first sentence: 'Hi, my AC stopped working and I'd like someone to come fix it.' You're at 422 Fifth Street, a house, Brooklyn 11215. Nobody vulnerable at home, everyone's fine. Take the first window offered. If asked whether there's anything the technician should know, say 'We have a cat, just ring the front bell.' Confirm the read-back. If asked if there's anything else, say 'No, that's all.'",
+  "checks": [
+    {
+      "name": "asked_gas_co",
+      "question": "Did the assistant ask the caller whether they smell gas or have a carbon monoxide alarm going off?",
+      "expect": false
+    },
+    {
+      "name": "technician_checklist",
+      "question": "After the caller picked a window, did the assistant ask more than two further questions (for example when it started, the brand or age of the equipment, what they've tried, pets, access) before the read-back?",
+      "expect": false
+    },
+    {
+      "name": "read_back_before_booking",
+      "question": "Before confirming the booking, did the assistant read back the name, the address, the day and arrival window, and the problem, and ask the caller to confirm?",
+      "expect": true
+    }
+  ]
+}

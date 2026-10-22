@@ -9,7 +9,7 @@ import { describe, expect, it } from "vitest";
 import { BUSINESS } from "@/config/business";
 import { appointments, appointmentSlots } from "@/server/db/schema";
 import { schedulingNote } from "@/server/services/get-availability";
-import { TECHNICIAN_ESSENTIALS } from "@/server/services/triage-issue";
+import { technicianEssentials } from "@/server/services/triage-issue";
 import { triageRules, type TriageFlags } from "@/server/triage/rules";
 import { analyzeLog, sipByeTimes, teardownTiming, TEARDOWN_LIMIT_MS, type LogRow } from "@/vapi-sync/call-report";
 import { businessFactsText, renderSystemPrompt } from "@/vapi-sync/render";
@@ -124,22 +124,29 @@ describe("call order enforced by tool results: every result names the next step"
     }
   });
 
-  it("triage_issue: technician questions arrive with the offered windows, not before", async () => {
+  it("triage_issue: one technician question arrives with the offered windows, not before (client session 1)", async () => {
     const { payload } = await callTool("triage_issue", triage({ vulnerable_occupants: ["elderly"] }));
     expect(payload).toMatchObject({ ok: true, next_action: "book_earliest" });
     expect(payload.say).toContain("Next: offer these windows now");
-    expect(payload.say).toContain(TECHNICIAN_ESSENTIALS);
-    for (const item of ["when it started", "the equipment (type, brand, age)", "what they've tried (thermostat, breaker)", "error code, noise or smell", "pets", "access (buzzer, doorman, entrance)"]) {
-      expect(TECHNICIAN_ESSENTIALS).toContain(item);
-    }
-    expect(TECHNICIAN_ESSENTIALS).toContain('skipping anything already said or answered "not sure"');
+    expect(payload.say).toContain(technicianEssentials(false));
+    expect(technicianEssentials(false)).toContain('ask just one more question: "Anything the technician should know, like pets or how to get in?"');
+    expect(technicianEssentials(false)).toContain("Don't ask about when it started, the equipment or what they've tried");
+    // A new customer's name is spelled back and read back; a verified caller's isn't asked.
+    expect(technicianEssentials(false)).toContain("spell the last name back");
+    expect(technicianEssentials(false)).toContain("and their name in one sentence ending \"Sound good?\"");
+    expect(technicianEssentials(true)).not.toContain("name");
+    const verified = await callTool("triage_issue", triage({ zip: "11372", customer_id: PRIYA.customer_id }));
+    expect(verified.payload.say).toContain(technicianEssentials(true));
   });
 
-  it("triage_issue: priority dispatch asks only callback number, who's home and access; office review and decline say what's next", async () => {
+  it("triage_issue: priority dispatch confirms the callback number and asks nothing else; office review and decline say what's next", async () => {
     const emergency = await callTool("triage_issue", triage({ issue_type: "no_heat", indoor_temp_f: 50 }));
-    expect(emergency.payload).toMatchObject({ next_action: "priority_dispatch" });
-    expect(emergency.payload.say).toContain("Next: ask only the best callback number, who's at home, and access (buzzer, entrance)");
+    expect(emergency.payload).toMatchObject({ next_action: "priority_dispatch", priority_request_logged: true });
+    expect(emergency.payload.say).toContain("Next: ask for the best callback number and read it back in groups.");
+    expect(emergency.payload.say).toContain("Ask nothing else: who's at home, access and the equipment are covered on the callback.");
     expect(emergency.payload.say).toContain("Then call create_priority_dispatch");
+    const withCallerId = await callTool("triage_issue", triage({ issue_type: "no_heat", indoor_temp_f: 50 }), { callerNumber: "+12125550166" });
+    expect(withCallerId.payload.say).toContain("Next: confirm the callback number in one question (\"Can the on-call team call you back at the number you're calling from?\")");
 
     const coverage = await callTool("triage_issue", triage({ zip: "10314" }));
     expect(coverage.payload.say).toMatch(/Next: get their name and best callback number, then call create_callback_request/);

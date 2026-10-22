@@ -3,7 +3,7 @@ import { BUSINESS, coverageOf } from "@/config/business";
 import { logEvent } from "@/server/lib/log";
 import { optionalArg } from "@/server/lib/optional-arg";
 import { todayInZone } from "@/server/lib/time";
-import { detectSignals, hasSignals, signalPhrases, type Signals } from "@/server/triage/detect";
+import { detectConcerns, detectSignals, hasSignals, involvesHeatingEquipment, signalPhrases, type Signals } from "@/server/triage/detect";
 import { ISSUE_TYPES, triageRules, VULNERABLE_OCCUPANTS, type TriageDecision } from "@/server/triage/rules";
 import { keepValid } from "@/server/lib/fail-open";
 import { normalizePhoneE164 } from "@/server/lib/phone";
@@ -21,9 +21,13 @@ export const preferredWindowSchema = z.enum(["morning", "afternoon", "any"]);
 
 const triageShape = {
   issue_type: z.enum(ISSUE_TYPES),
-  gas_smell: z.boolean(),
-  co_alarm: z.boolean(),
-  burning_smell_or_smoke: z.boolean(),
+  // Left out = not reported. Ava no longer asks every caller about gas and CO (client session 1:
+  // "a caller would open with something that serious"); she listens on every call and asks only
+  // on heating problems. Requiring them made triage refuse a no-heat call for a missing
+  // burning_smell_or_smoke and cost an extra question (live call 01a1659e).
+  gas_smell: optionalArg(z.boolean()),
+  co_alarm: optionalArg(z.boolean()),
+  burning_smell_or_smoke: optionalArg(z.boolean()),
   vulnerable_occupants: z.array(z.enum(VULNERABLE_OCCUPANTS)).default([]),
   indoor_temp_f: optionalArg(z.number().min(-20).max(130)),
   property_type: z.enum(["residential", "commercial"]),
@@ -88,12 +92,12 @@ type TriageArgs = z.infer<typeof triageIssueSchema>;
  * (never off). Eval run 1e753a02: "she's kind of confused and not making sense" came with no
  * medical_emergency flag and was booked as routine no-AC.
  */
-export function applySignals(args: TriageArgs, s: Signals): TriageArgs {
+export function applySignals(args: TriageArgs, s: Signals): TriageArgs & { gas_smell: boolean; co_alarm: boolean; burning_smell_or_smoke: boolean } {
   return {
     ...args,
-    gas_smell: args.gas_smell || s.gas.length > 0,
-    co_alarm: args.co_alarm || s.co.length > 0,
-    burning_smell_or_smoke: args.burning_smell_or_smoke || s.smoke.length > 0,
+    gas_smell: args.gas_smell === true || s.gas.length > 0,
+    co_alarm: args.co_alarm === true || s.co.length > 0,
+    burning_smell_or_smoke: args.burning_smell_or_smoke === true || s.smoke.length > 0,
     medical_emergency: args.medical_emergency === true || s.medical.length > 0,
   };
 }
@@ -104,12 +108,35 @@ const SAFETY_NEXT =
   " Next: no technician questions. If they won't leave, calmly repeat once that they need to get out and call 911 from outside. Once they acknowledge, end the call (endCall) so they can go.";
 
 /**
- * After the caller picks a window: the technician questions, asked only now (live: asking them
- * before triage made calls slow and out of order). About four quick questions in practice.
+ * After the caller picks a window: one open question for the technician, not a checklist. Client
+ * session 1: confirm, don't interrogate (the old five-question list took about a minute on live
+ * calls 01a16568 and 01a1659e). What they've already said (onset, equipment, what they tried) is
+ * still passed to book_appointment.
  */
-export const TECHNICIAN_ESSENTIALS =
-  "After they pick one, gather the technician essentials briefly, one at a time, skipping anything already said or answered \"not sure\": when it started; the equipment (type, brand, age) if they know it; what they've tried (thermostat, breaker); any error code, noise or smell; pets; access (buzzer, doorman, entrance). " +
-  "Then read back the window, address and problem in one sentence, get a yes, and call book_appointment with caller_confirmed true and everything they told you.";
+export function technicianEssentials(verified: boolean): string {
+  return (
+    "After they pick one, ask just one more question: \"Anything the technician should know, like pets or how to get in?\" Don't ask about when it started, the equipment or what they've tried; pass along whatever they've already said. " +
+    (verified ? "" : "If you don't have their first and last name yet, ask for it and spell the last name back to confirm it. ") +
+    "Then read back the window, address and problem" +
+    (verified ? "" : ", and their name") +
+    " in one sentence ending \"Sound good?\", wait for a clear yes, and only then call book_appointment with caller_confirmed true and everything they told you."
+  );
+}
+
+/**
+ * Words that might mean someone is unwell (detectConcerns). One gentle question before anything
+ * else; a yes re-triages as a medical emergency.
+ */
+export function concernSay(phrases: string[]): string {
+  return (
+    `The caller said ${phrases.map((p) => `"${p}"`).join(", ")}. Before offering times, ask once, gently: "Is anyone at home feeling unwell, like dizzy, confused or having trouble breathing?" ` +
+    "If yes, your next words are \"Please call nine one one now,\" then call triage_issue again with medical_emergency true and their words in caller_description. If no, carry on. "
+  );
+}
+
+/** A heating call where gas and CO weren't reported either way: the one place the screen is still asked. */
+export const HEATING_SCREEN_SAY =
+  "This is a heating problem and gas and carbon monoxide haven't come up. Before offering times, if you haven't already, ask once: \"Just to be safe, do you smell gas, or is a carbon monoxide alarm going off?\" If yes, give the safety instructions and call triage_issue again with the flag. If no, carry on. ";
 
 /** Said first when the flags call for it, before the next step. */
 function safetyPreface(args: { medical_emergency?: boolean; water_near_electrical?: boolean }): string {
@@ -177,6 +204,29 @@ export function medicalSay(o: { recorded: boolean; hasPhone: boolean; waterNearE
   );
 }
 
+/**
+ * Priority dispatch (an emergency with no medical signs, e.g. no heat with an elderly parent). The
+ * request is already logged by triage, so Ava confirms instead of interviewing: the callback number
+ * (caller ID when there is one) and, for an unverified caller, name and street. Who's home, access
+ * and equipment wait for the on-call team's callback (client session 1: get emergencies off the
+ * phone faster).
+ */
+export function prioritySay(o: { recorded: boolean; hasPhone: boolean; verified: boolean; offerTransfer: boolean }): string {
+  const sla = BUSINESS.priorityDispatchCallbackSlaMinutes;
+  const number = o.hasPhone
+    ? "confirm the callback number in one question (\"Can the on-call team call you back at the number you're calling from?\"); only if they say no, ask for the best number"
+    : "ask for the best callback number and read it back in groups";
+  const who = o.verified ? "" : " Then, if you don't have them yet, get their name and the street address.";
+  return (
+    "This qualifies for priority dispatch: say it needs priority attention. " +
+    (o.recorded ? "The priority request is already logged for the on-call team. " : "") +
+    `Next: ${number}.${who} Ask nothing else: who's at home, access and the equipment are covered on the callback. ` +
+    `Then call create_priority_dispatch with what they gave you (verified: customer_id and address_id)${o.recorded ? "; it updates the same request" : "; that logs the priority request"}. ` +
+    `Then say the on-call team will call them back within ${sla} minutes.` +
+    (o.offerTransfer ? " After it succeeds, offer to connect them to the on-call team now." : "")
+  );
+}
+
 export const triageIssueTool = defineTool({
   schema: triageIssueSchema,
   prepare: (raw) => prepareTriage(raw),
@@ -184,13 +234,7 @@ export const triageIssueTool = defineTool({
     const signals = detectSignals(modelArgs.caller_description);
     const args = applySignals(modelArgs, signals);
     const detected = hasSignals(signals) ? signalPhrases(signals) : [];
-    if (detected.length) logEvent("triage_signals_detected", { callId: ctx.callId, detected, model_flags_missed: JSON.stringify(args) !== JSON.stringify(modelArgs) });
-    // Membership is checked first on every home call; businesses and safety never wait on it.
-    const safety = args.gas_smell || args.co_alarm || args.burning_smell_or_smoke || args.co_symptoms || args.medical_emergency;
-    if (args.property_type !== "commercial" && !safety) {
-      const blocked = await requireLookup(ctx, "triage_issue");
-      if (blocked) return blocked;
-    }
+    if (detected.length) logEvent("triage_signals_detected", { callId: ctx.callId, detected, model_flags_missed: SAFETY_FLAGS.some((f) => args[f] === true && modelArgs[f] !== true) });
     const zipRow = args.zip ? await ctx.repos.serviceArea.findZip(args.zip) : null;
     // A medical emergency without a ZIP isn't "out of area": the on-call team sorts the address out.
     const zipUnknown = !args.zip && args.medical_emergency === true;
@@ -219,11 +263,24 @@ export const triageIssueTool = defineTool({
       area,
       todayInZone(ctx.settings.timeZone, ctx.now),
     );
+    // Membership is checked first on every routine or urgent home call. Businesses, safety stops and
+    // emergencies never wait on it: the on-call team sorts the account out on the callback.
+    const emergency = decision.urgency === "emergency" || decision.urgency === "safety_stop";
+    if (args.property_type !== "commercial" && !emergency) {
+      const blocked = await requireLookup(ctx, "triage_issue");
+      if (blocked) return blocked;
+    }
     if (detected.length) decision.reasons.push(`Detected in the caller's words: ${detected.join(", ")}`);
     if (zipUnknown) decision.reasons.push("ZIP not given: confirm the address on the callback");
-    // Every medical emergency lands on the dispatch board now, whatever the model does next.
-    const medicalRecord =
-      args.medical_emergency === true && decision.nextAction !== "safety_instructions" ? await recordFromTriage(args, decision, ctx, "emergency") : null;
+    // Every medical emergency and every priority dispatch lands on the dispatch board now, whatever
+    // the model does next; create_priority_dispatch only adds details to the same record.
+    const priorityRecord =
+      decision.nextAction !== "safety_instructions" && (args.medical_emergency === true || decision.nextAction === "priority_dispatch")
+        ? await recordFromTriage(args, decision, ctx, "emergency")
+        : null;
+    const hasPhone = Boolean(normalizePhoneE164(ctx.callerPhone ?? ""));
+    // Safety flags the model left out (not asked, nothing heard): kept on the result for the audit trail.
+    const notReported = (["gas_smell", "co_alarm", "burning_smell_or_smoke"] as const).filter((f) => typeof modelArgs[f] !== "boolean");
     const base = {
       urgency: decision.urgency,
       reasons: decision.reasons,
@@ -234,7 +291,8 @@ export const triageIssueTool = defineTool({
       coverage: cov.coverage,
       county: area.county,
       ...(ctx.failOpen?.notAsked.length ? { not_asked: ctx.failOpen.notAsked } : {}),
-      ...(medicalRecord ? { priority_request_logged: true, dispatch_id: medicalRecord } : {}),
+      ...(priorityRecord ? { priority_request_logged: true, dispatch_id: priorityRecord } : {}),
+      ...(notReported.length ? { safety_not_reported: notReported } : {}),
     };
 
     if (decision.nextAction === "safety_instructions") {
@@ -299,10 +357,10 @@ export const triageIssueTool = defineTool({
     if (decision.nextAction === "priority_dispatch" && args.medical_emergency) {
       return {
         ok: true,
-        data: { ...base, next_action: "priority_dispatch", priority_request_logged: medicalRecord !== null },
+        data: { ...base, next_action: "priority_dispatch", priority_request_logged: priorityRecord !== null },
         say: medicalSay({
-          recorded: medicalRecord !== null,
-          hasPhone: Boolean(normalizePhoneE164(ctx.callerPhone ?? "")),
+          recorded: priorityRecord !== null,
+          hasPhone,
           waterNearElectrical: args.water_near_electrical,
         }),
       };
@@ -312,12 +370,8 @@ export const triageIssueTool = defineTool({
       const offerTransfer = ctx.settings.transferAvailable;
       return {
         ok: true,
-        data: { ...base, next_action: "priority_dispatch", offer_transfer: offerTransfer },
-        say:
-          safetyPreface(args) +
-          "This qualifies for priority dispatch: say it needs priority attention. Next: ask only the best callback number, who's at home, and access (buzzer, entrance), plus their name and full address if they aren't verified and you don't have them. " +
-          "Then call create_priority_dispatch with these reasons and everything they've told you (verified: customer_id and address_id)." +
-          (offerTransfer ? " After it succeeds, offer to connect them to the on-call team now." : ""),
+        data: { ...base, next_action: "priority_dispatch", offer_transfer: offerTransfer, priority_request_logged: priorityRecord !== null },
+        say: safetyPreface(args) + prioritySay({ recorded: priorityRecord !== null, hasPhone, verified: Boolean(args.customer_id), offerTransfer }),
       };
     }
 
@@ -332,12 +386,22 @@ export const triageIssueTool = defineTool({
       timeZone: ctx.settings.timeZone,
     });
 
+    // Before any times: one question if the caller sounded unwell, and the gas/CO check on a heating
+    // call that hasn't had it.
+    const concerns = args.medical_emergency ? [] : detectConcerns([args.caller_description, ctx.callerText].filter(Boolean).join("\n"));
+    const heatingScreen =
+      involvesHeatingEquipment(args.issue_type, args.caller_description) && typeof modelArgs.gas_smell !== "boolean" && typeof modelArgs.co_alarm !== "boolean";
+    if (concerns.length) logEvent("triage_concerns_detected", { callId: ctx.callId, concerns });
+    const checks = (concerns.length ? concernSay(concerns) : "") + (heatingScreen ? HEATING_SCREEN_SAY : "");
+    const checkData = { ...(concerns.length ? { possible_concerns: concerns } : {}), ...(heatingScreen ? { heating_safety_screen: true } : {}) };
+
     if (selection.slots.length === 0) {
       return {
         ok: true,
-        data: { ...base, next_action: "create_callback", offered_slots: [] },
+        data: { ...base, ...checkData, next_action: "create_callback", offered_slots: [] },
         say:
           safetyPreface(args) +
+          checks +
           "There are no open arrival windows right now. Apologize once. Next: offer a callback from the office to schedule, and call create_callback_request (reason other, details with the problem) if they agree.",
       };
     }
@@ -345,6 +409,7 @@ export const triageIssueTool = defineTool({
       ok: true,
       data: {
         ...base,
+        ...checkData,
         next_action: decision.nextAction,
         offered_slots: selection.slots,
         slots_within_target: selection.withinTarget,
@@ -352,12 +417,13 @@ export const triageIssueTool = defineTool({
       },
       say:
         safetyPreface(args) +
+        checks +
         (urgency === "urgent" && !selection.withinTarget
           ? "Nothing is open in the next 48 hours; apologize and offer these later windows. "
           : "") +
         (selection.preferenceMatched ? "" : "Nothing matched their preferred time; say so and offer these instead. ") +
         "Next: offer these windows now, one or two at a time, using the label wording. If none work, call get_availability. " +
-        TECHNICIAN_ESSENTIALS,
+        technicianEssentials(Boolean(args.customer_id)),
     };
   },
 });

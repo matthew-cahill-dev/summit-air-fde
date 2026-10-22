@@ -4,8 +4,8 @@ Four kinds of evidence, each covering what the others can't:
 
 | Layer | What it proves | Where |
 |---|---|---|
-| Automated suite (627 tests) | Business rules, SQL, safety guards and the prompt *text* behave as designed | [§1](#1-automated-suite) |
-| Scenario evals (46 scenarios) | The model follows the prompt across requirements and red-team cases | [§2](#2-scenario-evals-npm-run-evals) |
+| Automated suite (640 tests) | Business rules, SQL, safety guards and the prompt *text* behave as designed | [§1](#1-automated-suite) |
+| Scenario evals (49 scenarios) | The model follows the prompt across requirements and red-team cases | [§2](#2-scenario-evals-npm-run-evals) |
 | Live calls | The real thing: voice, timing, the phone network | [§3](#3-live-call-log) |
 | Latency reports | Caller-side waits and the real hang-up, per call | [§4](#4-latency-measurement-npm-run-call-report) |
 
@@ -16,11 +16,11 @@ Four kinds of evidence, each covering what the others can't:
 - **Pure logic** (triage, the safety matcher, slot selection, address matching, notes) has plain unit tests.
 - **Deterministic slot tests:** they pin the clock to a fixed weekday of the seeded week, so results don't depend on when the suite runs.
 
-**627 tests in 41 files, all passing** (`npm test`, about 14 s locally).
+**640 tests in 42 files, all passing** (`npm test`, about 14 s locally).
 
 | Area | Files | Tests |
 |---|---|---|
-| Safety: triage rules, caller-words matcher, fail-open emergencies, hang-up safety net, child-caller guard | `triage-rules`, `triage-tool`, `safety-net`, `critical-safety-fix`, `eval-fixes` | 99 |
+| Safety: triage rules, caller-words matcher, fail-open emergencies, hang-up safety net, child-caller guard | `triage-rules`, `triage-tool`, `safety-net`, `critical-safety-fix`, `eval-fixes`, `client-session-1` | 112 |
 | Identity and verification | `caller-context`, `address-match`, `phone`, `lookup-guard`, `demo-alias-and-reset` | 84 |
 | Scheduling, booking and service area | `booking`, `slot-selection`, `service-area`, `service-area-coverage` | 47 |
 | Dispatch, callbacks and live-call fixes | `dispatch-callback`, `m5-requirements`, `live-call-fixes`, `morning-call-fixes`, `robustness-batch`, `pricing-facts` | 81 |
@@ -29,13 +29,13 @@ Four kinds of evidence, each covering what the others can't:
 | Call endings, latency reports, events and keep-warm | `call-control`, `call-report`, `events`, `keep-warm` | 35 |
 | Operations console (board and lifecycles, metrics agreement, test-run filtering, auth) | `console-board`, `console-workflow`, `console-ui-helpers`, `call-outcome`, `dashboard-auth` | 84 |
 | Environment validation | `env` | 7 |
-| **Total** | **41 files** | **627** |
+| **Total** | **42 files** | **640** |
 
 What the suite does **not** prove: that the model follows the prompt. `vapi-config.test.ts` checks the rules are *in* the prompt. Evals and live calls show whether Ava obeys them.
 
 ## 2. Scenario evals (`npm run evals`)
 
-**46 scenarios** in `vapi/simulations/*.json`: the requirements (a–f) plus a red-team set. Each scenario has:
+**49 scenarios** in `vapi/simulations/*.json`: the requirements (a–f) plus a red-team set. Each scenario has:
 - caller instructions (the simulated caller's facts and goal);
 - tags, for running subsets;
 - pass criteria:
@@ -278,6 +278,10 @@ Issues found on live calls to (347) 719-8328, quoted from transcripts, Vapi call
 | L26 | Membership never checked; a member was booked as new | `triage_issue` and unverified bookings return `lookup_required` until `lookup_customer` runs | `lookup-guard` |
 | L27 | The line still dropped ~3.9 s after the goodbye | Vapi's teardown sets a ~3.5 s floor wherever our end-call lands; `native-padded` kept as an A/B | `call-control` |
 | L28 | Call `01a15feb`: a medical emergency was refused by validation and Ava hung up | Emergencies fail open; triage creates the record; hang-up safety net ([eval history](#eval-history)) | `critical-safety-fix` |
+| L29 | Client session 1 (`01a165a4`): "Not doing too well tonight" and "super hot" were never asked about; booked as routine no-AC | `detectConcerns` (never escalates on its own) makes triage ask one "is anyone feeling unwell?" question before times; the prompt asks it up front | `client-session-1`, sim `client-session-1-unwell` |
+| L30 | Client session 1: the gas/CO question on an AC call, before the problem was known | Asked only on heating calls (prompt), with triage asking for it when a heating call skipped it; the safety flags are optional, and the caller-words matcher still escalates a gas smell or CO alarm they mention | `client-session-1`, `vapi-config`, sims `quality-ac-no-safety-question`, `quality-heating-safety-question` |
+| L31 | Client session 1: stacked questions, "house or apartment" asked twice, a diagnostic question; about a minute of technician questions on `01a16568` and `01a1659e`; triage refused for a missing `burning_smell_or_smoke` (`01a1659e`) | Confirm, don't interrogate: one technician question, one question per turn, priority dispatch confirms the caller-ID number and asks nothing else, emergencies skip the lookup gate and are logged by triage itself | `client-session-1`, `robustness-batch`, `critical-safety-fix` |
+| L32 | Client session 1: the caller's name was never read back (booked with no recap), and a correction after booking couldn't stick | The name is spelled back and in the recap; the booking result says it back; a correction on the same call updates the customer this call created (never another account; a different name on a later call is kept on the visit) | `client-session-1` |
 
 ## 4. Latency measurement (`npm run call-report`)
 

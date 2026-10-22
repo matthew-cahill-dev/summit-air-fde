@@ -17,6 +17,7 @@ What Ava and the operations console don't do yet, and the business assumptions S
   - It fires on a stated age of 15 or under, a school grade, "I'm a kid" or "I don't know my last name". A sleeping or at-work parent counts only with a second sign.
   - A child who gives a full name and mentions none of these isn't recognized.
 - **Emergency policy is a callback SLA (15 minutes), not a dispatch.** Ava never says a technician is on the way.
+- **The gas/CO question is asked on heating calls only** (client session 1). On other calls, Ava relies on the caller mentioning gas, an alarm or symptoms, which the prompt and the matcher both catch. The "possible concern" words only prompt a question; they never escalate on their own.
 
 **Calls and telephony**
 - **Vapi's teardown sets a ~3.5 s floor** between the goodbye and the line dropping with our controlled ending. Vapi's own hang-up is faster (~0.1 s) but clips the goodbye on some carriers ([ADR-10](ARCHITECTURE.md#adr-10-call-endings-the-goodbye-in-full-then-a-hang-up-we-control)).
@@ -72,6 +73,7 @@ What Ava and the operations console don't do yet, and the business assumptions S
   - **Bronx and Staten Island** get an office coverage check (a "Coverage check" card on the board) and are never booked. Anywhere outside NYC is declined kindly.
   - **To change it:** edit `serviceCounties` and `coverageCheckCounties` in `src/config/business.ts`, then run `npm run db:seed` (re-flags the ZIPs) and `npm run vapi:sync` (updates the spoken service area).
 - **Commercial referrals.** Today a business caller hears, kindly, that Summit Air only services homes. There's no referral and no callback (`commercialReferrals: false`). Set it to `true` to offer an office callback with referrals.
+- **The gas/CO question on heating calls only.** Changed after client session 1 at the client's request. Confirm in writing that skipping it on AC and other non-heating calls is acceptable.
 - **Callback SLA and office hours.** Office callbacks are flagged overdue after 2 hours, counted around the clock. Confirm the hours, the SLA, and whether it should pause outside office hours.
 
 ## Business assumptions to confirm (`src/config/business.ts`)

@@ -106,7 +106,7 @@ export const getAvailabilityTool = defineTool({
         (selection.preferenceMatched || note
           ? ""
           : `Nothing matches that preference (we schedule ${BUSINESS.facts.appointmentHours}); say so plainly, don't guess why, and offer these instead. `) +
-        "Next: offer these windows using the label wording; for later times, call again with after set to the last starts_at. Once they pick one, gather the technician essentials you still need, read back, get a yes and call book_appointment.",
+        "Next: offer these windows using the label wording; for later times, call again with after set to the last starts_at. Once they pick one, ask only \"Anything the technician should know, like pets or how to get in?\" (and a new customer's name, spelling the last name back), then read back the window, address and problem in one sentence ending \"Sound good?\", get a clear yes and call book_appointment.",
     };
   },
 });

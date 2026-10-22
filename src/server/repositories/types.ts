@@ -229,6 +229,8 @@ export interface BookingTx {
   hasActiveMembership(customerId: string): Promise<boolean>;
   findAddresses(customerId: string): Promise<BookingAddress[]>;
   insertAddress(input: Omit<BookingAddress, "id"> & { customerId: string }): Promise<BookingAddress>;
+  /** A name the caller corrected on the same call that created the customer. */
+  updateCustomerName(customerId: string, name: { firstName: string; lastName: string }): Promise<void>;
   updateAccessNotes(addressId: string, accessNotes: string): Promise<void>;
   findAppointment(
     customerId: string,

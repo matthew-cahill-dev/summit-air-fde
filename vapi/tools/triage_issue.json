@@ -3,7 +3,7 @@
   "async": false,
   "function": {
     "name": "triage_issue",
-    "description": "Classify the problem with Summit Air's rules and get the next step. Returns urgency, reasons, next_action (safety_instructions, priority_dispatch, book_earliest, book_standard, explain_and_close, create_callback, office_review), a say field with exactly what to do next and, when bookable, up to 3 offered_slots with spoken labels. Call it as soon as you have the issue, safety flags, vulnerable occupants, property type and ZIP; technician questions come after. On any safety or medical sign (gas, CO, smoke, a medical emergency), call it in the same turn as the safety instructions or the 911 line, even if the caller won't leave, with what you have: it never refuses those calls, an unasked safety question counts as no, and the ZIP can be left out.",
+    "description": "Classify the problem with Summit Air's rules and get the next step. Returns urgency, reasons, next_action (safety_instructions, priority_dispatch, book_earliest, book_standard, explain_and_close, create_callback, office_review), a say field with exactly what to do next and, when bookable, up to 3 offered_slots with spoken labels. Call it as soon as you have the issue, vulnerable occupants, property type and ZIP; technician questions come after. Leave out any safety flag nobody mentioned (gas and CO are asked only on heating problems). On any safety or medical sign (gas, CO, smoke, a medical emergency), call it in the same turn as the safety instructions or the 911 line, even if the caller won't leave, with what you have: it never refuses those calls, an unasked safety question counts as no, and the ZIP can be left out.",
     "parameters": {
       "type": "object",
       "properties": {
@@ -26,15 +26,15 @@
         },
         "gas_smell": {
           "type": "boolean",
-          "description": "Caller smells gas (rotten eggs/sulfur)."
+          "description": "Caller smells gas (rotten eggs/sulfur). Leave out if it never came up."
         },
         "co_alarm": {
           "type": "boolean",
-          "description": "A carbon monoxide alarm is going off."
+          "description": "A carbon monoxide alarm is going off. Leave out if it never came up."
         },
         "burning_smell_or_smoke": {
           "type": "boolean",
-          "description": "Burning smell or visible smoke."
+          "description": "Burning smell or visible smoke. Leave out if it never came up."
         },
         "co_symptoms": {
           "type": "boolean",
@@ -100,9 +100,6 @@
       "required": [
         "caller_description",
         "issue_type",
-        "gas_smell",
-        "co_alarm",
-        "burning_smell_or_smoke",
         "property_type"
       ]
     }

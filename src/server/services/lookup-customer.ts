@@ -51,16 +51,20 @@ export function verifiedPayload(context: FoundContext): Record<string, unknown> 
   };
 }
 
-/** The next step for anyone who isn't (or can't be) verified. No technician questions before triage. */
+/**
+ * The next step for anyone who isn't (or can't be) verified. No technician questions before triage,
+ * and one question per turn: client session 1 (live call 01a165a4) stacked "house or apartment?"
+ * with the vulnerability question twice and got neither answered.
+ */
 export const NEW_CALLER_NEXT =
-  "Next: get the service address (the ZIP only if they haven't said it), confirm home or business only if it's unclear, ask once whether anyone at home is elderly, a baby, pregnant or has a medical condition, then call triage_issue. No technician questions yet.";
+  "Next: get the service address (the ZIP only if they haven't said it), confirm home or business only if it's unclear, ask once whether anyone at home is elderly, a baby, pregnant or has a medical condition, then call triage_issue. No technician questions yet. One question per turn, and wait for each answer: never ask house or apartment in the same turn as another question.";
 
 /**
  * Requirement (c) without caller ID (or from another phone): ask, don't wait to be told. Smoke run
  * 50e283bc: a Comfort Club Plus member on chat (no caller ID) was booked as new because nobody asked.
  */
 export const ASK_IF_CUSTOMER =
-  "Next: unless they've already said, ask once, simply, whether they've used Summit Air before or are a Comfort Club member. If yes, ask for their last name and the street, then call lookup_customer with last_name and street_address.";
+  "Next: unless they've already said, confirm once with a quick yes or no: \"Is this your first time calling Summit Air?\" If they've used Summit Air before or are a Comfort Club member, ask for their last name and the street, then call lookup_customer with last_name and street_address. If they talk past the question, don't ask it again.";
 
 const VERIFIED_SAY =
   "Verified. You may greet them by first name and use these account details. ZIP, borough and home type are on file; don't ask for them. Ask for the unit only if one is on file and they didn't say it. " +

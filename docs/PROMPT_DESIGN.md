@@ -9,7 +9,7 @@ The system prompt is `vapi/system-prompt.md`. It's a template: `<<FACTS>>` place
 | Role | Who Ava is, what Summit Air does, and that she's an AI and says so when asked |
 | How you speak | Voice and cadence, plus three two-line example exchanges that show the rhythm (below) |
 | Safety comes first | The leave-now script, verbatim; "Please call nine one one now" first for medical signs; triage in the same turn; none of it waits for a tool |
-| Call flow (1–5) | Listen, safety screen, lookup (or straight to triage for a business), then follow each tool result's next step; a casual recap before booking |
+| Call flow (1–5) | Listen, a safety check only when it applies (gas/CO on heating calls, "anyone unwell?" when a caller might be), lookup (or straight to triage for a business), then follow each tool result's next step; a casual recap before booking |
 | Verified callers | How to verify, what never to disclose before `verified`, and what never to re-ask after it |
 | Home, business or building | Residential vs commercial vs building-wide systems; confirm only when genuinely unclear |
 | Calling for someone else, Members, Existing appointments, Callbacks, Other languages, Asking for a person, Calls that aren't about service | The unexpected, one short section each |
@@ -35,8 +35,8 @@ The rules are layered so a lower layer still holds when a higher one fails.
 
 ## Voice and cadence choices
 
-- **Warm receptionist, not a form.** Contractions, one or two sentences per turn, one question at a time. A short acknowledgment flows into the next question in one sentence ("Oh no, that's no fun. Before anything else, do you smell gas…?") instead of two clipped ones. Natural discourse markers ("Okay, so…", "Perfect"), at most one apology per problem, and the caller's first name once after verification.
-- **Shown, not just told.** Three two-line examples in "How you speak" carry the rhythm better than more rules: the safety screen flowing from an acknowledgment, the first name used once after verification, and the read-back as a casual recap ("Okay, so I've got you today between one and five at thirty-seven twelve eighty-second street, for the AC. Sound good?").
+- **Warm receptionist, not a form.** Contractions, one or two sentences per turn, one question at a time. A short acknowledgment flows into the next question in one sentence ("Oh no. Just to be safe, do you smell gas…?" on a heating call) instead of two clipped ones. Natural discourse markers ("Okay, so…", "Perfect"), at most one apology per problem, and the caller's first name once after verification.
+- **Shown, not just told.** Three two-line examples in "How you speak" carry the rhythm better than more rules: the heating-call safety question flowing from an acknowledgment, the first name used once after verification, and the read-back as a casual recap ("Okay, so I've got you today between one and five at thirty-seven twelve eighty-second street, for the AC. Sound good?").
 - **No parroting.** Restating the caller's words is the most robotic thing a voice agent does. It happens once, deliberately, in the read-back before booking.
 - **Varied acknowledgments**, skipped when forced.
 - **Spoken formats.** Times as people say them, phone numbers in groups, Queens house numbers as written ("thirty-seven twelve eighty-second street"). The backend helps: slot `label`s are already speakable ("tomorrow, Tuesday, October 21, between 10 AM and 1 PM").
@@ -77,7 +77,16 @@ Every row below came from a real production call or tool log; [TESTING.md](TESTI
 
 **Call endings.** The model said its own goodbye, then Vapi spoke the configured closing and the line cut off at "Take". Another call re-engaged after goodbye, and a stray transcribed "2" got a reply. Lesson: there must be exactly one goodbye, and the model must not be the one who speaks it. Now the prompt says to call `endCall` the moment the caller declines "anything else?" or says bye, never to say goodbye or thanks itself, and never to start talking again (ignore stray words). `endCall` carries the closing line as a blocking message, and that line ends in the only end-call phrase (ARCHITECTURE ADR-10). Safety stops wait for the caller to acknowledge before ending.
 
-**Call order.** Urgent calls took about 2 minutes and 6 intake questions between verification and the first offered time. Lesson: the windows come from `triage_issue`, so every question before it is a question the caller waits through. Now: safety screen → lookup (homes only) → the vulnerability question and the ZIP → `triage_issue` → offer times. Technician questions come only after a window is chosen, delivered by the tool result. A "not sure" drops the topic and its follow-ups.
+**Call order.** Urgent calls took about 2 minutes and 6 intake questions between verification and the first offered time. Lesson: the windows come from `triage_issue`, so every question before it is a question the caller waits through. Now: a safety check only when it applies → lookup (homes only) → the vulnerability question and the ZIP → `triage_issue` → offer times. After a window is chosen, one technician question, delivered by the tool result (see client session 1 below).
+
+## Lessons from client session 1 (Oct 22, 2026)
+
+The client's own test call (`01a165a4`, 4 min 35 s, first times at 2:32) and the two calls before it. Each fix is in [TESTING.md](TESTING.md#3-live-call-log) (L29–L32).
+
+- **"Could be an emergency" needs a question, not a guess.** The caller opened with "Not doing too well tonight" and said it was "super hot"; nobody asked how they were, and the call was booked as routine. Those words are too common to escalate on, so `detectConcerns` (separate from the escalate-only matcher) makes triage ask one gentle question before offering times, and the prompt asks it up front. A yes is a medical emergency.
+- **The gas/CO question only where it can matter.** Asked on every call, it came before Ava knew the problem was the AC, which can't make carbon monoxide. Now it's asked on heating calls only (fuel-burning equipment), and triage asks for it if a heating call skipped it. Gas, CO or smoke a caller mentions still stops everything, by the prompt and by the matcher. The flags are optional, so a missing one no longer costs a refusal and an extra question.
+- **Confirm, don't interrogate.** One technician question instead of five; one question per turn; no diagnostic questions; priority dispatch confirms the caller-ID number instead of interviewing, because triage now logs every priority request itself.
+- **Names are read back.** A new customer's last name is spelled back and in the recap, and the booking result says it back. A correction after booking updates the customer this call created, never anyone else's account.
 
 **Verified callers.** After verifying Priya, Ava asked for her ZIP, "house or apartment", "this is for your home, right?" and her last name. Then `book_appointment` rejected the booking with `Invalid: last_name (Too small)`, because the schema required names even with `customer_id`. Lessons, one on each side:
 - The backend now takes name, phone and address from the account whenever `customer_id` / `address_id` are given (booking and priority dispatch). Names are required only to create a new customer.

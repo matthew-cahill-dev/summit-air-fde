@@ -36,7 +36,7 @@ describe("medical emergency: 911, triage, then the dispatch before any goodbye (
   it("the prompt says it twice: in the medical rule and before endCall; and never guess a ZIP", () => {
     expect(prompt).toContain("triage logs the priority request for the on-call team itself, so follow its say.");
     expect(prompt).toContain("Never ask them to call you back later, and never end the call while they're still talking to you.");
-    expect(prompt).toContain("after a priority triage the request is logged (a medical-emergency triage logs it itself; otherwise create_priority_dispatch).");
+    expect(prompt).toContain("after a priority triage the request is logged (triage logs it itself; create_priority_dispatch adds the details the caller gave).");
     expect(prompt).toContain("and the ZIP (ask for it; never guess one)");
   });
 });
